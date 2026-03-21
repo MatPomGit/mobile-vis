@@ -1,0 +1,56 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Wirtualne środowiska
+.venv/
+venv/
+env/
+.env
+
+# Dystrybucja / pakietowanie
+dist/
+build/
+*.egg-info/
+.eggs/
+
+# Dane i modele (duże pliki binarne)
+data/raw/*
+data/processed/*
+models/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!models/.gitkeep
+
+# Notatniki Jupyter – checkpointy
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# Pokrycie testów
+.coverage
+htmlcov/
+.pytest_cache/
+
+# mypy
+.mypy_cache/
+
+# ruff
+.ruff_cache/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# System operacyjny
+.DS_Store
+Thumbs.db
+
+# Zmienne środowiskowe
+.env
+.env.*
+!.env.example

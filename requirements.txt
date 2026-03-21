@@ -1,0 +1,6 @@
+# Podstawowe zależności projektu
+# Zainstaluj środowisko deweloperskie: pip install -e ".[dev]"
+
+numpy>=1.26
+opencv-python-headless>=4.9
+Pillow>=10.3

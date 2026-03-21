@@ -1,9 +1,10 @@
-# Szablon Projektu – Analiza Obrazu w Pythonie
+# Szablon Projektu – Analiza Obrazu w Pythonie / Android
 
 > **Język opisów:** Polski  
 > **Język kodu:** Angielski
 
-Szablon repozytorium dla projektów dotyczących **analizy obrazu** zrealizowanych w Pythonie.
+Szablon repozytorium dla projektów dotyczących **analizy obrazu** zrealizowanych w Pythonie oraz
+aplikacja mobilna na Androida umożliwiająca analizę obrazu z kamery telefonu przy użyciu OpenCV.
 Zawiera gotową strukturę katalogów, konfigurację narzędzi jakości kodu oraz instrukcje dla agentów AI
 (GitHub Copilot, Codex, Claude), które gwarantują spójność i najwyższą jakość kodu.
 
@@ -13,11 +14,12 @@ Zawiera gotową strukturę katalogów, konfigurację narzędzi jakości kodu ora
 
 1. [Opis projektu](#opis-projektu)
 2. [Struktura repozytorium](#struktura-repozytorium)
-3. [Wymagania systemowe](#wymagania-systemowe)
-4. [Instalacja](#instalacja)
-5. [Użycie](#użycie)
-6. [Testowanie](#testowanie)
-7. [Styl kodu i narzędzia jakości](#styl-kodu-i-narzędzia-jakości)
+3. [Aplikacja Android – MobileCV](#aplikacja-android--mobilecv)
+4. [Wymagania systemowe](#wymagania-systemowe)
+5. [Instalacja](#instalacja)
+6. [Użycie](#użycie)
+7. [Testowanie](#testowanie)
+8. [Styl kodu i narzędzia jakości](#styl-kodu-i-narzędzia-jakości)
 8. [Współpraca z agentami AI](#współpraca-z-agentami-ai)
 9. [Wkład w projekt](#wkład-w-projekt)
 10. [Licencja](#licencja)
@@ -74,12 +76,102 @@ repo-template/
 ├── CLAUDE.md                     # Instrukcje dla agenta Claude
 ├── pyproject.toml                # Konfiguracja projektu i narzędzi
 ├── requirements.txt              # Zależności projektu
+├── android/                      # Aplikacja mobilna Android (MobileCV)
+│   ├── app/
+│   │   └── src/main/
+│   │       ├── AndroidManifest.xml
+│   │       ├── java/pl/edu/mobilecv/
+│   │       │   ├── MainActivity.kt      # Główna aktywność (kamera + filtry)
+│   │       │   ├── OpenCvFilter.kt      # Enum dostępnych filtrów OpenCV
+│   │       │   └── ImageProcessor.kt   # Logika przetwarzania klatek
+│   │       └── res/
+│   │           ├── layout/activity_main.xml
+│   │           └── values/ (strings, colors, themes)
+│   ├── build.gradle.kts
+│   ├── settings.gradle.kts
+│   └── gradle/libs.versions.toml
 └── .gitignore
 ```
 
 ---
 
+## Aplikacja Android – MobileCV
+
+Katalog `android/` zawiera pełną aplikację na Androida umożliwiającą:
+
+- **podgląd na żywo** z kamery przedniej lub tylnej telefonu,
+- **przełączanie kamer** przyciskiem FAB w dolnym pasku,
+- **wybór filtra OpenCV** z poziomego paska chipów (pojedyncze zaznaczenie).
+
+### Dostępne filtry
+
+| Filtr | Opis |
+|-------|------|
+| Original | Surowy obraz z kamery |
+| Grayscale | Konwersja do skali szarości |
+| Canny Edges | Wykrywanie krawędzi algorytmem Canny |
+| Gaussian Blur | Rozmycie gaussowskie 15×15 |
+| Threshold | Progowanie binarne przy wartości 127 |
+| Sobel Edges | Gradient magnitudy (Sobel X + Y) |
+| Laplacian | Krawędzie przez operator Laplace'a |
+| Dilate | Dylacja morfologiczna (jądro 9×9) |
+| Erode | Erozja morfologiczna (jądro 9×9) |
+
+### Wymagania do budowania
+
+| Wymaganie | Wersja |
+|-----------|--------|
+| Android Studio | Hedgehog (2023.1) lub nowszy |
+| JDK | 17+ |
+| Android SDK | API 24–34 |
+| Gradle | 8.6 (pobierany automatycznie przez wrapper) |
+
+### Budowanie i uruchamianie
+
+```bash
+cd android
+
+# 1. Skopiuj i uzupełnij local.properties (ścieżka do Android SDK)
+cp local.properties.example local.properties
+# Edytuj local.properties i ustaw sdk.dir
+
+# 2. Wygeneruj Gradle Wrapper (wymagane tylko przy pierwszym pobraniu)
+#    – wymaga zainstalowanego Gradle lub Android Studio
+gradle wrapper --gradle-version 8.6
+chmod +x gradlew
+
+# 3. Zbuduj APK (debug)
+./gradlew assembleDebug
+
+# 4. Zainstaluj na podłączonym urządzeniu / emulatorze
+./gradlew installDebug
+```
+
+Alternatywnie: otwórz katalog `android/` bezpośrednio w **Android Studio** –
+IDE wygeneruje wrapper automatycznie i zaoferuje przycisk *Run*.
+
+### Architektura aplikacji
+
+```
+MainActivity ──► CameraX (ImageAnalysis)
+                      │ ImageProxy (RGBA_8888)
+                      ▼
+               ImageProcessor.processFrame()
+                      │ OpenCV Mat → filter → Mat
+                      ▼
+               Bitmap → ImageView (full-screen)
+```
+
+- **CameraX** dostarcza klatki w formacie RGBA_8888.
+- **ImageProcessor** konwertuje je do macierzy BGRA (`Utils.bitmapToMat`),
+  stosuje wybrany filtr OpenCV i zwraca przetworzone `Bitmap`.
+- **MainActivity** wyświetla wynik w `ImageView` wypełniającym cały ekran.
+
+---
+
 ## Wymagania systemowe
+
+### Python
 
 | Wymaganie     | Wersja minimalna |
 |---------------|-----------------|
@@ -88,6 +180,15 @@ repo-template/
 | Git           | 2.x              |
 
 Zalecane środowisko: **virtualenv** lub **conda**.
+
+### Android
+
+| Wymaganie        | Wersja minimalna |
+|------------------|-----------------|
+| Android Studio   | Hedgehog 2023.1  |
+| JDK              | 17               |
+| Android SDK      | API 24 (Android 7.0) |
+| Urządzenie/emulator | API 24+       |
 
 ---
 

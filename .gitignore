@@ -54,3 +54,13 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+
+# Android – artefakty budowania
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/captures/
+android/.idea/
+android/*.iml
+android/**/*.iml

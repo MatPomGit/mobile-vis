@@ -1,0 +1,4 @@
+# sdk.dir=/path/to/your/Android/sdk
+# Example:
+# sdk.dir=/Users/yourname/Library/Android/sdk
+# sdk.dir=C\:\\Users\\yourname\\AppData\\Local\\Android\\Sdk

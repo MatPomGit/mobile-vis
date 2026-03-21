@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Simple camera icon used as the launcher foreground layer. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,38a16,16 0 1,0 0,32 16,16 0 0,0 0,-32z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M80,28H70l-5,-8H43l-5,8H28c-3.3,0 -6,2.7 -6,6v36c0,3.3 2.7,6 6,6h52c3.3,0 6,-2.7
+            6,-6V34c0,-3.3 -2.7,-6 -6,-6zM54,74c-11,0 -20,-9 -20,-20s9,-20 20,-20 20,9 20,20 -9,20 -20,20z" />
+</vector>

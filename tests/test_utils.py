@@ -23,11 +23,11 @@ class TestValidateImage:
     @pytest.mark.parametrize(
         "image",
         [
-            np.zeros((100, 100), dtype=np.uint8),           # grayscale
-            np.zeros((100, 100, 1), dtype=np.uint8),         # single-channel
-            np.zeros((100, 100, 3), dtype=np.uint8),         # BGR
-            np.zeros((100, 100, 4), dtype=np.uint8),         # BGRA
-            np.zeros((100, 100, 3), dtype=np.float32),       # float BGR
+            np.zeros((100, 100), dtype=np.uint8),  # grayscale
+            np.zeros((100, 100, 1), dtype=np.uint8),  # single-channel
+            np.zeros((100, 100, 3), dtype=np.uint8),  # BGR
+            np.zeros((100, 100, 4), dtype=np.uint8),  # BGRA
+            np.zeros((100, 100, 3), dtype=np.float32),  # float BGR
         ],
     )
     def test_valid_images_do_not_raise(self, image: np.ndarray) -> None:
@@ -82,6 +82,12 @@ class TestSafeMakedirs:
     def test_does_not_raise_if_already_exists(self, tmp_path: Path) -> None:
         safe_makedirs(tmp_path)  # tmp_path already exists
         safe_makedirs(tmp_path)  # calling again should not raise
+
+    def test_raises_when_path_is_file(self, tmp_path: Path) -> None:
+        file_path = tmp_path / "artifact.txt"
+        file_path.write_text("content", encoding="utf-8")
+        with pytest.raises(NotADirectoryError):
+            safe_makedirs(file_path)
 
 
 # ---------------------------------------------------------------------------

@@ -12,6 +12,7 @@ from dataclasses import dataclass
 
 import cv2
 import numpy as np
+from numpy.typing import NDArray
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,7 @@ class Detection:
 
 
 def detect_objects(
-    image: np.ndarray,
+    image: NDArray[np.uint8],
     confidence_threshold: float = DETECTION_CONFIDENCE_THRESHOLD,
 ) -> list[Detection]:
     """Detect objects in *image* and return filtered detections.
@@ -61,9 +62,7 @@ def detect_objects(
     """
     _validate_bgr_image(image)
     if not (0.0 <= confidence_threshold <= 1.0):
-        raise ValueError(
-            f"confidence_threshold must be in [0.0, 1.0], got {confidence_threshold}"
-        )
+        raise ValueError(f"confidence_threshold must be in [0.0, 1.0], got {confidence_threshold}")
 
     # TODO(#issue-number): Replace stub with actual model inference.
     raw_detections: list[Detection] = []
@@ -97,6 +96,8 @@ def apply_nms(
     if not detections:
         return []
 
+    _validate_detections(detections)
+
     boxes = np.array([[d.bbox[0], d.bbox[1], d.bbox[2], d.bbox[3]] for d in detections])
     scores = np.array([d.confidence for d in detections])
 
@@ -112,16 +113,16 @@ def apply_nms(
         nms_threshold=iou_threshold,
     )
 
-    kept_indices: list[int] = indices.flatten().tolist() if len(indices) > 0 else []
+    kept_indices = _normalize_nms_indices(indices)
     return [detections[i] for i in kept_indices]
 
 
 def draw_bounding_boxes(
-    image: np.ndarray,
+    image: NDArray[np.uint8],
     detections: list[Detection],
     color: tuple[int, int, int] = (0, 255, 0),
     thickness: int = 2,
-) -> np.ndarray:
+) -> NDArray[np.uint8]:
     """Draw bounding boxes and labels onto a copy of *image*.
 
     Args:
@@ -138,6 +139,10 @@ def draw_bounding_boxes(
         ValueError: If *image* is not a 3-channel BGR array.
     """
     _validate_bgr_image(image)
+    if thickness <= 0:
+        raise ValueError(f"thickness must be positive, got {thickness}")
+
+    _validate_detections(detections)
     output = image.copy()
 
     for det in detections:
@@ -157,7 +162,7 @@ def draw_bounding_boxes(
     return output
 
 
-def _validate_bgr_image(image: np.ndarray) -> None:
+def _validate_bgr_image(image: object) -> None:
     """Validate that *image* is a 3-channel BGR uint8 array.
 
     Args:
@@ -173,3 +178,38 @@ def _validate_bgr_image(image: np.ndarray) -> None:
         raise ValueError(
             f"Expected 3-channel BGR image with shape (H, W, 3), got shape {image.shape}"
         )
+    if image.dtype != np.uint8:
+        raise ValueError(f"Expected uint8 BGR image, got {image.dtype}")
+
+
+def _validate_detections(detections: list[Detection]) -> None:
+    """Validate detection bounding boxes before drawing or applying NMS."""
+    for detection in detections:
+        x1, y1, x2, y2 = detection.bbox
+        if x2 <= x1 or y2 <= y1:
+            raise ValueError(
+                f"Detection bbox must satisfy x2 > x1 and y2 > y1, got {detection.bbox}"
+            )
+        if not (0.0 <= detection.confidence <= 1.0):
+            raise ValueError(
+                f"Detection confidence must be in [0.0, 1.0], got {detection.confidence}"
+            )
+
+
+def _normalize_nms_indices(indices: object) -> list[int]:
+    """Convert OpenCV NMSBoxes output to a plain list of integer indices."""
+    if indices is None:
+        return []
+    if isinstance(indices, np.ndarray):
+        return [int(index) for index in indices.reshape(-1).tolist()]
+    if isinstance(indices, tuple):
+        return [int(index) for index in indices]
+    if isinstance(indices, list):
+        normalized: list[int] = []
+        for item in indices:
+            if isinstance(item, (list, tuple, np.ndarray)):
+                normalized.extend(int(index) for index in np.asarray(item).reshape(-1).tolist())
+            else:
+                normalized.append(int(item))
+        return normalized
+    return []

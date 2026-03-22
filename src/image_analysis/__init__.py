@@ -3,9 +3,9 @@
 Public API for the image_analysis module.
 """
 
-from image_analysis.classification import classify_image
-from image_analysis.detection import detect_objects
-from image_analysis.preprocessing import load_image, normalize_image, resize_image
+from .classification import classify_image
+from .detection import detect_objects
+from .preprocessing import load_image, normalize_image, resize_image
 
 __all__ = [
     "classify_image",

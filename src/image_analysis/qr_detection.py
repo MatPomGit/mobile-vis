@@ -122,7 +122,13 @@ def draw_qr_codes(
     for qr in qr_codes:
         if qr.polygon:
             pts = np.array(qr.polygon, dtype=np.int32).reshape((-1, 1, 2))
-            cv2.polylines(output, [pts], isClosed=True, color=color, thickness=thickness)
+            cv2.polylines(
+                output,
+                [pts],
+                isClosed=True,
+                color=color,
+                thickness=thickness,
+            )
         else:
             x1, y1, x2, y2 = qr.bbox
             cv2.rectangle(output, (x1, y1), (x2, y2), color, thickness)

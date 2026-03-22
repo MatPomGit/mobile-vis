@@ -42,7 +42,7 @@ def setup_logging(level: int = logging.INFO) -> None:
     )
 
 
-def validate_image(image: np.ndarray) -> None:
+def validate_image(image: object) -> None:
     """Raise an error if *image* is not a valid NumPy image array.
 
     Acceptable shapes:
@@ -63,9 +63,7 @@ def validate_image(image: np.ndarray) -> None:
     if not isinstance(image, np.ndarray):
         raise TypeError(f"Expected np.ndarray, got {type(image).__name__}")
     if image.ndim == 3 and image.shape[2] not in (1, 3, 4):
-        raise ValueError(
-            f"3-D image must have 1, 3, or 4 channels, got {image.shape[2]}"
-        )
+        raise ValueError(f"3-D image must have 1, 3, or 4 channels, got {image.shape[2]}")
     if image.ndim not in (2, 3):
         raise ValueError(f"Image must be 2-D or 3-D, got {image.ndim}-D")
     if image.dtype not in (np.uint8, np.float32):
@@ -82,6 +80,8 @@ def safe_makedirs(directory: str | Path) -> Path:
         Resolved absolute ``Path`` to the directory.
     """
     path = Path(directory).resolve()
+    if path.exists() and not path.is_dir():
+        raise NotADirectoryError(f"Path exists and is not a directory: {path}")
     path.mkdir(parents=True, exist_ok=True)
     return path
 

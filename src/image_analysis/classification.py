@@ -11,6 +11,7 @@ import logging
 from pathlib import Path
 
 import numpy as np
+from numpy.typing import NDArray
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +20,7 @@ CLASSIFICATION_CONFIDENCE_THRESHOLD: float = 0.5
 
 
 def classify_image(
-    image: np.ndarray,
+    image: NDArray[np.uint8] | NDArray[np.float32],
     model: object | None = None,
     confidence_threshold: float = CLASSIFICATION_CONFIDENCE_THRESHOLD,
 ) -> tuple[str, float]:
@@ -46,10 +47,12 @@ def classify_image(
     """
     if not isinstance(image, np.ndarray):
         raise TypeError(f"Expected np.ndarray, got {type(image).__name__}")
+    if image.ndim not in (2, 3):
+        raise ValueError(f"Expected 2-D or 3-D image, got {image.ndim}-D")
+    if image.dtype not in (np.uint8, np.float32):
+        raise ValueError(f"Expected uint8 or float32 image, got {image.dtype}")
     if not (0.0 <= confidence_threshold <= 1.0):
-        raise ValueError(
-            f"confidence_threshold must be in [0.0, 1.0], got {confidence_threshold}"
-        )
+        raise ValueError(f"confidence_threshold must be in [0.0, 1.0], got {confidence_threshold}")
 
     # TODO(#issue-number): Replace stub with actual model inference.
     label: str = "unknown"
@@ -113,6 +116,11 @@ def evaluate_classifier(
             f"predictions and ground_truth must have the same length, "
             f"got {len(predictions)} and {len(ground_truth)}"
         )
+    for label, confidence in predictions:
+        if not label:
+            raise ValueError("Prediction label must not be empty")
+        if not (0.0 <= confidence <= 1.0):
+            raise ValueError(f"Prediction confidence must be in [0.0, 1.0], got {confidence}")
     if not predictions:
         return {"accuracy": 0.0, "avg_confidence": 0.0}
 

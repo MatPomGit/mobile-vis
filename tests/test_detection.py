@@ -54,9 +54,7 @@ class TestDetectObjects:
             detect_objects(gray)
 
     @pytest.mark.parametrize("threshold", [-0.1, 1.1, 2.0])
-    def test_raises_for_invalid_threshold(
-        self, bgr_image: np.ndarray, threshold: float
-    ) -> None:
+    def test_raises_for_invalid_threshold(self, bgr_image: np.ndarray, threshold: float) -> None:
         with pytest.raises(ValueError):
             detect_objects(bgr_image, confidence_threshold=threshold)
 
@@ -82,6 +80,11 @@ class TestApplyNms:
     ) -> None:
         with pytest.raises(ValueError):
             apply_nms(sample_detections, iou_threshold=threshold)
+
+    def test_raises_for_invalid_bbox(self) -> None:
+        detections = [Detection(label="cat", confidence=0.9, bbox=(20, 20, 10, 10))]
+        with pytest.raises(ValueError):
+            apply_nms(detections)
 
 
 # ---------------------------------------------------------------------------
@@ -111,3 +114,14 @@ class TestDrawBoundingBoxes:
     def test_raises_for_non_ndarray(self, sample_detections: list[Detection]) -> None:
         with pytest.raises(TypeError):
             draw_bounding_boxes("not an image", sample_detections)  # type: ignore[arg-type]
+
+    def test_raises_for_non_positive_thickness(
+        self, bgr_image: np.ndarray, sample_detections: list[Detection]
+    ) -> None:
+        with pytest.raises(ValueError):
+            draw_bounding_boxes(bgr_image, sample_detections, thickness=0)
+
+    def test_raises_for_float_image(self, sample_detections: list[Detection]) -> None:
+        image = np.zeros((100, 100, 3), dtype=np.float32)
+        with pytest.raises(ValueError):
+            draw_bounding_boxes(image, sample_detections)

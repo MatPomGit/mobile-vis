@@ -40,11 +40,14 @@ class TestClassifyImage:
             classify_image("not an image")  # type: ignore[arg-type]
 
     @pytest.mark.parametrize("threshold", [-0.1, 1.1])
-    def test_raises_for_invalid_threshold(
-        self, bgr_image: np.ndarray, threshold: float
-    ) -> None:
+    def test_raises_for_invalid_threshold(self, bgr_image: np.ndarray, threshold: float) -> None:
         with pytest.raises(ValueError):
             classify_image(bgr_image, confidence_threshold=threshold)
+
+    def test_raises_for_invalid_dtype(self) -> None:
+        image = np.zeros((32, 32, 3), dtype=np.int32)
+        with pytest.raises(ValueError):
+            classify_image(image)
 
 
 # ---------------------------------------------------------------------------
@@ -85,3 +88,11 @@ class TestEvaluateClassifier:
     def test_raises_for_length_mismatch(self) -> None:
         with pytest.raises(ValueError):
             evaluate_classifier([("cat", 0.9)], ["cat", "dog"])
+
+    def test_raises_for_invalid_confidence(self) -> None:
+        with pytest.raises(ValueError):
+            evaluate_classifier([("cat", 1.5)], ["cat"])
+
+    def test_raises_for_empty_label(self) -> None:
+        with pytest.raises(ValueError):
+            evaluate_classifier([("", 0.5)], ["cat"])

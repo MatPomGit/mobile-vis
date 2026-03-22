@@ -46,9 +46,7 @@ class TestLoadImage:
         with pytest.raises(ValueError):
             load_image(corrupt)
 
-    def test_loads_valid_image(
-        self, tmp_path: Path, bgr_image: np.ndarray
-    ) -> None:
+    def test_loads_valid_image(self, tmp_path: Path, bgr_image: np.ndarray) -> None:
         import cv2
 
         from image_analysis.preprocessing import load_image

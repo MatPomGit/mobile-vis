@@ -8,14 +8,16 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import cast
 
 import cv2
 import numpy as np
+from numpy.typing import NDArray
 
 logger = logging.getLogger(__name__)
 
 
-def load_image(path: str | Path) -> np.ndarray:
+def load_image(path: str | Path) -> NDArray[np.uint8]:
     """Load an image from disk as a BGR NumPy array.
 
     Args:
@@ -37,10 +39,14 @@ def load_image(path: str | Path) -> np.ndarray:
         raise ValueError(f"Failed to decode image: {path}")
 
     logger.debug("Loaded image '%s' with shape %s", path.name, image.shape)
-    return image
+    return cast(NDArray[np.uint8], image)
 
 
-def resize_image(image: np.ndarray, width: int, height: int) -> np.ndarray:
+def resize_image(
+    image: NDArray[np.uint8] | NDArray[np.float32],
+    width: int,
+    height: int,
+) -> NDArray[np.uint8] | NDArray[np.float32]:
     """Resize an image to the specified dimensions.
 
     Uses ``cv2.INTER_AREA`` when downscaling and ``cv2.INTER_LINEAR``
@@ -68,10 +74,10 @@ def resize_image(image: np.ndarray, width: int, height: int) -> np.ndarray:
 
     resized = cv2.resize(image, (width, height), interpolation=interpolation)
     logger.debug("Resized image from (%d, %d) to (%d, %d)", original_h, original_w, height, width)
-    return resized
+    return cast(NDArray[np.uint8] | NDArray[np.float32], resized)
 
 
-def normalize_image(image: np.ndarray) -> np.ndarray:
+def normalize_image(image: NDArray[np.uint8]) -> NDArray[np.float32]:
     """Normalise a ``uint8`` image to ``float32`` in the range ``[0.0, 1.0]``.
 
     Args:
@@ -91,7 +97,7 @@ def normalize_image(image: np.ndarray) -> np.ndarray:
     return (image / 255.0).astype(np.float32)
 
 
-def _validate_image(image: np.ndarray) -> None:
+def _validate_image(image: object) -> None:
     """Raise an error if *image* is not a valid NumPy image array.
 
     Args:

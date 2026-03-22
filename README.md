@@ -33,6 +33,7 @@ w Pythonie. Pokrywa typowy przepływ pracy obejmujący:
 
 - wstępne przetwarzanie obrazów (preprocessing),
 - wykrywanie obiektów (detection),
+- wykrywanie markerów AprilTag,
 - klasyfikację (classification),
 - narzędzia pomocnicze (utils).
 
@@ -213,6 +214,7 @@ pip install -e ".[dev]"
 ## Użycie
 
 ```python
+from image_analysis.april_tags import detect_april_tags
 from image_analysis.preprocessing import load_image, resize_image
 from image_analysis.detection import detect_objects
 from image_analysis.classification import classify_image
@@ -224,9 +226,12 @@ resized = resize_image(image, width=640, height=480)
 # Wykryj obiekty
 detections = detect_objects(resized)
 
+# Wykryj markery AprilTag
+april_tags = detect_april_tags(resized)
+
 # Sklasyfikuj obraz
 label, confidence = classify_image(resized)
-print(f"Etykieta: {label}, pewność: {confidence:.2%}")
+print(f"Etykieta: {label}, pewność: {confidence:.2%}, april tags: {len(april_tags)}")
 ```
 
 Więcej przykładów: [`notebooks/example_analysis.ipynb`](notebooks/example_analysis.ipynb).

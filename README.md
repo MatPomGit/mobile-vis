@@ -20,9 +20,13 @@ Zawiera gotową strukturę katalogów, konfigurację narzędzi jakości kodu ora
 6. [Użycie](#użycie)
 7. [Testowanie](#testowanie)
 8. [Styl kodu i narzędzia jakości](#styl-kodu-i-narzędzia-jakości)
-8. [Współpraca z agentami AI](#współpraca-z-agentami-ai)
-9. [Wkład w projekt](#wkład-w-projekt)
-10. [Licencja](#licencja)
+9. [Współpraca z agentami AI](#współpraca-z-agentami-ai)
+10. [Wkład w projekt](#wkład-w-projekt)
+11. [Licencja](#licencja)
+
+> 📖 **Pełna dokumentacja** (instalacja krok po kroku, opis każdego modułu, przykłady użycia,
+> instrukcja obsługi aplikacji Android, rozwiązywanie problemów) dostępna jest w
+> [`docs/index.md`](docs/index.md).
 
 ---
 

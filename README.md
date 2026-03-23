@@ -22,7 +22,8 @@ Zawiera gotową strukturę katalogów, konfigurację narzędzi jakości kodu ora
 8. [Styl kodu i narzędzia jakości](#styl-kodu-i-narzędzia-jakości)
 9. [Współpraca z agentami AI](#współpraca-z-agentami-ai)
 10. [Wkład w projekt](#wkład-w-projekt)
-11. [Licencja](#licencja)
+11. [Roadmap i rozwój](#roadmap-i-rozwój)
+12. [Licencja](#licencja)
 
 > 📖 **Pełna dokumentacja** (instalacja krok po kroku, opis każdego modułu, przykłady użycia,
 > instrukcja obsługi aplikacji Android, rozwiązywanie problemów) dostępna jest w
@@ -309,6 +310,26 @@ Instrukcje obejmują:
 2. Wprowadź zmiany przestrzegając zasad zawartych w `AGENTS.md` / `CLAUDE.md`.
 3. Uruchom testy i linter przed wystawieniem PR.
 4. Wypełnij szablon Pull Request.
+
+---
+
+## Roadmap i rozwój
+
+Projekt jest aktywnie rozwijany. Zaplanowano **40 issues** obejmujących nowe funkcjonalności, 
+optymalizacje i usprawnienia. Zobacz szczegóły:
+
+- 📋 **[DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md)** – Pełna lista zaplanowanych issues z opisami
+- 🗺️ **[docs/roadmap.md](docs/roadmap.md)** – Roadmap projektu i plan realizacji w fazach
+
+**Przykładowe planowane funkcjonalności:**
+- 🎯 Detekcja obiektów YOLO (Python)
+- 📱 Real-time AprilTag/QR detection w aplikacji Android
+- 🤖 REST API dla przetwarzania obrazów
+- 👤 Face detection & landmarks
+- ⚡ GPU acceleration i optymalizacje wydajności
+- 🚀 CI/CD, automatyczne testy i publikacja na PyPI
+
+Chcesz pomóc? Sprawdź listę issues lub zaproponuj własne pomysły w GitHub Discussions!
 
 ---
 

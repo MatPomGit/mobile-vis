@@ -18,6 +18,7 @@ androidx-activity-ktx = { group = "androidx.activity", name = "activity-ktx", ve
 androidx-camera-core = { group = "androidx.camera", name = "camera-core", version.ref = "camerax" }
 androidx-camera-camera2 = { group = "androidx.camera", name = "camera-camera2", version.ref = "camerax" }
 androidx-camera-lifecycle = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "camerax" }
+androidx-camera-video = { group = "androidx.camera", name = "camera-video", version.ref = "camerax" }
 opencv = { group = "org.opencv", name = "opencv", version.ref = "opencv" }
 
 [plugins]

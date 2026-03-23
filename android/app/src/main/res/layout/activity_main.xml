@@ -1,8 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
     activity_main.xml
-    Full-screen processed camera preview with a semi-transparent bottom bar
-    containing a horizontal filter chip group and a camera-switch FAB.
+    Full-screen processed camera preview with:
+      • a semi-transparent TabLayout at the top for switching analysis modes
+      • a semi-transparent bottom bar with a filter chip group,
+        a camera-switch FAB, and a central capture (shutter) button.
 -->
 <androidx.constraintlayout.widget.ConstraintLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
@@ -13,19 +15,39 @@
     android:background="@android:color/black"
     tools:context=".MainActivity">
 
-    <!-- Full-screen view that displays the processed camera frame -->
+    <!-- ================================================================ -->
+    <!-- Top bar: analysis-mode tabs                                       -->
+    <!-- ================================================================ -->
+    <com.google.android.material.tabs.TabLayout
+        android:id="@+id/tabLayoutModes"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:background="#CC000000"
+        app:tabTextColor="#80FFFFFF"
+        app:tabSelectedTextColor="@android:color/white"
+        app:tabIndicatorColor="?attr/colorSecondary"
+        app:tabMode="fixed"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <!-- ================================================================ -->
+    <!-- Camera preview (fills space between top tab bar and bottom bar)   -->
+    <!-- ================================================================ -->
     <ImageView
         android:id="@+id/imageViewPreview"
         android:layout_width="0dp"
         android:layout_height="0dp"
         android:scaleType="centerCrop"
         android:contentDescription="@string/camera_preview_description"
-        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/tabLayoutModes"
         app:layout_constraintBottom_toTopOf="@id/bottomBar"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
 
-    <!-- Bottom control bar (semi-transparent dark background) -->
+    <!-- ================================================================ -->
+    <!-- Bottom control bar (semi-transparent dark background)             -->
+    <!-- ================================================================ -->
     <LinearLayout
         android:id="@+id/bottomBar"
         android:layout_width="0dp"
@@ -66,20 +88,38 @@
 
         </HorizontalScrollView>
 
-        <!-- Row with camera-switch button, centred -->
+        <!--
+            Button row:
+              • camera-switch FAB  – pinned to the start
+              • shutter button     – centred
+        -->
         <FrameLayout
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp">
+            android:layout_height="72dp"
+            android:layout_marginTop="8dp"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp">
 
+            <!-- Camera-switch FAB (left) -->
             <com.google.android.material.floatingactionbutton.FloatingActionButton
                 android:id="@+id/fabSwitchCamera"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_gravity="center"
+                android:layout_gravity="start|center_vertical"
                 android:contentDescription="@string/switch_camera_description"
                 app:srcCompat="@drawable/ic_camera_switch"
                 app:fabSize="mini" />
+
+            <!-- Capture / shutter button (centre) -->
+            <ImageButton
+                android:id="@+id/btnCapture"
+                android:layout_width="64dp"
+                android:layout_height="64dp"
+                android:layout_gravity="center"
+                android:background="@drawable/bg_capture_button"
+                android:contentDescription="@string/capture_button_description"
+                android:src="@null"
+                tools:background="@drawable/bg_capture_button_normal" />
 
         </FrameLayout>
 

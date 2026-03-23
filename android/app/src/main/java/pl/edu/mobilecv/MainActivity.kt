@@ -1,9 +1,12 @@
 package pl.edu.mobilecv
 
 import android.Manifest
+import android.annotation.SuppressLint
+import android.content.ContentValues
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Matrix
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.util.Size
@@ -13,10 +16,21 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
+import androidx.camera.core.ImageCapture
+import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.ImageProxy
 import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.video.MediaStoreOutputOptions
+import androidx.camera.video.Quality
+import androidx.camera.video.QualitySelector
+import androidx.camera.video.Recorder
+import androidx.camera.video.Recording
+import androidx.camera.video.VideoCapture
+import androidx.camera.video.VideoRecordEvent
 import androidx.core.content.ContextCompat
+import android.provider.MediaStore
 import com.google.android.material.chip.Chip
+import com.google.android.material.tabs.TabLayout
 import org.opencv.android.OpenCVLoader
 import pl.edu.mobilecv.databinding.ActivityMainBinding
 import java.util.concurrent.ExecutorService
@@ -26,14 +40,15 @@ import java.util.concurrent.Executors
  * Main (and only) activity of the MobileCV application.
  *
  * Responsibilities:
- * - Requests the [Manifest.permission.CAMERA] runtime permission.
+ * - Requests [Manifest.permission.CAMERA], [Manifest.permission.RECORD_AUDIO]
+ *   and (on API < 29) [Manifest.permission.WRITE_EXTERNAL_STORAGE] runtime permissions.
  * - Initialises the OpenCV library via [OpenCVLoader.initLocal].
- * - Binds a CameraX [ImageAnalysis] use-case to the lifecycle so that
- *   every new frame is processed by [ImageProcessor] with the filter
- *   chosen by the user.
- * - Renders the processed [Bitmap] into the full-screen [ImageView].
- * - Provides a [FloatingActionButton] to toggle front ↔ back camera.
- * - Provides a horizontal [ChipGroup] to select the active [OpenCvFilter].
+ * - Shows a [TabLayout] at the top to switch between [AnalysisMode] groups;
+ *   the chip group updates accordingly.
+ * - Binds CameraX [ImageAnalysis], [ImageCapture] and [VideoCapture] use-cases
+ *   so the user can watch a live processed preview, take photos, and record videos.
+ * - Renders processed [Bitmap] frames into the full-screen [ImageView].
+ * - Provides a camera-switch [FloatingActionButton] and a shutter/capture button.
  */
 class MainActivity : AppCompatActivity() {
 
@@ -46,6 +61,10 @@ class MainActivity : AppCompatActivity() {
     // CameraX
     private var cameraProvider: ProcessCameraProvider? = null
     private var lensFacing = CameraSelector.LENS_FACING_BACK
+    private var imageCapture: ImageCapture? = null
+    private var videoCapture: VideoCapture<Recorder>? = null
+    private var activeRecording: Recording? = null
+    private var isRecording = false
 
     // OpenCV
     private val imageProcessor = ImageProcessor()
@@ -56,13 +75,13 @@ class MainActivity : AppCompatActivity() {
     private lateinit var analysisExecutor: ExecutorService
 
     // ---------------------------------------------------------------------------
-    // Permission launcher
+    // Permission launcher (camera + audio + storage)
     // ---------------------------------------------------------------------------
 
-    private val cameraPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        if (granted) {
+    private val permissionsLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { results ->
+        if (results[Manifest.permission.CAMERA] == true) {
             startCamera()
         } else {
             Toast.makeText(this, getString(R.string.camera_permission_denied), Toast.LENGTH_LONG)
@@ -83,13 +102,15 @@ class MainActivity : AppCompatActivity() {
         analysisExecutor = Executors.newSingleThreadExecutor()
 
         initOpenCv()
-        setupFilterChips()
+        setupAnalysisTabs()
         setupCameraSwitchButton()
-        requestCameraOrStart()
+        setupCaptureButton()
+        requestPermissionsOrStart()
     }
 
     override fun onDestroy() {
         super.onDestroy()
+        activeRecording?.stop()
         analysisExecutor.shutdown()
     }
 
@@ -113,16 +134,48 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Inflate one [Chip] per [OpenCvFilter] entry into the [ChipGroup].
+     * Populate the [TabLayout] with one tab per [AnalysisMode].
      *
-     * The chip group is configured for single selection; tapping a chip
-     * updates [currentFilter] and the overlay label.
+     * Selecting a tab calls [updateFilterChips] to rebuild the chip group
+     * with the filters that belong to that mode.
      */
-    private fun setupFilterChips() {
+    private fun setupAnalysisTabs() {
+        AnalysisMode.entries.forEach { mode ->
+            binding.tabLayoutModes.addTab(
+                binding.tabLayoutModes.newTab().setText(mode.displayName)
+            )
+        }
+
+        binding.tabLayoutModes.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
+            override fun onTabSelected(tab: TabLayout.Tab) {
+                val mode = AnalysisMode.entries[tab.position]
+                updateFilterChips(mode)
+            }
+
+            override fun onTabUnselected(tab: TabLayout.Tab) = Unit
+            override fun onTabReselected(tab: TabLayout.Tab) = Unit
+        })
+
+        // Initialise chip group for the first (pre-selected) tab.
+        updateFilterChips(AnalysisMode.entries.first())
+    }
+
+    /**
+     * Rebuild the chip group to show only the filters belonging to [mode].
+     *
+     * The first filter in the mode is automatically selected.
+     * Precondition: [AnalysisMode.filters] must be non-empty for every enum entry.
+     */
+    private fun updateFilterChips(mode: AnalysisMode) {
+        binding.chipGroupFilters.removeAllViews()
+
+        currentFilter = mode.filters.firstOrNull() ?: return
+        binding.textViewCurrentFilter.text = currentFilter.displayName
+
         binding.chipGroupFilters.isSingleSelection = true
         binding.chipGroupFilters.isSelectionRequired = true
 
-        OpenCvFilter.entries.forEach { filter ->
+        mode.filters.forEach { filter ->
             val chip = Chip(this).apply {
                 id = View.generateViewId()
                 text = filter.displayName
@@ -137,8 +190,6 @@ class MainActivity : AppCompatActivity() {
             }
             binding.chipGroupFilters.addView(chip)
         }
-
-        binding.textViewCurrentFilter.text = currentFilter.displayName
     }
 
     /** Toggle the lens direction and re-bind the camera. */
@@ -153,17 +204,62 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Configure the shutter/capture button.
+     *
+     * - Short tap while idle   → take a photo.
+     * - Long press while idle  → start video recording.
+     * - Short tap while recording → stop video recording.
+     */
+    private fun setupCaptureButton() {
+        binding.btnCapture.setOnClickListener {
+            if (isRecording) {
+                stopVideoRecording()
+            } else {
+                takePhoto()
+            }
+        }
+
+        binding.btnCapture.setOnLongClickListener {
+            if (!isRecording) {
+                startVideoRecording()
+            }
+            true
+        }
+
+        // Show a tooltip hinting at the long-press action on API 26+.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            binding.btnCapture.tooltipText = getString(R.string.long_press_hint)
+        }
+    }
+
     // ---------------------------------------------------------------------------
     // Camera permission + startup
     // ---------------------------------------------------------------------------
 
-    private fun requestCameraOrStart() {
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
-            PackageManager.PERMISSION_GRANTED
-        ) {
+    private fun requiredPermissions(): Array<String> {
+        val perms = mutableListOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO)
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            perms.add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        }
+        return perms.toTypedArray()
+    }
+
+    private fun allPermissionsGranted(): Boolean =
+        requiredPermissions().all {
+            ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
+        }
+
+    private fun hasAudioPermission(): Boolean =
+        ContextCompat.checkSelfPermission(
+            this, Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+
+    private fun requestPermissionsOrStart() {
+        if (allPermissionsGranted()) {
             startCamera()
         } else {
-            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+            permissionsLauncher.launch(requiredPermissions())
         }
     }
 
@@ -172,7 +268,7 @@ class MainActivity : AppCompatActivity() {
     // ---------------------------------------------------------------------------
 
     /**
-     * Obtain a [ProcessCameraProvider] and bind the [ImageAnalysis] use-case.
+     * Obtain a [ProcessCameraProvider] and bind the camera use-cases.
      *
      * Called on first launch and whenever the user switches cameras.
      */
@@ -180,19 +276,19 @@ class MainActivity : AppCompatActivity() {
         val future = ProcessCameraProvider.getInstance(this)
         future.addListener({
             cameraProvider = future.get()
-            bindAnalysisUseCase()
+            bindUseCases()
         }, ContextCompat.getMainExecutor(this))
     }
 
     /**
-     * Unbind all existing use-cases and bind a fresh [ImageAnalysis] for the
-     * currently selected lens.
+     * Unbind all existing use-cases and bind [ImageAnalysis], [ImageCapture]
+     * and [VideoCapture] for the currently selected lens.
      *
-     * Frames are delivered in [ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888] so
-     * that [ImageProxy.toBitmap] yields an ARGB_8888 [Bitmap] directly,
-     * avoiding a manual YUV→RGB conversion step.
+     * [ImageAnalysis] drives the live processed preview.
+     * [ImageCapture] enables single-frame photo capture.
+     * [VideoCapture] enables video recording.
      */
-    private fun bindAnalysisUseCase() {
+    private fun bindUseCases() {
         val provider = cameraProvider ?: return
 
         val cameraSelector = CameraSelector.Builder()
@@ -210,11 +306,152 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
+        imageCapture = ImageCapture.Builder()
+            .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+            .build()
+
+        val recorder = Recorder.Builder()
+            .setQualitySelector(QualitySelector.from(Quality.HIGHEST))
+            .build()
+        videoCapture = VideoCapture.withOutput(recorder)
+
         try {
             provider.unbindAll()
-            provider.bindToLifecycle(this, cameraSelector, imageAnalysis)
+            val capture = imageCapture ?: return
+            val video = videoCapture ?: return
+            provider.bindToLifecycle(
+                this, cameraSelector,
+                imageAnalysis, capture, video
+            )
         } catch (e: Exception) {
             Log.e(TAG, "Camera binding failed", e)
+        }
+    }
+
+    // ---------------------------------------------------------------------------
+    // Photo capture
+    // ---------------------------------------------------------------------------
+
+    /**
+     * Capture a still image and save it to the device's picture gallery
+     * using [MediaStore].
+     */
+    private fun takePhoto() {
+        val capture = imageCapture ?: return
+
+        val name = "MobileCV_${System.currentTimeMillis()}"
+        val contentValues = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+            put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/MobileCV")
+            }
+        }
+
+        val outputOptions = ImageCapture.OutputFileOptions.Builder(
+            contentResolver,
+            MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+            contentValues
+        ).build()
+
+        capture.takePicture(
+            outputOptions,
+            ContextCompat.getMainExecutor(this),
+            object : ImageCapture.OnImageSavedCallback {
+                override fun onImageSaved(output: ImageCapture.OutputFileResults) {
+                    Toast.makeText(
+                        this@MainActivity,
+                        getString(R.string.photo_saved),
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+
+                override fun onError(exc: ImageCaptureException) {
+                    Log.e(TAG, "Photo capture failed", exc)
+                    Toast.makeText(
+                        this@MainActivity,
+                        getString(R.string.photo_error),
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+        )
+    }
+
+    // ---------------------------------------------------------------------------
+    // Video recording
+    // ---------------------------------------------------------------------------
+
+    /**
+     * Begin recording a video and save it to the device's movies gallery
+     * via [MediaStore].
+     *
+     * Audio is included only when [Manifest.permission.RECORD_AUDIO] is granted;
+     * if the permission is absent the video is recorded silently.
+     * The [SuppressLint] annotation is safe here because [hasAudioPermission]
+     * gates the [withAudioEnabled] call at runtime.
+     *
+     * The button state is updated to show the recording indicator.
+     */
+    @SuppressLint("MissingPermission")
+    private fun startVideoRecording() {
+        val vc = videoCapture ?: return
+
+        isRecording = true
+        updateCaptureButtonState()
+
+        val name = "MobileCV_${System.currentTimeMillis()}"
+        val contentValues = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+            put(MediaStore.MediaColumns.MIME_TYPE, "video/mp4")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/MobileCV")
+            }
+        }
+
+        val mediaStoreOutput = MediaStoreOutputOptions.Builder(
+            contentResolver,
+            MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+        ).setContentValues(contentValues).build()
+
+        val pendingRecording = vc.output.prepareRecording(this, mediaStoreOutput)
+        if (hasAudioPermission()) {
+            pendingRecording.withAudioEnabled()
+        }
+
+        activeRecording = pendingRecording.start(
+            ContextCompat.getMainExecutor(this)
+        ) { event ->
+            if (event is VideoRecordEvent.Finalize) {
+                isRecording = false
+                activeRecording = null
+                updateCaptureButtonState()
+                if (event.hasError()) {
+                    Log.e(TAG, "Video recording error: ${event.error}")
+                    Toast.makeText(this, getString(R.string.video_error), Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(this, getString(R.string.video_saved), Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    /** Stop an ongoing video recording and let the finalise callback update the UI. */
+    private fun stopVideoRecording() {
+        activeRecording?.stop()
+    }
+
+    /**
+     * Sync the capture button's visual state with [isRecording]:
+     * - activated (red ring)  when recording
+     * - normal   (white ring) when idle
+     */
+    private fun updateCaptureButtonState() {
+        binding.btnCapture.isActivated = isRecording
+        binding.btnCapture.contentDescription = if (isRecording) {
+            getString(R.string.stop_recording_description)
+        } else {
+            getString(R.string.capture_button_description)
         }
     }
 

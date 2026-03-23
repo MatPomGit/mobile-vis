@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Selector that swaps the capture-button background between
+    the idle state (white) and the recording state (red).
+    Activated via View.isActivated in MainActivity.
+-->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:state_activated="true"
+        android:drawable="@drawable/bg_capture_button_recording" />
+    <item android:drawable="@drawable/bg_capture_button_normal" />
+</selector>

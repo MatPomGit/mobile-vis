@@ -32,4 +32,13 @@ enum class OpenCvFilter(val displayName: String) {
 
     /** Morphological erosion with a 9×9 rectangular kernel. */
     ERODE("Erode"),
+
+    /** Detects AprilTag fiducial markers and overlays position info. */
+    APRIL_TAGS("AprilTag"),
+
+    /** Detects ArUco markers (4×4 dictionary) and overlays position info. */
+    ARUCO("ArUco"),
+
+    /** Detects QR codes and overlays position info. */
+    QR_CODE("QR Code"),
 }

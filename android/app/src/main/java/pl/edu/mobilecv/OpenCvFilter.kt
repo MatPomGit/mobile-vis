@@ -36,6 +36,9 @@ enum class OpenCvFilter(val displayName: String) {
     /** Detects AprilTag fiducial markers and overlays position info. */
     APRIL_TAGS("AprilTag"),
 
+    /** Detects ArUco markers (4×4 dictionary) and overlays position info. */
+    ARUCO("ArUco"),
+
     /** Detects QR codes and overlays position info. */
     QR_CODE("QR Code"),
 }

@@ -36,6 +36,9 @@ class ImageProcessor {
     private val aprilTagDictionary: Dictionary =
         Objdetect.getPredefinedDictionary(Objdetect.DICT_APRILTAG_36h11)
     private val aprilTagDetector = ArucoDetector(aprilTagDictionary, DetectorParameters())
+    private val arucoDictionary: Dictionary =
+        Objdetect.getPredefinedDictionary(Objdetect.DICT_4X4_50)
+    private val arucoDetector = ArucoDetector(arucoDictionary, DetectorParameters())
     private val qrCodeDetector = QRCodeDetector()
 
     // ------------------------------------------------------------------
@@ -73,6 +76,7 @@ class ImageProcessor {
             OpenCvFilter.DILATE -> applyDilate(src)
             OpenCvFilter.ERODE -> applyErode(src)
             OpenCvFilter.APRIL_TAGS -> applyAprilTagDetection(src)
+            OpenCvFilter.ARUCO -> applyArucoDetection(src)
             OpenCvFilter.QR_CODE -> applyQrCodeDetection(src)
         }
 
@@ -276,6 +280,64 @@ class ImageProcessor {
             val dx = (markerCx - cx).toInt()
             val dy = (markerCy - cy).toInt()
             val label = "id=$tagId  dx=$dx  dy=$dy"
+            Imgproc.putText(
+                result, label,
+                Point(pts[0].x, maxOf(pts[0].y - 10.0, 12.0)),
+                Imgproc.FONT_HERSHEY_SIMPLEX, 0.55, color, 2
+            )
+
+            polygon.release()
+        }
+
+        gray.release()
+        ids.release()
+        corners.forEach { it.release() }
+        return result
+    }
+
+    /**
+     * Detect ArUco markers (4×4_50 dictionary) in the frame.
+     *
+     * Draws a crosshair at the image centre, outlines each detected marker
+     * in magenta, and overlays its ID and pixel offset (Δx, Δy) from the centre.
+     *
+     * Input/output: BGRA Mat (shape H × W × 4).
+     */
+    private fun applyArucoDetection(src: Mat): Mat {
+        val result = src.clone()
+        val gray = Mat()
+        Imgproc.cvtColor(src, gray, Imgproc.COLOR_BGRA2GRAY)
+
+        val cx = src.cols() / 2
+        val cy = src.rows() / 2
+        drawCrosshair(result, cx, cy)
+
+        val corners = ArrayList<Mat>()
+        val ids = Mat()
+        arucoDetector.detectMarkers(gray, corners, ids)
+
+        val color = Scalar(255.0, 0.0, 255.0, 255.0) // magenta (BGRA)
+        for (i in corners.indices) {
+            val cornerMat = corners[i] // shape (1, 4), CV_32FC2
+            val pts = Array(4) { j ->
+                val raw = cornerMat.get(0, j)
+                Point(raw[0].toDouble(), raw[1].toDouble())
+            }
+
+            // Draw marker outline
+            val polygon = MatOfPoint(*pts)
+            Imgproc.polylines(result, listOf(polygon), true, color, 2)
+
+            // Draw center dot
+            val markerCx = pts.map { it.x }.average()
+            val markerCy = pts.map { it.y }.average()
+            Imgproc.circle(result, Point(markerCx, markerCy), 6, color, -1)
+
+            // Draw ID and offset from screen centre
+            val markerId = if (i < ids.rows()) ids.get(i, 0)[0].toInt() else -1
+            val dx = (markerCx - cx).toInt()
+            val dy = (markerCy - cy).toInt()
+            val label = "id=$markerId  dx=$dx  dy=$dy"
             Imgproc.putText(
                 result, label,
                 Point(pts[0].x, maxOf(pts[0].y - 10.0, 12.0)),

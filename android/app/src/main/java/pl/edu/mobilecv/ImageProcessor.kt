@@ -23,7 +23,7 @@ import org.opencv.objdetect.QRCodeDetector
  * Applies OpenCV image-processing filters to Android [Bitmap] frames.
  *
  * All input bitmaps must use [Bitmap.Config.ARGB_8888].  Internally the
- * bitmap is converted to a **BGRA** [Mat] (OpenCV's representation of
+ * bitmap is converted to a **RGBA** [Mat] (OpenCV's representation of
  * ARGB_8888), the chosen [OpenCvFilter] is applied, and the result is
  * converted back to an ARGB_8888 bitmap suitable for display.
  *
@@ -86,7 +86,7 @@ class ImageProcessor {
      */
     fun processFrame(bitmap: Bitmap, filter: OpenCvFilter): Bitmap {
         val src = Mat()
-        // bitmapToMat converts ARGB_8888 → BGRA Mat (4 channels)
+        // bitmapToMat converts ARGB_8888 → RGBA Mat (4 channels)
         Utils.bitmapToMat(bitmap, src)
 
         val processed: Mat = when (filter) {
@@ -120,15 +120,15 @@ class ImageProcessor {
     // ------------------------------------------------------------------
 
     /**
-     * Convert the frame to grayscale and back to BGRA for display.
+     * Convert the frame to grayscale and back to RGBA for display.
      *
-     * Input/output: BGRA Mat (shape H × W × 4).
+     * Input/output: RGBA Mat (shape H × W × 4).
      */
     private fun applyGrayscale(src: Mat): Mat {
         val gray = Mat()
         val result = Mat()
-        Imgproc.cvtColor(src, gray, Imgproc.COLOR_BGRA2GRAY)
-        Imgproc.cvtColor(gray, result, Imgproc.COLOR_GRAY2BGRA)
+        Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
+        Imgproc.cvtColor(gray, result, Imgproc.COLOR_GRAY2RGBA)
         gray.release()
         return result
     }
@@ -144,10 +144,10 @@ class ImageProcessor {
         val blurred = Mat()
         val edges = Mat()
         val result = Mat()
-        Imgproc.cvtColor(src, gray, Imgproc.COLOR_BGRA2GRAY)
+        Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
         Imgproc.GaussianBlur(gray, blurred, Size(5.0, 5.0), 0.0)
         Imgproc.Canny(blurred, edges, 50.0, 150.0)
-        Imgproc.cvtColor(edges, result, Imgproc.COLOR_GRAY2BGRA)
+        Imgproc.cvtColor(edges, result, Imgproc.COLOR_GRAY2RGBA)
         gray.release()
         blurred.release()
         edges.release()
@@ -155,11 +155,11 @@ class ImageProcessor {
     }
 
     /**
-     * Apply a 15×15 Gaussian blur to soften the image.
+     * Apply a 15×15 (5x5) Gaussian blur to soften the image.
      */
     private fun applyGaussianBlur(src: Mat): Mat {
         val result = Mat()
-        Imgproc.GaussianBlur(src, result, Size(15.0, 15.0), 0.0)
+        Imgproc.GaussianBlur(src, result, Size(5.0, 5.0), 0.0)
         return result
     }
 
@@ -170,9 +170,9 @@ class ImageProcessor {
         val gray = Mat()
         val thresh = Mat()
         val result = Mat()
-        Imgproc.cvtColor(src, gray, Imgproc.COLOR_BGRA2GRAY)
+        Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
         Imgproc.threshold(gray, thresh, 127.0, 255.0, Imgproc.THRESH_BINARY)
-        Imgproc.cvtColor(thresh, result, Imgproc.COLOR_GRAY2BGRA)
+        Imgproc.cvtColor(thresh, result, Imgproc.COLOR_GRAY2RGBA)
         gray.release()
         thresh.release()
         return result
@@ -194,13 +194,13 @@ class ImageProcessor {
         val combined = Mat()
         val result = Mat()
 
-        Imgproc.cvtColor(src, gray, Imgproc.COLOR_BGRA2GRAY)
+        Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
         Imgproc.Sobel(gray, sobelX, CvType.CV_16S, 1, 0)
         Imgproc.Sobel(gray, sobelY, CvType.CV_16S, 0, 1)
         Core.convertScaleAbs(sobelX, absX)
         Core.convertScaleAbs(sobelY, absY)
         Core.addWeighted(absX, 0.5, absY, 0.5, 0.0, combined)
-        Imgproc.cvtColor(combined, result, Imgproc.COLOR_GRAY2BGRA)
+        Imgproc.cvtColor(combined, result, Imgproc.COLOR_GRAY2RGBA)
 
         gray.release()
         sobelX.release()
@@ -222,10 +222,10 @@ class ImageProcessor {
         val abs = Mat()
         val result = Mat()
 
-        Imgproc.cvtColor(src, gray, Imgproc.COLOR_BGRA2GRAY)
+        Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
         Imgproc.Laplacian(gray, laplacian, CvType.CV_16S)
         Core.convertScaleAbs(laplacian, abs)
-        Imgproc.cvtColor(abs, result, Imgproc.COLOR_GRAY2BGRA)
+        Imgproc.cvtColor(abs, result, Imgproc.COLOR_GRAY2RGBA)
 
         gray.release()
         laplacian.release()

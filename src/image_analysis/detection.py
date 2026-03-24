@@ -14,6 +14,8 @@ import cv2
 import numpy as np
 from numpy.typing import NDArray
 
+from .utils import validate_image
+
 logger = logging.getLogger(__name__)
 
 # Minimum confidence score for a detection to be kept.
@@ -98,17 +100,17 @@ def apply_nms(
 
     _validate_detections(detections)
 
-    boxes = np.array([[d.bbox[0], d.bbox[1], d.bbox[2], d.bbox[3]] for d in detections])
-    scores = np.array([d.confidence for d in detections])
-
     # cv2.dnn.NMSBoxes expects (x, y, w, h) format
-    boxes_xywh = boxes.copy().tolist()
-    for i, (x1, y1, x2, y2) in enumerate(boxes.tolist()):
-        boxes_xywh[i] = [x1, y1, int(x2 - x1), int(y2 - y1)]
+    boxes_xywh = []
+    scores = []
+    for d in detections:
+        x1, y1, x2, y2 = d.bbox
+        boxes_xywh.append([x1, y1, int(x2 - x1), int(y2 - y1)])
+        scores.append(float(d.confidence))
 
     indices = cv2.dnn.NMSBoxes(
         boxes_xywh,
-        scores.tolist(),
+        scores,
         score_threshold=0.0,
         nms_threshold=iou_threshold,
     )
@@ -172,14 +174,13 @@ def _validate_bgr_image(image: object) -> None:
         TypeError: If *image* is not a ``np.ndarray``.
         ValueError: If *image* does not have shape ``(H, W, 3)``.
     """
-    if not isinstance(image, np.ndarray):
-        raise TypeError(f"Expected np.ndarray, got {type(image).__name__}")
-    if image.ndim != 3 or image.shape[2] != 3:
+    validate_image(image)
+    # validate_image is generic, we need specifically BGR 3-channel for these functions
+    if not isinstance(image, np.ndarray) or image.ndim != 3 or image.shape[2] != 3:
         raise ValueError(
-            f"Expected 3-channel BGR image with shape (H, W, 3), got shape {image.shape}"
+            f"Expected 3-channel BGR image with shape (H, W, 3), got shape "
+            f"{getattr(image, 'shape', 'N/A')}"
         )
-    if image.dtype != np.uint8:
-        raise ValueError(f"Expected uint8 BGR image, got {image.dtype}")
 
 
 def _validate_detections(detections: list[Detection]) -> None:
@@ -201,15 +202,14 @@ def _normalize_nms_indices(indices: object) -> list[int]:
     if indices is None:
         return []
     if isinstance(indices, np.ndarray):
-        return [int(index) for index in indices.reshape(-1).tolist()]
-    if isinstance(indices, tuple):
-        return [int(index) for index in indices]
-    if isinstance(indices, list):
-        normalized: list[int] = []
+        return [int(index) for index in indices.flatten().tolist()]
+    if isinstance(indices, (tuple, list)):
+        # Handle cases where indices might be a list of lists/tuples from OpenCV
+        normalized = []
         for item in indices:
-            if isinstance(item, (list, tuple, np.ndarray)):
-                normalized.extend(int(index) for index in np.asarray(item).reshape(-1).tolist())
-            else:
+            if isinstance(item, (int, np.integer)):
                 normalized.append(int(item))
+            else:
+                normalized.append(int(item[0]))
         return normalized
     return []

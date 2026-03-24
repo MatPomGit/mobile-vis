@@ -14,6 +14,8 @@ import cv2
 import numpy as np
 from numpy.typing import NDArray
 
+from .utils import validate_image
+
 logger = logging.getLogger(__name__)
 
 
@@ -64,7 +66,7 @@ def resize_image(
         TypeError: If *image* is not a ``np.ndarray``.
         ValueError: If *width* or *height* is not a positive integer.
     """
-    _validate_image(image)
+    validate_image(image)
     if width <= 0 or height <= 0:
         raise ValueError(f"width and height must be positive, got width={width}, height={height}")
 
@@ -90,24 +92,8 @@ def normalize_image(image: NDArray[np.uint8]) -> NDArray[np.float32]:
         TypeError: If *image* is not a ``np.ndarray``.
         ValueError: If *image* dtype is not ``uint8``.
     """
-    _validate_image(image)
+    validate_image(image)
     if image.dtype != np.uint8:
         raise ValueError(f"Expected uint8 image, got {image.dtype}")
 
     return (image / 255.0).astype(np.float32)
-
-
-def _validate_image(image: object) -> None:
-    """Raise an error if *image* is not a valid NumPy image array.
-
-    Args:
-        image: Value to validate.
-
-    Raises:
-        TypeError: If *image* is not a ``np.ndarray``.
-        ValueError: If *image* has fewer than 2 dimensions.
-    """
-    if not isinstance(image, np.ndarray):
-        raise TypeError(f"Expected np.ndarray, got {type(image).__name__}")
-    if image.ndim < 2:
-        raise ValueError(f"Image must have at least 2 dimensions, got {image.ndim}")

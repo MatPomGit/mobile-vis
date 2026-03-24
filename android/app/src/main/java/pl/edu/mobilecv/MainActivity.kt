@@ -19,6 +19,8 @@ import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.ImageProxy
+import androidx.camera.core.resolutionselector.ResolutionSelector
+import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.video.MediaStoreOutputOptions
 import androidx.camera.video.Quality
@@ -38,6 +40,7 @@ import java.util.concurrent.Executors
 
 /**
  * Main (and only) activity of the MobileCV application.
+<<<<<<< Updated upstream
  *
  * Responsibilities:
  * - Requests [Manifest.permission.CAMERA], [Manifest.permission.RECORD_AUDIO]
@@ -49,6 +52,8 @@ import java.util.concurrent.Executors
  *   so the user can watch a live processed preview, take photos, and record videos.
  * - Renders processed [Bitmap] frames into the full-screen [ImageView].
  * - Provides a camera-switch [FloatingActionButton] and a shutter/capture button.
+=======
+>>>>>>> Stashed changes
  */
 class MainActivity : AppCompatActivity() {
 
@@ -68,8 +73,11 @@ class MainActivity : AppCompatActivity() {
 
     // OpenCV
     private val imageProcessor = ImageProcessor()
+
+    @Volatile
     private var currentFilter = OpenCvFilter.ORIGINAL
 
+<<<<<<< Updated upstream
     // Calibration
     val cameraCalibrator = CameraCalibrator()
 
@@ -80,6 +88,13 @@ class MainActivity : AppCompatActivity() {
     // ---------------------------------------------------------------------------
     // Permission launcher (camera + audio + storage)
     // ---------------------------------------------------------------------------
+=======
+    // To prevent OOM, we keep track of the last bitmap set to the ImageView to recycle it.
+    private var lastProcessedBitmap: Bitmap? = null
+
+    // Single-threaded executor so that frame processing is serialised.
+    private lateinit var analysisExecutor: ExecutorService
+>>>>>>> Stashed changes
 
     private val permissionsLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -92,10 +107,6 @@ class MainActivity : AppCompatActivity() {
             finish()
         }
     }
-
-    // ---------------------------------------------------------------------------
-    // Lifecycle
-    // ---------------------------------------------------------------------------
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -120,27 +131,18 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
         activeRecording?.stop()
         analysisExecutor.shutdown()
+        lastProcessedBitmap?.recycle()
+        lastProcessedBitmap = null
     }
 
-    // ---------------------------------------------------------------------------
-    // Initialisation helpers
-    // ---------------------------------------------------------------------------
-
-    /**
-     * Initialise the OpenCV native library bundled inside the APK.
-     *
-     * [OpenCVLoader.initLocal] loads the `.so` that was packaged during the
-     * build; no separate OpenCV Manager app is required.
-     */
     private fun initOpenCv() {
         if (!OpenCVLoader.initLocal()) {
             Log.e(TAG, "OpenCV initialisation failed")
             Toast.makeText(this, getString(R.string.opencv_init_error), Toast.LENGTH_LONG).show()
-        } else {
-            Log.i(TAG, "OpenCV initialised successfully")
         }
     }
 
+<<<<<<< Updated upstream
     /**
      * Populate the [TabLayout] with one tab per [AnalysisMode].
      *
@@ -180,6 +182,9 @@ class MainActivity : AppCompatActivity() {
         currentFilter = mode.filters.firstOrNull() ?: return
         binding.textViewCurrentFilter.text = currentFilter.displayName
 
+=======
+    private fun setupFilterChips() {
+>>>>>>> Stashed changes
         binding.chipGroupFilters.isSingleSelection = true
         binding.chipGroupFilters.isSelectionRequired = true
 
@@ -198,13 +203,16 @@ class MainActivity : AppCompatActivity() {
             }
             binding.chipGroupFilters.addView(chip)
         }
+<<<<<<< Updated upstream
 
         // Show calibration FAB only in CALIBRATION mode.
         binding.fabCalibrationMenu.visibility =
             if (mode == AnalysisMode.CALIBRATION) View.VISIBLE else View.GONE
+=======
+        binding.textViewCurrentFilter.text = currentFilter.displayName
+>>>>>>> Stashed changes
     }
 
-    /** Toggle the lens direction and re-bind the camera. */
     private fun setupCameraSwitchButton() {
         binding.fabSwitchCamera.setOnClickListener {
             lensFacing = if (lensFacing == CameraSelector.LENS_FACING_BACK) {
@@ -216,6 +224,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+<<<<<<< Updated upstream
     /**
      * Configure the shutter/capture button.
      *
@@ -328,12 +337,19 @@ class MainActivity : AppCompatActivity() {
 
     private fun requestPermissionsOrStart() {
         if (allPermissionsGranted()) {
+=======
+    private fun requestCameraOrStart() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
+>>>>>>> Stashed changes
             startCamera()
         } else {
             permissionsLauncher.launch(requiredPermissions())
         }
     }
 
+<<<<<<< Updated upstream
     // ---------------------------------------------------------------------------
     // CameraX
     // ---------------------------------------------------------------------------
@@ -360,14 +376,38 @@ class MainActivity : AppCompatActivity() {
      * [VideoCapture] enables video recording.
      */
     private fun bindUseCases() {
+=======
+    private fun startCamera() {
+        val future = ProcessCameraProvider.getInstance(this)
+        future.addListener({
+            try {
+                cameraProvider = future.get()
+                bindAnalysisUseCase()
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to get camera provider", e)
+            }
+        }, ContextCompat.getMainExecutor(this))
+    }
+
+    private fun bindAnalysisUseCase() {
+>>>>>>> Stashed changes
         val provider = cameraProvider ?: return
 
         val cameraSelector = CameraSelector.Builder()
             .requireLensFacing(lensFacing)
             .build()
 
+        val resolutionSelector = ResolutionSelector.Builder()
+            .setResolutionStrategy(
+                ResolutionStrategy(
+                    Size(640, 480),
+                    ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER
+                )
+            )
+            .build()
+
         val imageAnalysis = ImageAnalysis.Builder()
-            .setTargetResolution(Size(640, 480))
+            .setResolutionSelector(resolutionSelector)
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
             .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
             .build()
@@ -399,6 +439,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+<<<<<<< Updated upstream
     // ---------------------------------------------------------------------------
     // Photo capture
     // ---------------------------------------------------------------------------
@@ -540,41 +581,54 @@ class MainActivity : AppCompatActivity() {
      * @param imageProxy Frame delivered by the [ImageAnalysis] analyser.
      *                   Closed at the end of this method.
      */
+=======
+>>>>>>> Stashed changes
     private fun processFrame(imageProxy: ImageProxy) {
         try {
-            // toBitmap() returns ARGB_8888 when OUTPUT_IMAGE_FORMAT_RGBA_8888 is set.
+            // imageProxy.toBitmap() creates a new Bitmap instance.
             val bitmap: Bitmap = imageProxy.toBitmap()
             val rotation: Int = imageProxy.imageInfo.rotationDegrees
 
+            // Rotate and mirror (if front camera) the bitmap.
             val oriented: Bitmap = orientBitmap(bitmap, rotation, lensFacing)
+            
+            // Apply OpenCV filters.
             val processed: Bitmap = imageProcessor.processFrame(oriented, currentFilter)
 
             runOnUiThread {
+                val toRecycle = lastProcessedBitmap
                 binding.imageViewPreview.setImageBitmap(processed)
+                lastProcessedBitmap = processed
+                // Recycle the previous processed bitmap to free memory.
+                toRecycle?.recycle()
             }
+
+            // Cleanup intermediate bitmaps.
+            if (oriented !== bitmap) {
+                bitmap.recycle()
+            }
+            oriented.recycle()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error processing frame", e)
         } finally {
             imageProxy.close()
         }
     }
 
-    /**
-     * Rotate [bitmap] by [rotationDegrees] and, when using the front camera,
-     * mirror it horizontally so the preview is not laterally inverted.
-     *
-     * @param bitmap Source bitmap (ARGB_8888).
-     * @param rotationDegrees CW rotation required to make the image upright.
-     * @param lensFacing [CameraSelector.LENS_FACING_FRONT] or BACK.
-     * @return Correctly oriented bitmap (may be the original object if no
-     *         transformation is needed).
-     */
     private fun orientBitmap(bitmap: Bitmap, rotationDegrees: Int, lensFacing: Int): Bitmap {
         val isFront = lensFacing == CameraSelector.LENS_FACING_FRONT
         if (rotationDegrees == 0 && !isFront) return bitmap
 
-        val matrix = Matrix().apply {
-            if (rotationDegrees != 0) postRotate(rotationDegrees.toFloat())
-            if (isFront) postScale(-1f, 1f, bitmap.width / 2f, bitmap.height / 2f)
+        val matrix = Matrix()
+        if (rotationDegrees != 0) {
+            matrix.postRotate(rotationDegrees.toFloat())
         }
+        if (isFront) {
+            // Mirror horizontally for front-facing camera.
+            matrix.postScale(-1f, 1f)
+        }
+        
+        // Bitmap.createBitmap handles the matrix and fits the result into a new bitmap.
         return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
     }
 }

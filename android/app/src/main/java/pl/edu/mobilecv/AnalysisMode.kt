@@ -48,4 +48,13 @@ enum class AnalysisMode(val displayName: String, val filters: List<OpenCvFilter>
             OpenCvFilter.QR_CODE,
         )
     ),
+
+    /** Camera calibration using chessboard patterns. */
+    CALIBRATION(
+        "Kalibracja",
+        listOf(
+            OpenCvFilter.CHESSBOARD_CALIBRATION,
+            OpenCvFilter.UNDISTORT,
+        )
+    ),
 }

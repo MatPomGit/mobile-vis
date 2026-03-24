@@ -2,13 +2,16 @@ package pl.edu.mobilecv
 
 import android.graphics.Bitmap
 import org.opencv.android.Utils
+import org.opencv.calib3d.Calib3d
 import org.opencv.core.Core
 import org.opencv.core.CvType
 import org.opencv.core.Mat
 import org.opencv.core.MatOfPoint
+import org.opencv.core.MatOfPoint2f
 import org.opencv.core.Point
 import org.opencv.core.Scalar
 import org.opencv.core.Size
+import org.opencv.core.TermCriteria
 import org.opencv.imgproc.Imgproc
 import org.opencv.objdetect.ArucoDetector
 import org.opencv.objdetect.DetectorParameters
@@ -28,6 +31,27 @@ import org.opencv.objdetect.QRCodeDetector
  * synchronise access externally.
  */
 class ImageProcessor {
+
+    /** Reference to the shared [CameraCalibrator]; set by [MainActivity]. */
+    var calibrator: CameraCalibrator? = null
+
+    /**
+     * Overlay label for the frame counter shown in [CHESSBOARD_CALIBRATION] mode.
+     * Set by [MainActivity] from the string resource for proper localisation.
+     */
+    var labelFrameCountSuffix: String = "klatek"
+
+    /**
+     * Overlay label shown when no chessboard is visible.
+     * Set by [MainActivity] from the string resource for proper localisation.
+     */
+    var labelBoardNotFound: String = "Brak szachownicy"
+
+    /**
+     * Overlay label shown in [UNDISTORT] mode when no calibration is available.
+     * Set by [MainActivity] from the string resource for proper localisation.
+     */
+    var labelNoCalibration: String = "Brak kalibracji"
 
     // ------------------------------------------------------------------
     // Cached detector instances – created once and reused across frames
@@ -78,6 +102,8 @@ class ImageProcessor {
             OpenCvFilter.APRIL_TAGS -> applyAprilTagDetection(src)
             OpenCvFilter.ARUCO -> applyArucoDetection(src)
             OpenCvFilter.QR_CODE -> applyQrCodeDetection(src)
+            OpenCvFilter.CHESSBOARD_CALIBRATION -> applyChessboardCalibration(src)
+            OpenCvFilter.UNDISTORT -> applyUndistort(src)
         }
 
         val result = Bitmap.createBitmap(processed.cols(), processed.rows(), Bitmap.Config.ARGB_8888)
@@ -442,5 +468,147 @@ class ImageProcessor {
         // Vertical arms
         Imgproc.line(mat, Point(cx.toDouble(), 0.0), Point(cx.toDouble(), (cy - CROSSHAIR_GAP).toDouble()), color, thickness)
         Imgproc.line(mat, Point(cx.toDouble(), (cy + CROSSHAIR_GAP).toDouble()), Point(cx.toDouble(), h.toDouble()), color, thickness)
+    }
+
+    // ------------------------------------------------------------------
+    // Calibration filters
+    // ------------------------------------------------------------------
+
+    /**
+     * Detect chessboard corners in the frame and visualise them.
+     *
+     * Passes the detected corners to [calibrator] (if set) so that the
+     * user can collect frames via [CameraCalibrator.collectLastFrame].
+     *
+     * A green border indicates that the full pattern was found; red means
+     * not found.  The current frame count is shown as an overlay.
+     *
+     * Input/output: BGRA Mat (shape H × W × 4).
+     */
+    private fun applyChessboardCalibration(src: Mat): Mat {
+        val result = src.clone()
+        val gray = Mat()
+        Imgproc.cvtColor(src, gray, Imgproc.COLOR_BGRA2GRAY)
+
+        val cal = calibrator
+        val boardWidth = cal?.boardWidth ?: CameraCalibrator.DEFAULT_BOARD_WIDTH
+        val boardHeight = cal?.boardHeight ?: CameraCalibrator.DEFAULT_BOARD_HEIGHT
+        val patternSize = Size(boardWidth.toDouble(), boardHeight.toDouble())
+
+        val corners = MatOfPoint2f()
+        val found = Calib3d.findChessboardCorners(
+            gray,
+            patternSize,
+            corners,
+            Calib3d.CALIB_CB_ADAPTIVE_THRESH or Calib3d.CALIB_CB_NORMALIZE_IMAGE,
+        )
+
+        if (found && !corners.empty()) {
+            // Sub-pixel refinement
+            val criteria = TermCriteria(TermCriteria.EPS + TermCriteria.MAX_ITER, 30, 0.001)
+            Imgproc.cornerSubPix(
+                gray, corners,
+                Size(11.0, 11.0), Size(-1.0, -1.0), criteria
+            )
+
+            // Draw corners (OpenCV draws directly onto a BGR/BGRA Mat)
+            val bgrMat = Mat()
+            Imgproc.cvtColor(result, bgrMat, Imgproc.COLOR_BGRA2BGR)
+            Calib3d.drawChessboardCorners(bgrMat, patternSize, corners, true)
+            Imgproc.cvtColor(bgrMat, result, Imgproc.COLOR_BGR2BGRA)
+            bgrMat.release()
+
+            // Green border: board detected
+            val green = Scalar(0.0, 255.0, 0.0, 255.0)
+            Imgproc.rectangle(
+                result,
+                Point(4.0, 4.0),
+                Point(src.cols() - 4.0, src.rows() - 4.0),
+                green, 4
+            )
+
+            // Update calibrator with latest corners
+            cal?.storeDetectedCorners(corners, Size(src.cols().toDouble(), src.rows().toDouble()))
+        } else {
+            // Red border: board not visible
+            val red = Scalar(0.0, 0.0, 255.0, 255.0)
+            Imgproc.rectangle(
+                result,
+                Point(4.0, 4.0),
+                Point(src.cols() - 4.0, src.rows() - 4.0),
+                red, 4
+            )
+            Imgproc.putText(
+                result, labelBoardNotFound,
+                Point(16.0, 48.0),
+                Imgproc.FONT_HERSHEY_SIMPLEX, 1.0, Scalar(0.0, 0.0, 0.0, 200.0), 4
+            )
+            Imgproc.putText(
+                result, labelBoardNotFound,
+                Point(16.0, 48.0),
+                Imgproc.FONT_HERSHEY_SIMPLEX, 1.0, Scalar(0.0, 0.0, 255.0, 255.0), 2
+            )
+            cal?.storeDetectedCorners(null, Size(src.cols().toDouble(), src.rows().toDouble()))
+        }
+
+        // Frame count overlay
+        val frameCount = cal?.frameCount ?: 0
+        val min = CameraCalibrator.MIN_FRAMES
+        val countLabel = "$frameCount/$min $labelFrameCountSuffix"
+        val labelColor = if (frameCount >= min) Scalar(0.0, 255.0, 0.0, 255.0)
+        else Scalar(255.0, 255.0, 255.0, 255.0)
+        Imgproc.putText(
+            result, countLabel,
+            Point(16.0, 48.0),
+            Imgproc.FONT_HERSHEY_SIMPLEX, 1.2, Scalar(0.0, 0.0, 0.0, 200.0), 4
+        )
+        Imgproc.putText(
+            result, countLabel,
+            Point(16.0, 48.0),
+            Imgproc.FONT_HERSHEY_SIMPLEX, 1.2, labelColor, 2
+        )
+
+        gray.release()
+        corners.release()
+        return result
+    }
+
+    /**
+     * Apply lens-distortion correction using the stored [CameraCalibrator] result.
+     *
+     * If no calibration has been computed yet a red "Brak kalibracji" banner
+     * is drawn over the raw frame to inform the user.
+     *
+     * Input/output: BGRA Mat (shape H × W × 4).
+     */
+    private fun applyUndistort(src: Mat): Mat {
+        val calData = calibrator?.calibrationResult
+        if (calData == null) {
+            // No calibration data – show original with informational overlay.
+            val result = src.clone()
+            Imgproc.putText(
+                result, labelNoCalibration,
+                Point(16.0, 48.0),
+                Imgproc.FONT_HERSHEY_SIMPLEX, 1.0, Scalar(0.0, 0.0, 0.0, 200.0), 4
+            )
+            Imgproc.putText(
+                result, labelNoCalibration,
+                Point(16.0, 48.0),
+                Imgproc.FONT_HERSHEY_SIMPLEX, 1.0, Scalar(0.0, 100.0, 255.0, 255.0), 2
+            )
+            return result
+        }
+
+        // Convert BGRA → BGR, undistort, convert back.
+        val bgr = Mat()
+        Imgproc.cvtColor(src, bgr, Imgproc.COLOR_BGRA2BGR)
+        val undistorted = Mat()
+        Calib3d.undistort(bgr, undistorted, calData.cameraMatrix, calData.distCoeffs)
+        bgr.release()
+
+        val result = Mat()
+        Imgproc.cvtColor(undistorted, result, Imgproc.COLOR_BGR2BGRA)
+        undistorted.release()
+        return result
     }
 }

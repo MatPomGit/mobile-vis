@@ -4,7 +4,8 @@
     Full-screen processed camera preview with:
       • a semi-transparent TabLayout at the top for switching analysis modes
       • a semi-transparent bottom bar with a filter chip group,
-        a camera-switch FAB, and a central capture (shutter) button.
+        a camera-switch FAB, a calibration-menu FAB (calibration mode only),
+        and a central capture (shutter) button.
 -->
 <androidx.constraintlayout.widget.ConstraintLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
@@ -26,7 +27,8 @@
         app:tabTextColor="#80FFFFFF"
         app:tabSelectedTextColor="@android:color/white"
         app:tabIndicatorColor="?attr/colorSecondary"
-        app:tabMode="fixed"
+        app:tabIndicatorHeight="3dp"
+        app:tabMode="scrollable"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
@@ -66,9 +68,14 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="center_horizontal"
-            android:paddingBottom="4dp"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:paddingTop="2dp"
+            android:paddingBottom="2dp"
+            android:layout_marginBottom="4dp"
             android:textColor="@android:color/white"
             android:textSize="12sp"
+            android:background="#33FFFFFF"
             android:text="@string/filter_label_original"
             tools:text="Original" />
 
@@ -90,8 +97,9 @@
 
         <!--
             Button row:
-              • camera-switch FAB  – pinned to the start
-              • shutter button     – centred
+              • camera-switch FAB   – pinned to the start
+              • calibration FAB     – pinned to the end (visible in Calibration mode only)
+              • shutter button      – centred
         -->
         <FrameLayout
             android:layout_width="match_parent"
@@ -120,6 +128,18 @@
                 android:contentDescription="@string/capture_button_description"
                 android:src="@null"
                 tools:background="@drawable/bg_capture_button_normal" />
+
+            <!-- Calibration menu FAB (right, calibration mode only) -->
+            <com.google.android.material.floatingactionbutton.FloatingActionButton
+                android:id="@+id/fabCalibrationMenu"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="end|center_vertical"
+                android:contentDescription="@string/calibration_menu_description"
+                android:visibility="gone"
+                app:srcCompat="@android:drawable/ic_menu_manage"
+                app:fabSize="mini"
+                tools:visibility="visible" />
 
         </FrameLayout>
 

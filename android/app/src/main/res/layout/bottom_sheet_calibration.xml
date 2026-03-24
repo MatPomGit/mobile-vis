@@ -1,0 +1,158 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    bottom_sheet_calibration.xml
+    Bottom-sheet menu for chessboard camera calibration.
+    Includes:
+      • status section (frames collected, board detection indicator)
+      • action buttons (Collect Frame, Compute Calibration, Reset)
+      • results section (shown after successful calibration)
+-->
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:paddingStart="24dp"
+    android:paddingEnd="24dp"
+    android:paddingTop="16dp"
+    android:paddingBottom="32dp">
+
+    <!-- Drag handle -->
+    <View
+        android:layout_width="40dp"
+        android:layout_height="4dp"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginBottom="16dp"
+        android:background="#33FFFFFF" />
+
+    <!-- Title -->
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/calibration_title"
+        android:textAppearance="?attr/textAppearanceHeadline6"
+        android:textColor="@android:color/white"
+        android:layout_marginBottom="4dp" />
+
+    <!-- Subtitle / instructions -->
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/calibration_instructions"
+        android:textAppearance="?attr/textAppearanceCaption"
+        android:textColor="#99FFFFFF"
+        android:layout_marginBottom="20dp" />
+
+    <!-- ============================================================ -->
+    <!-- Status row                                                    -->
+    <!-- ============================================================ -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginBottom="8dp"
+        android:gravity="center_vertical">
+
+        <!-- Detection indicator dot -->
+        <View
+            android:id="@+id/viewDetectionIndicator"
+            android:layout_width="12dp"
+            android:layout_height="12dp"
+            android:layout_marginEnd="8dp"
+            android:background="@android:color/darker_gray" />
+
+        <!-- Detection status label -->
+        <TextView
+            android:id="@+id/tvDetectionStatus"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/calibration_status_searching"
+            android:textColor="#CCFFFFFF"
+            android:textSize="14sp" />
+
+    </LinearLayout>
+
+    <!-- Frame count progress bar -->
+    <com.google.android.material.progressindicator.LinearProgressIndicator
+        android:id="@+id/progressFrames"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="4dp"
+        app:trackThickness="6dp"
+        app:indicatorColor="?attr/colorSecondary"
+        app:trackColor="#33FFFFFF" />
+
+    <!-- Frame count label -->
+    <TextView
+        android:id="@+id/tvFrameCount"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/calibration_frames_zero"
+        android:textColor="#99FFFFFF"
+        android:textSize="12sp"
+        android:layout_marginBottom="20dp" />
+
+    <!-- ============================================================ -->
+    <!-- Action buttons                                                -->
+    <!-- ============================================================ -->
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnCollectFrame"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/calibration_collect_frame"
+        android:layout_marginBottom="8dp"
+        style="@style/Widget.MaterialComponents.Button" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnComputeCalibration"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/calibration_compute"
+        android:enabled="false"
+        android:layout_marginBottom="8dp"
+        style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnResetCalibration"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/calibration_reset"
+        style="@style/Widget.MaterialComponents.Button.TextButton" />
+
+    <!-- ============================================================ -->
+    <!-- Results section (hidden until calibration is computed)       -->
+    <!-- ============================================================ -->
+    <LinearLayout
+        android:id="@+id/layoutCalibrationResults"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:visibility="gone"
+        android:background="#1AFFFFFF"
+        android:padding="12dp"
+        android:layout_marginTop="16dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/calibration_results_title"
+            android:textColor="?attr/colorSecondary"
+            android:textSize="12sp"
+            android:textAllCaps="true"
+            android:letterSpacing="0.08"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:id="@+id/tvCalibrationResults"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:fontFamily="monospace"
+            android:textColor="@android:color/white"
+            android:textSize="13sp"
+            android:lineSpacingExtra="4dp" />
+
+    </LinearLayout>
+
+</LinearLayout>

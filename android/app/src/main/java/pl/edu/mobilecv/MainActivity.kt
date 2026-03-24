@@ -70,6 +70,9 @@ class MainActivity : AppCompatActivity() {
     private val imageProcessor = ImageProcessor()
     private var currentFilter = OpenCvFilter.ORIGINAL
 
+    // Calibration
+    val cameraCalibrator = CameraCalibrator()
+
     // Single-threaded executor so that frame processing is serialised and
     // we never accumulate a backlog of pending frames.
     private lateinit var analysisExecutor: ExecutorService
@@ -101,10 +104,12 @@ class MainActivity : AppCompatActivity() {
 
         analysisExecutor = Executors.newSingleThreadExecutor()
 
+        imageProcessor.calibrator = cameraCalibrator
         initOpenCv()
         setupAnalysisTabs()
         setupCameraSwitchButton()
         setupCaptureButton()
+        setupCalibrationFab()
         requestPermissionsOrStart()
     }
 
@@ -190,6 +195,10 @@ class MainActivity : AppCompatActivity() {
             }
             binding.chipGroupFilters.addView(chip)
         }
+
+        // Show calibration FAB only in CALIBRATION mode.
+        binding.fabCalibrationMenu.visibility =
+            if (mode == AnalysisMode.CALIBRATION) View.VISIBLE else View.GONE
     }
 
     /** Toggle the lens direction and re-bind the camera. */
@@ -231,6 +240,65 @@ class MainActivity : AppCompatActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             binding.btnCapture.tooltipText = getString(R.string.long_press_hint)
         }
+    }
+
+    /**
+     * Configure the calibration menu FAB.
+     *
+     * Tapping it opens the [CalibrationBottomSheet] with callbacks wired
+     * to [cameraCalibrator].
+     */
+    private fun setupCalibrationFab() {
+        binding.fabCalibrationMenu.setOnClickListener {
+            openCalibrationMenu()
+        }
+    }
+
+    /**
+     * Show the calibration bottom sheet and wire its action callbacks.
+     */
+    private fun openCalibrationMenu() {
+        val sheet = CalibrationBottomSheet().apply {
+            onCollectFrame = {
+                val collected = cameraCalibrator.collectLastFrame()
+                if (collected) {
+                    val count = cameraCalibrator.frameCount
+                    runOnUiThread {
+                        Toast.makeText(
+                            this@MainActivity,
+                            getString(
+                                R.string.calibration_frame_collected,
+                                count,
+                                CameraCalibrator.MIN_FRAMES,
+                            ),
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    }
+                } else {
+                    runOnUiThread {
+                        Toast.makeText(
+                            this@MainActivity,
+                            getString(R.string.calibration_board_not_visible),
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    }
+                }
+                collected
+            }
+            onCalibrate = {
+                val result = cameraCalibrator.calibrate()
+                runOnUiThread {
+                    val msgRes = if (result != null) R.string.calibration_success
+                    else R.string.calibration_failed
+                    Toast.makeText(this@MainActivity, getString(msgRes), Toast.LENGTH_SHORT).show()
+                }
+                result
+            }
+            onReset = {
+                cameraCalibrator.reset()
+            }
+        }
+        sheet.show(supportFragmentManager, CalibrationBottomSheet.TAG)
     }
 
     // ---------------------------------------------------------------------------

@@ -18,4 +18,24 @@
     <string name="video_saved">Film zapisany</string>
     <string name="video_error">Błąd nagrywania</string>
     <string name="long_press_hint">Przytrzymaj, aby nagrywać wideo</string>
+
+    <!-- Calibration bottom sheet -->
+    <string name="calibration_title">Kalibracja kamery</string>
+    <string name="calibration_instructions">Skieruj kamerę na wzór szachownicy i zbieraj klatki z różnych pozycji i kątów.</string>
+    <string name="calibration_status_searching">Szukam szachownicy…</string>
+    <string name="calibration_status_found">Szachownica wykryta!</string>
+    <string name="calibration_frames_zero">Zebrano 0 / 10 klatek</string>
+    <string name="calibration_frames_count">Zebrano %1$d / %2$d klatek</string>
+    <string name="calibration_collect_frame">Zbierz klatkę</string>
+    <string name="calibration_compute">Oblicz kalibrację</string>
+    <string name="calibration_reset">Resetuj</string>
+    <string name="calibration_results_title">Wyniki kalibracji</string>
+    <string name="calibration_frame_collected">Klatka zebrana (%1$d/%2$d)</string>
+    <string name="calibration_board_not_visible">Szachownica nie jest widoczna</string>
+    <string name="calibration_not_enough_frames">Potrzeba min. %1$d klatek (zebrano %2$d)</string>
+    <string name="calibration_success">Kalibracja zakończona sukcesem</string>
+    <string name="calibration_failed">Kalibracja nie powiodła się</string>
+
+    <!-- Calibration FAB -->
+    <string name="calibration_menu_description">Otwórz menu kalibracji</string>
 </resources>

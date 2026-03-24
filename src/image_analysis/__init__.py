@@ -4,6 +4,13 @@ Public API for the image_analysis module.
 """
 
 from .april_tags import AprilTagDetection, detect_april_tags, draw_april_tags
+from .calibration import (
+    CalibrationResult,
+    calibrate_camera,
+    draw_chessboard_corners,
+    find_chessboard_corners,
+    undistort_image,
+)
 from .classification import classify_image
 from .detection import detect_objects
 from .preprocessing import load_image, normalize_image, resize_image
@@ -11,14 +18,19 @@ from .qr_detection import QRCode, detect_qr_codes, draw_qr_codes
 
 __all__ = [
     "AprilTagDetection",
+    "CalibrationResult",
     "QRCode",
+    "calibrate_camera",
     "classify_image",
     "detect_april_tags",
     "detect_objects",
     "detect_qr_codes",
     "draw_april_tags",
+    "draw_chessboard_corners",
     "draw_qr_codes",
+    "find_chessboard_corners",
     "load_image",
     "normalize_image",
     "resize_image",
+    "undistort_image",
 ]

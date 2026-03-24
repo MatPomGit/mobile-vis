@@ -8,9 +8,11 @@ import android.graphics.Bitmap
 import android.graphics.Matrix
 import android.os.Build
 import android.os.Bundle
+import android.provider.MediaStore
 import android.util.Log
 import android.util.Size
 import android.view.View
+import android.widget.ImageView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -30,8 +32,8 @@ import androidx.camera.video.Recording
 import androidx.camera.video.VideoCapture
 import androidx.camera.video.VideoRecordEvent
 import androidx.core.content.ContextCompat
-import android.provider.MediaStore
 import com.google.android.material.chip.Chip
+import com.google.android.material.floatingactionbutton.FloatingActionButton
 import com.google.android.material.tabs.TabLayout
 import org.opencv.android.OpenCVLoader
 import pl.edu.mobilecv.databinding.ActivityMainBinding
@@ -40,7 +42,6 @@ import java.util.concurrent.Executors
 
 /**
  * Main (and only) activity of the MobileCV application.
-<<<<<<< Updated upstream
  *
  * Responsibilities:
  * - Requests [Manifest.permission.CAMERA], [Manifest.permission.RECORD_AUDIO]
@@ -52,8 +53,6 @@ import java.util.concurrent.Executors
  *   so the user can watch a live processed preview, take photos, and record videos.
  * - Renders processed [Bitmap] frames into the full-screen [ImageView].
  * - Provides a camera-switch [FloatingActionButton] and a shutter/capture button.
-=======
->>>>>>> Stashed changes
  */
 class MainActivity : AppCompatActivity() {
 
@@ -77,24 +76,15 @@ class MainActivity : AppCompatActivity() {
     @Volatile
     private var currentFilter = OpenCvFilter.ORIGINAL
 
-<<<<<<< Updated upstream
     // Calibration
     val cameraCalibrator = CameraCalibrator()
+
+    // To prevent OOM, we keep track of the last bitmap set to the ImageView to recycle it.
+    private var lastProcessedBitmap: Bitmap? = null
 
     // Single-threaded executor so that frame processing is serialised and
     // we never accumulate a backlog of pending frames.
     private lateinit var analysisExecutor: ExecutorService
-
-    // ---------------------------------------------------------------------------
-    // Permission launcher (camera + audio + storage)
-    // ---------------------------------------------------------------------------
-=======
-    // To prevent OOM, we keep track of the last bitmap set to the ImageView to recycle it.
-    private var lastProcessedBitmap: Bitmap? = null
-
-    // Single-threaded executor so that frame processing is serialised.
-    private lateinit var analysisExecutor: ExecutorService
->>>>>>> Stashed changes
 
     private val permissionsLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -142,7 +132,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-<<<<<<< Updated upstream
     /**
      * Populate the [TabLayout] with one tab per [AnalysisMode].
      *
@@ -182,9 +171,6 @@ class MainActivity : AppCompatActivity() {
         currentFilter = mode.filters.firstOrNull() ?: return
         binding.textViewCurrentFilter.text = currentFilter.displayName
 
-=======
-    private fun setupFilterChips() {
->>>>>>> Stashed changes
         binding.chipGroupFilters.isSingleSelection = true
         binding.chipGroupFilters.isSelectionRequired = true
 
@@ -203,14 +189,10 @@ class MainActivity : AppCompatActivity() {
             }
             binding.chipGroupFilters.addView(chip)
         }
-<<<<<<< Updated upstream
 
         // Show calibration FAB only in CALIBRATION mode.
         binding.fabCalibrationMenu.visibility =
             if (mode == AnalysisMode.CALIBRATION) View.VISIBLE else View.GONE
-=======
-        binding.textViewCurrentFilter.text = currentFilter.displayName
->>>>>>> Stashed changes
     }
 
     private fun setupCameraSwitchButton() {
@@ -224,7 +206,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-<<<<<<< Updated upstream
     /**
      * Configure the shutter/capture button.
      *
@@ -337,19 +318,12 @@ class MainActivity : AppCompatActivity() {
 
     private fun requestPermissionsOrStart() {
         if (allPermissionsGranted()) {
-=======
-    private fun requestCameraOrStart() {
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
-            PackageManager.PERMISSION_GRANTED
-        ) {
->>>>>>> Stashed changes
             startCamera()
         } else {
             permissionsLauncher.launch(requiredPermissions())
         }
     }
 
-<<<<<<< Updated upstream
     // ---------------------------------------------------------------------------
     // CameraX
     // ---------------------------------------------------------------------------
@@ -362,7 +336,12 @@ class MainActivity : AppCompatActivity() {
     private fun startCamera() {
         val future = ProcessCameraProvider.getInstance(this)
         future.addListener({
-            cameraProvider = future.get()
+            cameraProvider = try {
+                future.get()
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to get camera provider", e)
+                null
+            }
             bindUseCases()
         }, ContextCompat.getMainExecutor(this))
     }
@@ -376,21 +355,6 @@ class MainActivity : AppCompatActivity() {
      * [VideoCapture] enables video recording.
      */
     private fun bindUseCases() {
-=======
-    private fun startCamera() {
-        val future = ProcessCameraProvider.getInstance(this)
-        future.addListener({
-            try {
-                cameraProvider = future.get()
-                bindAnalysisUseCase()
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to get camera provider", e)
-            }
-        }, ContextCompat.getMainExecutor(this))
-    }
-
-    private fun bindAnalysisUseCase() {
->>>>>>> Stashed changes
         val provider = cameraProvider ?: return
 
         val cameraSelector = CameraSelector.Builder()
@@ -439,7 +403,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-<<<<<<< Updated upstream
     // ---------------------------------------------------------------------------
     // Photo capture
     // ---------------------------------------------------------------------------
@@ -501,7 +464,7 @@ class MainActivity : AppCompatActivity() {
      * Audio is included only when [Manifest.permission.RECORD_AUDIO] is granted;
      * if the permission is absent the video is recorded silently.
      * The [SuppressLint] annotation is safe here because [hasAudioPermission]
-     * gates the [withAudioEnabled] call at runtime.
+     * gates the `withAudioEnabled` call at runtime.
      *
      * The button state is updated to show the recording indicator.
      */
@@ -581,8 +544,6 @@ class MainActivity : AppCompatActivity() {
      * @param imageProxy Frame delivered by the [ImageAnalysis] analyser.
      *                   Closed at the end of this method.
      */
-=======
->>>>>>> Stashed changes
     private fun processFrame(imageProxy: ImageProxy) {
         try {
             // imageProxy.toBitmap() creates a new Bitmap instance.

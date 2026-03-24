@@ -224,7 +224,7 @@ class CameraCalibrator(
                 )
                 val data = CalibrationData(camMat, distCoeffs, rms, imagePoints.size)
                 calibrationResult = data
-                Log.i(TAG, "Calibration done: RMS=%.4f using ${data.frameCount} frames".format(rms))
+                Log.i(TAG, "Calibration done: RMS=%.4f using %d frames".format(rms, data.frameCount))
                 data
             } catch (e: Exception) {
                 Log.e(TAG, "Calibration failed", e)

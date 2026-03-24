@@ -105,6 +105,9 @@ class MainActivity : AppCompatActivity() {
         analysisExecutor = Executors.newSingleThreadExecutor()
 
         imageProcessor.calibrator = cameraCalibrator
+        imageProcessor.labelFrameCountSuffix = getString(R.string.calibration_overlay_frames_suffix)
+        imageProcessor.labelBoardNotFound = getString(R.string.calibration_overlay_board_not_found)
+        imageProcessor.labelNoCalibration = getString(R.string.calibration_overlay_no_calibration)
         initOpenCv()
         setupAnalysisTabs()
         setupCameraSwitchButton()

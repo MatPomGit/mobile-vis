@@ -35,6 +35,24 @@ class ImageProcessor {
     /** Reference to the shared [CameraCalibrator]; set by [MainActivity]. */
     var calibrator: CameraCalibrator? = null
 
+    /**
+     * Overlay label for the frame counter shown in [CHESSBOARD_CALIBRATION] mode.
+     * Set by [MainActivity] from the string resource for proper localisation.
+     */
+    var labelFrameCountSuffix: String = "klatek"
+
+    /**
+     * Overlay label shown when no chessboard is visible.
+     * Set by [MainActivity] from the string resource for proper localisation.
+     */
+    var labelBoardNotFound: String = "Brak szachownicy"
+
+    /**
+     * Overlay label shown in [UNDISTORT] mode when no calibration is available.
+     * Set by [MainActivity] from the string resource for proper localisation.
+     */
+    var labelNoCalibration: String = "Brak kalibracji"
+
     // ------------------------------------------------------------------
     // Cached detector instances – created once and reused across frames
     // ------------------------------------------------------------------
@@ -473,9 +491,9 @@ class ImageProcessor {
         Imgproc.cvtColor(src, gray, Imgproc.COLOR_BGRA2GRAY)
 
         val cal = calibrator
-        val bw = cal?.boardWidth ?: CameraCalibrator.DEFAULT_BOARD_WIDTH
-        val bh = cal?.boardHeight ?: CameraCalibrator.DEFAULT_BOARD_HEIGHT
-        val patternSize = Size(bw.toDouble(), bh.toDouble())
+        val boardWidth = cal?.boardWidth ?: CameraCalibrator.DEFAULT_BOARD_WIDTH
+        val boardHeight = cal?.boardHeight ?: CameraCalibrator.DEFAULT_BOARD_HEIGHT
+        val patternSize = Size(boardWidth.toDouble(), boardHeight.toDouble())
 
         val corners = MatOfPoint2f()
         val found = Calib3d.findChessboardCorners(
@@ -520,13 +538,23 @@ class ImageProcessor {
                 Point(src.cols() - 4.0, src.rows() - 4.0),
                 red, 4
             )
+            Imgproc.putText(
+                result, labelBoardNotFound,
+                Point(16.0, 48.0),
+                Imgproc.FONT_HERSHEY_SIMPLEX, 1.0, Scalar(0.0, 0.0, 0.0, 200.0), 4
+            )
+            Imgproc.putText(
+                result, labelBoardNotFound,
+                Point(16.0, 48.0),
+                Imgproc.FONT_HERSHEY_SIMPLEX, 1.0, Scalar(0.0, 0.0, 255.0, 255.0), 2
+            )
             cal?.storeDetectedCorners(null, Size(src.cols().toDouble(), src.rows().toDouble()))
         }
 
         // Frame count overlay
         val frameCount = cal?.frameCount ?: 0
         val min = CameraCalibrator.MIN_FRAMES
-        val countLabel = "$frameCount/$min klatek"
+        val countLabel = "$frameCount/$min $labelFrameCountSuffix"
         val labelColor = if (frameCount >= min) Scalar(0.0, 255.0, 0.0, 255.0)
         else Scalar(255.0, 255.0, 255.0, 255.0)
         Imgproc.putText(
@@ -559,12 +587,12 @@ class ImageProcessor {
             // No calibration data – show original with informational overlay.
             val result = src.clone()
             Imgproc.putText(
-                result, "Brak kalibracji",
+                result, labelNoCalibration,
                 Point(16.0, 48.0),
                 Imgproc.FONT_HERSHEY_SIMPLEX, 1.0, Scalar(0.0, 0.0, 0.0, 200.0), 4
             )
             Imgproc.putText(
-                result, "Brak kalibracji",
+                result, labelNoCalibration,
                 Point(16.0, 48.0),
                 Imgproc.FONT_HERSHEY_SIMPLEX, 1.0, Scalar(0.0, 100.0, 255.0, 255.0), 2
             )

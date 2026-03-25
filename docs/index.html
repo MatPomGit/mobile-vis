@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Polityka Prywatności Aplikacji MobileCV</title>
+  <style>
+    :root {
+      --bg: #f7f8fb;
+      --card: #ffffff;
+      --text: #1f2937;
+      --muted: #6b7280;
+      --accent: #2563eb;
+      --border: #e5e7eb;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+    }
+
+    .container {
+      max-width: 900px;
+      margin: 40px auto;
+      padding: 0 20px;
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 32px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.06);
+    }
+
+    h1 {
+      margin-top: 0;
+      font-size: 2rem;
+      line-height: 1.2;
+    }
+
+    .updated {
+      color: var(--muted);
+      margin-bottom: 24px;
+    }
+
+    h2 {
+      margin-top: 28px;
+      font-size: 1.2rem;
+      color: var(--accent);
+    }
+
+    ul {
+      padding-left: 20px;
+    }
+
+    li {
+      margin-bottom: 10px;
+    }
+
+    .contact {
+      padding: 16px;
+      background: #f9fafb;
+      border: 1px dashed var(--border);
+      border-radius: 12px;
+    }
+
+    .note {
+      color: var(--muted);
+      font-style: italic;
+    }
+
+    @media (max-width: 640px) {
+      .card { padding: 22px; }
+      h1 { font-size: 1.6rem; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <h1>Polityka Prywatności Aplikacji MobileCV</h1>
+      <div class="updated">Ostatnia aktualizacja: 24.05.2024</div>
+
+      <p>
+        Niniejsza Polityka Prywatności opisuje zasady przetwarzania danych w aplikacji mobilnej MobileCV
+        (zwanej dalej „Aplikacją”).
+      </p>
+
+      <h2>1. Informacje ogólne</h2>
+      <p>
+        Aplikacja MobileCV służy do demonstracji algorytmów wizji komputerowej (OpenCV), w tym nakładania
+        filtrów obrazu, detekcji markerów oraz kalibracji kamery. Aplikacja została zaprojektowana z myślą
+        o maksymalnej prywatności użytkownika.
+      </p>
+
+      <h2>2. Uprawnienia i wykorzystywane dane</h2>
+      <p>Aplikacja wymaga dostępu do następujących funkcji urządzenia:</p>
+      <ul>
+        <li>
+          <strong>Kamera (android.permission.CAMERA):</strong> Wykorzystywana wyłącznie do wyświetlania
+          podglądu na żywo i analizy obrazu przez bibliotekę OpenCV. Obraz z kamery jest przetwarzany
+          lokalnie na urządzeniu (w czasie rzeczywistym).
+        </li>
+        <li>
+          <strong>Mikrofon (android.permission.RECORD_AUDIO):</strong> Wykorzystywany wyłącznie podczas
+          nagrywania filmów wideo, jeśli użytkownik zdecyduje się na zapisanie nagrania.
+        </li>
+        <li>
+          <strong>Pamięć zewnętrzna (Galeria):</strong> Wykorzystywana do zapisu zdjęć i filmów wykonanych
+          przez użytkownika w folderach Pictures/MobileCV oraz Movies/MobileCV.
+        </li>
+      </ul>
+
+      <h2>3. Przetwarzanie i przesyłanie danych</h2>
+      <ul>
+        <li>
+          <strong>Brak zbierania danych osobowych:</strong> Aplikacja nie zbiera, nie przechowuje ani nie
+          przesyła żadnych danych osobowych użytkownika (takich jak imię, e-mail, lokalizacja czy
+          identyfikatory urządzenia).
+        </li>
+        <li>
+          <strong>Przetwarzanie lokalne:</strong> Cała analiza obrazu (detekcja szachownicy, filtracja,
+          korekcja dystorsji) odbywa się wyłącznie w pamięci operacyjnej urządzenia.
+        </li>
+        <li>
+          <strong>Brak serwerów zewnętrznych:</strong> Aplikacja nie łączy się z żadnymi serwerami
+          zewnętrznymi w celu przesyłania obrazu lub wyników analizy.
+        </li>
+      </ul>
+
+      <h2>4. Udostępnianie danych osobom trzecim</h2>
+      <p>
+        Aplikacja nie udostępnia żadnych danych podmiotom trzecim. Wykonane zdjęcia i filmy są dostępne
+        wyłącznie dla użytkownika w galerii jego urządzenia.
+      </p>
+
+      <h2>5. Prawa użytkownika</h2>
+      <p>
+        Użytkownik ma pełną kontrolę nad uprawnieniami Aplikacji poprzez ustawienia systemu Android.
+        Cofnięcie uprawnień do kamery uniemożliwi działanie głównych funkcji Aplikacji.
+      </p>
+
+      <h2>6. Kontakt</h2>
+      <div class="contact">
+        <p>W razie pytań dotyczących niniejszej polityki prywatności prosimy o kontakt pod adresem:</p>
+        <p class="note">Adres e-mail nie został podany w dostarczonej treści.</p>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

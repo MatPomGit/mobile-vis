@@ -19,8 +19,8 @@ from .qr_detection import QRCode, detect_qr_codes, draw_qr_codes
 
 __all__ = [
     "AprilTagDetection",
-    "CalibrationResult",
     "CCTagDetection",
+    "CalibrationResult",
     "QRCode",
     "calibrate_camera",
     "classify_image",
@@ -29,8 +29,8 @@ __all__ = [
     "detect_objects",
     "detect_qr_codes",
     "draw_april_tags",
-    "draw_chessboard_corners",
     "draw_cc_tags",
+    "draw_chessboard_corners",
     "draw_qr_codes",
     "find_chessboard_corners",
     "load_image",

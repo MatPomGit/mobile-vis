@@ -51,4 +51,5 @@ dependencies {
     implementation(libs.androidx.camera.video)
     implementation(libs.camera.video)
     implementation(libs.opencv)
+    implementation(libs.okhttp)
 }

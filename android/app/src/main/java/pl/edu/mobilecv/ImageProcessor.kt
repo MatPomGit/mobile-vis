@@ -53,6 +53,16 @@ class ImageProcessor {
      */
     var labelNoCalibration: String = "Brak kalibracji"
 
+    /**
+     * Optional callback invoked after each frame in which at least one marker
+     * (AprilTag, ArUco, or QR code) was detected.
+     *
+     * Called on the image-analysis executor thread; the receiver must switch
+     * to the main thread before updating UI.  Wired by [MainActivity] to
+     * [RosBridgeClient.publishMarkers].
+     */
+    var onMarkersDetected: ((List<MarkerDetection>) -> Unit)? = null
+
     // ------------------------------------------------------------------
     // Cached detector instances – created once and reused across frames
     // ------------------------------------------------------------------
@@ -285,6 +295,9 @@ class ImageProcessor {
         aprilTagDetector.detectMarkers(gray, corners, ids)
 
         val color = Scalar(0.0, 255.0, 255.0, 255.0) // cyan (RGBA)
+        val detections = mutableListOf<MarkerDetection>()
+        val timestampMs = System.currentTimeMillis()
+
         for (i in corners.indices) {
             val cornerMat = corners[i] // shape (1, 4), CV_32FC2
             val pts = Array(4) { j ->
@@ -312,12 +325,22 @@ class ImageProcessor {
                 Imgproc.FONT_HERSHEY_SIMPLEX, 0.55, color, 2
             )
 
+            detections += MarkerDetection.AprilTag(
+                id = tagId,
+                corners = pts.map { Pair(it.x.toFloat(), it.y.toFloat()) },
+                timestampMs = timestampMs,
+            )
+
             polygon.release()
         }
 
         gray.release()
         ids.release()
         corners.forEach { it.release() }
+
+        if (detections.isNotEmpty()) {
+            onMarkersDetected?.invoke(detections)
+        }
         return result
     }
 
@@ -343,6 +366,9 @@ class ImageProcessor {
         arucoDetector.detectMarkers(gray, corners, ids)
 
         val color = Scalar(255.0, 0.0, 255.0, 255.0) // magenta (RGBA)
+        val detections = mutableListOf<MarkerDetection>()
+        val timestampMs = System.currentTimeMillis()
+
         for (i in corners.indices) {
             val cornerMat = corners[i] // shape (1, 4), CV_32FC2
             val pts = Array(4) { j ->
@@ -370,12 +396,22 @@ class ImageProcessor {
                 Imgproc.FONT_HERSHEY_SIMPLEX, 0.55, color, 2
             )
 
+            detections += MarkerDetection.Aruco(
+                id = markerId,
+                corners = pts.map { Pair(it.x.toFloat(), it.y.toFloat()) },
+                timestampMs = timestampMs,
+            )
+
             polygon.release()
         }
 
         gray.release()
         ids.release()
         corners.forEach { it.release() }
+
+        if (detections.isNotEmpty()) {
+            onMarkersDetected?.invoke(detections)
+        }
         return result
     }
 
@@ -400,6 +436,9 @@ class ImageProcessor {
         val texts = ArrayList<String>()
         val straightCodes = ArrayList<Mat>()
         val found = qrCodeDetector.detectAndDecodeMulti(gray, texts, points, straightCodes)
+
+        val detections = mutableListOf<MarkerDetection>()
+        val timestampMs = System.currentTimeMillis()
 
         if (found && !points.empty()) {
             val color = Scalar(0.0, 255.0, 0.0, 255.0) // green (RGBA)
@@ -434,6 +473,12 @@ class ImageProcessor {
                     Imgproc.FONT_HERSHEY_SIMPLEX, 0.55, color, 2
                 )
 
+                detections += MarkerDetection.QrCode(
+                    text = text,
+                    corners = pts.map { Pair(it.x.toFloat(), it.y.toFloat()) },
+                    timestampMs = timestampMs,
+                )
+
                 polygon.release()
             }
         }
@@ -441,6 +486,10 @@ class ImageProcessor {
         gray.release()
         points.release()
         straightCodes.forEach { it.release() }
+
+        if (detections.isNotEmpty()) {
+            onMarkersDetected?.invoke(detections)
+        }
         return result
     }
 

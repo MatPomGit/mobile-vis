@@ -141,6 +141,17 @@
                 app:fabSize="mini"
                 tools:visibility="visible" />
 
+            <!-- Robot connection FAB (right, all modes except Calibration) -->
+            <com.google.android.material.floatingactionbutton.FloatingActionButton
+                android:id="@+id/fabRobotConnection"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="end|center_vertical"
+                android:contentDescription="@string/robot_connection_description"
+                android:visibility="visible"
+                app:srcCompat="@android:drawable/ic_menu_share"
+                app:fabSize="mini" />
+
         </FrameLayout>
 
     </LinearLayout>

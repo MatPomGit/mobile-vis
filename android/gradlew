@@ -16,7 +16,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 APP_HOME="$SCRIPT_DIR"
 
 # Default JVM options
-DEFAULT_JVM_OPTS='"-Xmx64m" "-Xms64m"'
+DEFAULT_JVM_OPTS="-Xmx64m -Xms64m"
 
 # OS-specific settings
 case "$(uname -s)" in
@@ -33,6 +33,7 @@ else
 fi
 
 CLASSPATH="$APP_HOME/gradle/wrapper/gradle-wrapper.jar"
+# shellcheck disable=SC2086
 exec "$JAVA_CMD" $DEFAULT_JVM_OPTS \
   -classpath "$CLASSPATH" \
   org.gradle.wrapper.GradleWrapperMain "$@"

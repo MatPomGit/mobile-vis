@@ -43,4 +43,21 @@
     <string name="calibration_overlay_frames_suffix">klatek</string>
     <string name="calibration_overlay_board_not_found">Brak szachownicy</string>
     <string name="calibration_overlay_no_calibration">Brak kalibracji</string>
+
+    <!-- Robot / ROS2 connection -->
+    <string name="robot_connection_description">Połącz z robotem (ROSBridge)</string>
+    <string name="robot_connection_title">Połączenie z robotem (ROS2)</string>
+    <string name="robot_host_hint">Adres IP robota</string>
+    <string name="robot_port_hint">Port ROSBridge (domyślnie 9090)</string>
+    <string name="robot_btn_connect">Połącz</string>
+    <string name="robot_btn_disconnect">Rozłącz</string>
+    <string name="robot_status_disconnected">Status: Rozłączony</string>
+    <string name="robot_status_connecting">Status: Łączenie…</string>
+    <string name="robot_status_connected">Status: Połączony</string>
+    <string name="robot_status_error">Status: Błąd połączenia</string>
+    <string name="robot_toast_connected">Połączono z robotem</string>
+    <string name="robot_toast_disconnected">Rozłączono od robota</string>
+    <string name="robot_toast_error">Błąd połączenia z robotem</string>
+    <string name="robot_host_empty_error">Adres IP nie może być pusty</string>
+    <string name="robot_port_invalid_error">Port musi być liczbą od 1 do 65535</string>
 </resources>

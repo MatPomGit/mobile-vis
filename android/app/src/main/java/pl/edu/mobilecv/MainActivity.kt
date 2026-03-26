@@ -58,6 +58,10 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val TAG = "MobileCV"
+
+        private const val PREFS_NAME = "mobilecv_prefs"
+        private const val PREF_ROBOT_HOST = "robot_host"
+        private const val PREF_ROBOT_PORT = "robot_port"
     }
 
     private lateinit var binding: ActivityMainBinding
@@ -79,6 +83,11 @@ class MainActivity : AppCompatActivity() {
 
     // Calibration
     val cameraCalibrator = CameraCalibrator()
+
+    // ROS2 / ROSBridge
+    private val rosBridgeClient = RosBridgeClient()
+    private var lastRobotHost: String = "192.168.1.100"
+    private var lastRobotPort: Int = RosBridgeClient.DEFAULT_PORT
 
     // To prevent OOM, we keep track of the last bitmap set to the ImageView to recycle it.
     private var lastProcessedBitmap: Bitmap? = null
@@ -106,15 +115,31 @@ class MainActivity : AppCompatActivity() {
 
         analysisExecutor = Executors.newSingleThreadExecutor()
 
+        // Restore persisted robot connection settings.
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        lastRobotHost = prefs.getString(PREF_ROBOT_HOST, lastRobotHost) ?: lastRobotHost
+        lastRobotPort = prefs.getInt(PREF_ROBOT_PORT, lastRobotPort)
+
         imageProcessor.calibrator = cameraCalibrator
         imageProcessor.labelFrameCountSuffix = getString(R.string.calibration_overlay_frames_suffix)
         imageProcessor.labelBoardNotFound = getString(R.string.calibration_overlay_board_not_found)
         imageProcessor.labelNoCalibration = getString(R.string.calibration_overlay_no_calibration)
+        imageProcessor.onMarkersDetected = { detections ->
+            rosBridgeClient.publishMarkers(detections)
+        }
+
+        rosBridgeClient.onStateChanged = { state ->
+            if (!isDestroyed && !isFinishing) {
+                runOnUiThread { onRosBridgeStateChanged(state) }
+            }
+        }
+
         initOpenCv()
         setupAnalysisTabs()
         setupCameraSwitchButton()
         setupCaptureButton()
         setupCalibrationFab()
+        setupRobotConnectionFab()
         requestPermissionsOrStart()
     }
 
@@ -124,6 +149,7 @@ class MainActivity : AppCompatActivity() {
         analysisExecutor.shutdown()
         lastProcessedBitmap?.recycle()
         lastProcessedBitmap = null
+        rosBridgeClient.shutdown()
     }
 
     private fun initOpenCv() {
@@ -191,9 +217,12 @@ class MainActivity : AppCompatActivity() {
             binding.chipGroupFilters.addView(chip)
         }
 
-        // Show calibration FAB only in CALIBRATION mode.
+        // Show calibration FAB only in CALIBRATION mode;
+        // robot FAB is hidden in CALIBRATION mode to avoid visual clutter.
         binding.fabCalibrationMenu.visibility =
             if (mode == AnalysisMode.CALIBRATION) View.VISIBLE else View.GONE
+        binding.fabRobotConnection.visibility =
+            if (mode == AnalysisMode.CALIBRATION) View.GONE else View.VISIBLE
     }
 
     private fun setupCameraSwitchButton() {
@@ -246,6 +275,64 @@ class MainActivity : AppCompatActivity() {
         binding.fabCalibrationMenu.setOnClickListener {
             openCalibrationMenu()
         }
+    }
+
+    /**
+     * Configure the robot connection FAB.
+     *
+     * Tapping it opens [RobotConnectionSheet] pre-filled with the last used
+     * host/port and the current [RosBridgeClient] state.
+     */
+    private fun setupRobotConnectionFab() {
+        binding.fabRobotConnection.setOnClickListener {
+            openRobotConnectionMenu()
+        }
+    }
+
+    /**
+     * Open the robot connection bottom sheet.
+     */
+    private fun openRobotConnectionMenu() {
+        RobotConnectionSheet().apply {
+            currentState = rosBridgeClient.state
+            lastHost = this@MainActivity.lastRobotHost
+            lastPort = this@MainActivity.lastRobotPort
+            onConnect = { host, port ->
+                this@MainActivity.lastRobotHost = host
+                this@MainActivity.lastRobotPort = port
+                // Persist settings across app restarts.
+                getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
+                    .putString(PREF_ROBOT_HOST, host)
+                    .putInt(PREF_ROBOT_PORT, port)
+                    .apply()
+                rosBridgeClient.connect(host, port)
+            }
+            onDisconnect = {
+                rosBridgeClient.disconnect()
+            }
+        }.show(supportFragmentManager, RobotConnectionSheet.TAG)
+    }
+
+    /**
+     * React to [RosBridgeClient] state changes: update the FAB tint and show a toast.
+     *
+     * Must be called on the main thread.
+     */
+    private fun onRosBridgeStateChanged(state: RosBridgeClient.State) {
+        val (toastRes, colorRes) = when (state) {
+            RosBridgeClient.State.CONNECTED ->
+                Pair(R.string.robot_toast_connected, R.color.robot_connected)
+            RosBridgeClient.State.DISCONNECTED ->
+                Pair(R.string.robot_toast_disconnected, R.color.robot_disconnected)
+            RosBridgeClient.State.ERROR ->
+                Pair(R.string.robot_toast_error, R.color.robot_error)
+            RosBridgeClient.State.CONNECTING -> return
+        }
+        Toast.makeText(this, getString(toastRes), Toast.LENGTH_SHORT).show()
+        binding.fabRobotConnection.backgroundTintList =
+            android.content.res.ColorStateList.valueOf(
+                ContextCompat.getColor(this, colorRes)
+            )
     }
 
     /**

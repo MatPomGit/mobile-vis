@@ -64,6 +64,7 @@ class MainActivity : AppCompatActivity() {
 
     // CameraX
     private var cameraProvider: ProcessCameraProvider? = null
+    @Volatile
     private var lensFacing = CameraSelector.LENS_FACING_BACK
     private var imageCapture: ImageCapture? = null
     private var videoCapture: VideoCapture<Recorder>? = null

@@ -269,12 +269,12 @@ class ImageProcessor {
      * Draws a crosshair at the image centre, outlines each detected tag,
      * and overlays its ID and pixel offset (Δx, Δy) from the centre.
      *
-     * Input/output: BGRA Mat (shape H × W × 4).
+     * Input/output: RGBA Mat (shape H × W × 4).
      */
     private fun applyAprilTagDetection(src: Mat): Mat {
         val result = src.clone()
         val gray = Mat()
-        Imgproc.cvtColor(src, gray, Imgproc.COLOR_BGRA2GRAY)
+        Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
 
         val cx = src.cols() / 2
         val cy = src.rows() / 2
@@ -284,7 +284,7 @@ class ImageProcessor {
         val ids = Mat()
         aprilTagDetector.detectMarkers(gray, corners, ids)
 
-        val color = Scalar(0.0, 255.0, 255.0, 255.0) // cyan (BGRA)
+        val color = Scalar(0.0, 255.0, 255.0, 255.0) // cyan (RGBA)
         for (i in corners.indices) {
             val cornerMat = corners[i] // shape (1, 4), CV_32FC2
             val pts = Array(4) { j ->
@@ -327,12 +327,12 @@ class ImageProcessor {
      * Draws a crosshair at the image centre, outlines each detected marker
      * in magenta, and overlays its ID and pixel offset (Δx, Δy) from the centre.
      *
-     * Input/output: BGRA Mat (shape H × W × 4).
+     * Input/output: RGBA Mat (shape H × W × 4).
      */
     private fun applyArucoDetection(src: Mat): Mat {
         val result = src.clone()
         val gray = Mat()
-        Imgproc.cvtColor(src, gray, Imgproc.COLOR_BGRA2GRAY)
+        Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
 
         val cx = src.cols() / 2
         val cy = src.rows() / 2
@@ -342,7 +342,7 @@ class ImageProcessor {
         val ids = Mat()
         arucoDetector.detectMarkers(gray, corners, ids)
 
-        val color = Scalar(255.0, 0.0, 255.0, 255.0) // magenta (BGRA)
+        val color = Scalar(255.0, 0.0, 255.0, 255.0) // magenta (RGBA)
         for (i in corners.indices) {
             val cornerMat = corners[i] // shape (1, 4), CV_32FC2
             val pts = Array(4) { j ->
@@ -385,12 +385,12 @@ class ImageProcessor {
      * Draws a crosshair at the image centre, outlines each detected QR code,
      * and overlays its decoded text and pixel offset (Δx, Δy) from the centre.
      *
-     * Input/output: BGRA Mat (shape H × W × 4).
+     * Input/output: RGBA Mat (shape H × W × 4).
      */
     private fun applyQrCodeDetection(src: Mat): Mat {
         val result = src.clone()
         val gray = Mat()
-        Imgproc.cvtColor(src, gray, Imgproc.COLOR_BGRA2GRAY)
+        Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
 
         val cx = src.cols() / 2
         val cy = src.rows() / 2
@@ -402,7 +402,7 @@ class ImageProcessor {
         val found = qrCodeDetector.detectAndDecodeMulti(gray, texts, points, straightCodes)
 
         if (found && !points.empty()) {
-            val color = Scalar(0.0, 255.0, 0.0, 255.0) // green (BGRA)
+            val color = Scalar(0.0, 255.0, 0.0, 255.0) // green (RGBA)
             for (i in 0 until points.rows()) {
                 val pts = Array(4) { j ->
                     val raw = points.get(i, j)
@@ -451,12 +451,12 @@ class ImageProcessor {
      * The 30-pixel gap keeps the crosshair centre unobstructed so the
      * operator can see small markers located exactly at the frame centre.
      *
-     * @param mat  BGRA Mat to draw onto (modified in-place).
+     * @param mat  RGBA Mat to draw onto (modified in-place).
      * @param cx   X coordinate of the centre point.
      * @param cy   Y coordinate of the centre point.
      */
     private fun drawCrosshair(mat: Mat, cx: Int, cy: Int) {
-        val color = Scalar(255.0, 255.0, 255.0, 255.0) // white (BGRA)
+        val color = Scalar(255.0, 255.0, 255.0, 255.0) // white (RGBA)
         val thickness = 2
         val w = mat.cols()
         val h = mat.rows()
@@ -483,12 +483,12 @@ class ImageProcessor {
      * A green border indicates that the full pattern was found; red means
      * not found.  The current frame count is shown as an overlay.
      *
-     * Input/output: BGRA Mat (shape H × W × 4).
+     * Input/output: RGBA Mat (shape H × W × 4).
      */
     private fun applyChessboardCalibration(src: Mat): Mat {
         val result = src.clone()
         val gray = Mat()
-        Imgproc.cvtColor(src, gray, Imgproc.COLOR_BGRA2GRAY)
+        Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
 
         val cal = calibrator
         val boardWidth = cal?.boardWidth ?: CameraCalibrator.DEFAULT_BOARD_WIDTH
@@ -511,11 +511,11 @@ class ImageProcessor {
                 Size(11.0, 11.0), Size(-1.0, -1.0), criteria
             )
 
-            // Draw corners (OpenCV draws directly onto a BGR/BGRA Mat)
+            // Draw corners (OpenCV draws directly onto a BGR Mat)
             val bgrMat = Mat()
-            Imgproc.cvtColor(result, bgrMat, Imgproc.COLOR_BGRA2BGR)
+            Imgproc.cvtColor(result, bgrMat, Imgproc.COLOR_RGBA2BGR)
             Calib3d.drawChessboardCorners(bgrMat, patternSize, corners, true)
-            Imgproc.cvtColor(bgrMat, result, Imgproc.COLOR_BGR2BGRA)
+            Imgproc.cvtColor(bgrMat, result, Imgproc.COLOR_BGR2RGBA)
             bgrMat.release()
 
             // Green border: board detected
@@ -531,7 +531,7 @@ class ImageProcessor {
             cal?.storeDetectedCorners(corners, Size(src.cols().toDouble(), src.rows().toDouble()))
         } else {
             // Red border: board not visible
-            val red = Scalar(0.0, 0.0, 255.0, 255.0)
+            val red = Scalar(255.0, 0.0, 0.0, 255.0)
             Imgproc.rectangle(
                 result,
                 Point(4.0, 4.0),
@@ -546,7 +546,7 @@ class ImageProcessor {
             Imgproc.putText(
                 result, labelBoardNotFound,
                 Point(16.0, 48.0),
-                Imgproc.FONT_HERSHEY_SIMPLEX, 1.0, Scalar(0.0, 0.0, 255.0, 255.0), 2
+                Imgproc.FONT_HERSHEY_SIMPLEX, 1.0, Scalar(255.0, 0.0, 0.0, 255.0), 2
             )
             cal?.storeDetectedCorners(null, Size(src.cols().toDouble(), src.rows().toDouble()))
         }
@@ -579,7 +579,7 @@ class ImageProcessor {
      * If no calibration has been computed yet a red "Brak kalibracji" banner
      * is drawn over the raw frame to inform the user.
      *
-     * Input/output: BGRA Mat (shape H × W × 4).
+     * Input/output: RGBA Mat (shape H × W × 4).
      */
     private fun applyUndistort(src: Mat): Mat {
         val calData = calibrator?.calibrationResult
@@ -599,15 +599,15 @@ class ImageProcessor {
             return result
         }
 
-        // Convert BGRA → BGR, undistort, convert back.
+        // Convert RGBA → BGR, undistort, convert back.
         val bgr = Mat()
-        Imgproc.cvtColor(src, bgr, Imgproc.COLOR_BGRA2BGR)
+        Imgproc.cvtColor(src, bgr, Imgproc.COLOR_RGBA2BGR)
         val undistorted = Mat()
         Calib3d.undistort(bgr, undistorted, calData.cameraMatrix, calData.distCoeffs)
         bgr.release()
 
         val result = Mat()
-        Imgproc.cvtColor(undistorted, result, Imgproc.COLOR_BGR2BGRA)
+        Imgproc.cvtColor(undistorted, result, Imgproc.COLOR_BGR2RGBA)
         undistorted.release()
         return result
     }

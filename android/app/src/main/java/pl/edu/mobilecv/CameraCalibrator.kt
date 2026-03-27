@@ -75,7 +75,7 @@ class CameraCalibrator(
     private val objectPoints = mutableListOf<Mat>()
 
     /** Corners from the most recently processed frame (may be empty). */
-    private val lastCornersMat = MatOfPoint2f()
+    private val lastCornersMat: MatOfPoint2f by lazy { MatOfPoint2f() }
 
     /** Image size seen during the last [detectCorners] call. */
     private var lastImageSize = Size()

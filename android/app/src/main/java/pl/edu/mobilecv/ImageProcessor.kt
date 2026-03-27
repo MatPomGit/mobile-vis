@@ -64,16 +64,23 @@ class ImageProcessor {
     var onMarkersDetected: ((List<MarkerDetection>) -> Unit)? = null
 
     // ------------------------------------------------------------------
-    // Cached detector instances – created once and reused across frames
+    // Cached detector instances – created lazily so that native OpenCV
+    // methods are not called before the library is loaded.
     // ------------------------------------------------------------------
 
-    private val aprilTagDictionary: Dictionary =
+    private val aprilTagDictionary: Dictionary by lazy {
         Objdetect.getPredefinedDictionary(Objdetect.DICT_APRILTAG_36h11)
-    private val aprilTagDetector = ArucoDetector(aprilTagDictionary, DetectorParameters())
-    private val arucoDictionary: Dictionary =
+    }
+    private val aprilTagDetector: ArucoDetector by lazy {
+        ArucoDetector(aprilTagDictionary, DetectorParameters())
+    }
+    private val arucoDictionary: Dictionary by lazy {
         Objdetect.getPredefinedDictionary(Objdetect.DICT_4X4_50)
-    private val arucoDetector = ArucoDetector(arucoDictionary, DetectorParameters())
-    private val qrCodeDetector = QRCodeDetector()
+    }
+    private val arucoDetector: ArucoDetector by lazy {
+        ArucoDetector(arucoDictionary, DetectorParameters())
+    }
+    private val qrCodeDetector: QRCodeDetector by lazy { QRCodeDetector() }
 
     // ------------------------------------------------------------------
     // Display constants

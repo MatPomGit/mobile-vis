@@ -89,8 +89,11 @@ class MainActivity : AppCompatActivity() {
     private var lastRobotHost: String = "192.168.1.100"
     private var lastRobotPort: Int = RosBridgeClient.DEFAULT_PORT
 
-    // To prevent OOM, we keep track of the last bitmap set to the ImageView to recycle it.
+    // Bitmap double-buffer: we keep two references so we can safely recycle the one that
+    // was displayed TWO frames ago.  Recycling one frame earlier risks a RenderThread race
+    // where the GPU is still uploading the bitmap to a texture when we mark it recycled.
     private var lastProcessedBitmap: Bitmap? = null
+    private var pendingRecycleBitmap: Bitmap? = null
 
     // Single-threaded executor so that frame processing is serialised and
     // we never accumulate a backlog of pending frames.
@@ -147,6 +150,8 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
         activeRecording?.stop()
         analysisExecutor.shutdown()
+        pendingRecycleBitmap?.recycle()
+        pendingRecycleBitmap = null
         lastProcessedBitmap?.recycle()
         lastProcessedBitmap = null
         rosBridgeClient.shutdown()
@@ -645,11 +650,13 @@ class MainActivity : AppCompatActivity() {
             val processed: Bitmap = imageProcessor.processFrame(oriented, currentFilter)
 
             runOnUiThread {
-                val toRecycle = lastProcessedBitmap
+                // Recycle the bitmap from two frames ago – by then the RenderThread has had
+                // at least one full vsync cycle to upload the previous bitmap to a GPU texture
+                // and no longer reads from its CPU pixel buffer.
+                pendingRecycleBitmap?.recycle()
+                pendingRecycleBitmap = lastProcessedBitmap
                 binding.imageViewPreview.setImageBitmap(processed)
                 lastProcessedBitmap = processed
-                // Recycle the previous processed bitmap to free memory.
-                toRecycle?.recycle()
             }
 
             // Cleanup intermediate bitmaps.

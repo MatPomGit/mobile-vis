@@ -66,5 +66,9 @@ android/*.iml
 android/**/*.iml
 android/gradle/wrapper/gradle-wrapper.jar
 android/app/release/
+app/release/
+app/debug/
+*.apk
+*.aab
 *.apk
 *.aab

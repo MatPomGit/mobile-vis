@@ -75,6 +75,11 @@ class ImageProcessor {
      */
     var onMarkersDetected: ((List<MarkerDetection>) -> Unit)? = null
 
+    /** Enables Active Vision ROI optimisation pipeline. */
+    var isActiveVisionEnabled: Boolean = false
+
+    private val activeVisionOptimizer = ActiveVisionOptimizer()
+
     // ------------------------------------------------------------------
     // Cached detector instances – created lazily so that native OpenCV
     // methods are not called before the library is loaded.
@@ -130,6 +135,12 @@ class ImageProcessor {
         // bitmapToMat converts ARGB_8888 → RGBA Mat (4 channels)
         Utils.bitmapToMat(bitmap, src)
 
+        val baseFrame = if (isActiveVisionEnabled) {
+            activeVisionOptimizer.optimize(src)
+        } else {
+            src.clone()
+        }
+
         val processed: Mat = when (filter) {
             OpenCvFilter.ORIGINAL -> src.clone()
             OpenCvFilter.GRAYSCALE -> applyGrayscale(src)
@@ -151,13 +162,14 @@ class ImageProcessor {
             OpenCvFilter.HOLISTIC_BODY,
             OpenCvFilter.HOLISTIC_HANDS,
             OpenCvFilter.HOLISTIC_FACE,
-            OpenCvFilter.IRIS -> src.clone()
+            OpenCvFilter.IRIS -> baseFrame.clone()
         }
 
         val result = Bitmap.createBitmap(processed.cols(), processed.rows(), Bitmap.Config.ARGB_8888)
         Utils.matToBitmap(processed, result)
 
         src.release()
+        baseFrame.release()
         processed.release()
 
         return result

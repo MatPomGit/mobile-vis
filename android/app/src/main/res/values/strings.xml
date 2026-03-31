@@ -61,6 +61,17 @@
     <string name="robot_host_empty_error">Adres IP nie może być pusty</string>
     <string name="robot_port_invalid_error">Port musi być liczbą od 1 do 65535</string>
 
+    <!-- Camera resolution picker -->
+    <string name="resolution_fab_description">Zmień rozdzielczość kamery</string>
+    <string name="resolution_title">Rozdzielczość kamery</string>
+    <string name="resolution_description">Niższa rozdzielczość zwiększa płynność analizy w czasie rzeczywistym.</string>
+    <string name="resolution_btn_apply">Zastosuj</string>
+    <string name="resolution_applied">Rozdzielczość zmieniona na %1$s</string>
+    <string name="active_vision_toggle">Active Vision</string>
+    <string name="active_vision_enabled">Tryb Active Vision włączony</string>
+    <string name="active_vision_disabled">Tryb Active Vision wyłączony</string>
+    <string name="diagnostics_active_vision">Active Vision: %1$b</string>
+
     <!-- Diagnostics overlay (FPS indicator and processing info) -->
     <string name="diagnostics_fps">FPS: %1$.1f</string>
     <string name="diagnostics_resolution">Rozdzielczość: %1$d×%2$d</string>

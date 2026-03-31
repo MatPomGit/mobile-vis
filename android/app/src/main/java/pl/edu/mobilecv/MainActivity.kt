@@ -94,6 +94,21 @@ class MainActivity : AppCompatActivity() {
     private var lastRobotHost: String = "192.168.1.100"
     private var lastRobotPort: Int = RosBridgeClient.DEFAULT_PORT
 
+    // FPS and diagnostics
+    private val fpsCounter = FpsCounter()
+
+    /** Last processed-frame width in pixels (updated on the analysis executor). */
+    @Volatile
+    private var frameWidth: Int = 0
+
+    /** Last processed-frame height in pixels (updated on the analysis executor). */
+    @Volatile
+    private var frameHeight: Int = 0
+
+    /** Processing time for the last frame in milliseconds (updated on the analysis executor). */
+    @Volatile
+    private var lastProcessingTimeMs: Long = 0
+
     // Bitmap double-buffer: we keep two references so we can safely recycle the one that
     // was displayed TWO frames ago.  Recycling one frame earlier risks a RenderThread race
     // where the GPU is still uploading the bitmap to a texture when we mark it recycled.
@@ -549,6 +564,7 @@ class MainActivity : AppCompatActivity() {
 
         try {
             provider.unbindAll()
+            fpsCounter.reset()
             val capture = imageCapture ?: return
             val video = videoCapture ?: return
             provider.bindToLifecycle(
@@ -709,9 +725,17 @@ class MainActivity : AppCompatActivity() {
 
             // Rotate and mirror (if front camera) the bitmap.
             val oriented: Bitmap = orientBitmap(bitmap, rotation, lensFacing)
-            
+
+            // Measure filter processing time.
+            val frameStart = System.nanoTime()
+
             // Apply OpenCV filters.
             val processed: Bitmap = imageProcessor.processFrame(oriented, currentFilter)
+
+            lastProcessingTimeMs = (System.nanoTime() - frameStart) / 1_000_000L
+            frameWidth = processed.width
+            frameHeight = processed.height
+            fpsCounter.onFrame()
 
             runOnUiThread {
                 // Recycle the bitmap from two frames ago – by then the RenderThread has had
@@ -721,6 +745,15 @@ class MainActivity : AppCompatActivity() {
                 pendingRecycleBitmap = lastProcessedBitmap
                 binding.imageViewPreview.setImageBitmap(processed)
                 lastProcessedBitmap = processed
+
+                updateDiagnosticsOverlay(
+                    fps = fpsCounter.fps,
+                    width = frameWidth,
+                    height = frameHeight,
+                    processingMs = lastProcessingTimeMs,
+                    filter = currentFilter,
+                    isFrontCamera = lensFacing == CameraSelector.LENS_FACING_FRONT,
+                )
             }
 
             // Cleanup intermediate bitmaps.
@@ -733,6 +766,43 @@ class MainActivity : AppCompatActivity() {
         } finally {
             imageProxy.close()
         }
+    }
+
+    /**
+     * Update the on-screen diagnostics overlay with current performance metrics.
+     *
+     * Must be called on the main thread.
+     *
+     * @param fps            Current frames per second.
+     * @param width          Processed frame width in pixels.
+     * @param height         Processed frame height in pixels.
+     * @param processingMs   Time spent processing the last frame (milliseconds).
+     * @param filter         Currently active [OpenCvFilter].
+     * @param isFrontCamera  `true` if the front-facing camera is active.
+     */
+    private fun updateDiagnosticsOverlay(
+        fps: Double,
+        width: Int,
+        height: Int,
+        processingMs: Long,
+        filter: OpenCvFilter,
+        isFrontCamera: Boolean,
+    ) {
+        val cameraLabel = if (isFrontCamera) {
+            getString(R.string.diagnostics_camera_front)
+        } else {
+            getString(R.string.diagnostics_camera_back)
+        }
+        val text = buildString {
+            appendLine(getString(R.string.diagnostics_fps, fps))
+            if (width > 0 && height > 0) {
+                appendLine(getString(R.string.diagnostics_resolution, width, height))
+            }
+            appendLine(getString(R.string.diagnostics_processing_time, processingMs))
+            appendLine(getString(R.string.diagnostics_filter, filter.displayName))
+            append(cameraLabel)
+        }
+        binding.textViewDiagnostics.text = text
     }
 
     private fun orientBitmap(bitmap: Bitmap, rotationDegrees: Int, lensFacing: Int): Bitmap {

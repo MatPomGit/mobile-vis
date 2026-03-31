@@ -32,6 +32,24 @@
         android:scaleType="fitCenter" />
 
     <!--
+        Diagnostic overlay: FPS counter and processing statistics displayed
+        in the top-left corner of the camera preview.
+    -->
+    <TextView
+        android:id="@+id/textViewDiagnostics"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|start"
+        android:layout_margin="8dp"
+        android:background="#80000000"
+        android:fontFamily="monospace"
+        android:padding="6dp"
+        android:textColor="#FFFFFFFF"
+        android:textSize="11sp"
+        android:visibility="visible"
+        tools:text="FPS: 30.0&#10;Rozdzielczość: 640×480&#10;Czas: 12 ms&#10;Filtr: Original&#10;Kamera: tylna" />
+
+    <!--
         Bottom control bar (semi-transparent dark background)
     -->
     <LinearLayout

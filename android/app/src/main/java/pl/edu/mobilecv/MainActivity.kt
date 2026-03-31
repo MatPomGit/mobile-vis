@@ -75,8 +75,9 @@ class MainActivity : AppCompatActivity() {
     private var activeRecording: Recording? = null
     private var isRecording = false
 
-    // OpenCV
+    // OpenCV + MediaPipe
     private val imageProcessor = ImageProcessor()
+    private val mediaPipeProcessor: MediaPipeProcessor by lazy { MediaPipeProcessor(this) }
 
     @Volatile
     private var currentFilter = OpenCvFilter.ORIGINAL
@@ -131,6 +132,13 @@ class MainActivity : AppCompatActivity() {
             rosBridgeClient.publishMarkers(detections)
         }
 
+        // Initialise MediaPipe processor on the analysis executor so that native
+        // resources are created on the same thread they will be used on.
+        analysisExecutor.execute {
+            mediaPipeProcessor.initialize()
+            imageProcessor.mediaPipeProcessor = mediaPipeProcessor
+        }
+
         rosBridgeClient.onStateChanged = { state ->
             if (!isDestroyed && !isFinishing) {
                 runOnUiThread { onRosBridgeStateChanged(state) }
@@ -149,6 +157,7 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         activeRecording?.stop()
+        analysisExecutor.execute { mediaPipeProcessor.close() }
         analysisExecutor.shutdown()
         pendingRecycleBitmap?.recycle()
         pendingRecycleBitmap = null
@@ -195,6 +204,8 @@ class MainActivity : AppCompatActivity() {
      * Rebuild the chip group to show only the filters belonging to [mode].
      *
      * The first filter in the mode is automatically selected.
+     * When [AnalysisMode.POSE] is selected and MediaPipe models have not yet
+     * been downloaded, a background download is started automatically.
      * Precondition: [AnalysisMode.filters] must be non-empty for every enum entry.
      */
     private fun updateFilterChips(mode: AnalysisMode) {
@@ -228,6 +239,47 @@ class MainActivity : AppCompatActivity() {
             if (mode == AnalysisMode.CALIBRATION) View.VISIBLE else View.GONE
         binding.fabRobotConnection.visibility =
             if (mode == AnalysisMode.CALIBRATION) View.GONE else View.VISIBLE
+
+        // Trigger background model download when the user first opens the POSE tab.
+        if (mode == AnalysisMode.POSE && !ModelDownloadManager.areAllModelsReady(this)) {
+            startMediaPipeModelDownload()
+        }
+    }
+
+    /**
+     * Start downloading MediaPipe model files in the background.
+     *
+     * Shows a toast when download starts, and re-initialises [MediaPipeProcessor]
+     * once all files are available.
+     */
+    private fun startMediaPipeModelDownload() {
+        Toast.makeText(this, getString(R.string.mediapipe_models_downloading), Toast.LENGTH_LONG)
+            .show()
+
+        analysisExecutor.execute {
+            val success = ModelDownloadManager.downloadMissingModels(this)
+            if (success) {
+                // Re-initialise the processor now that model files are present.
+                mediaPipeProcessor.close()
+                mediaPipeProcessor.initialize()
+                imageProcessor.mediaPipeProcessor = mediaPipeProcessor
+                runOnUiThread {
+                    Toast.makeText(
+                        this,
+                        getString(R.string.mediapipe_models_ready),
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
+            } else {
+                runOnUiThread {
+                    Toast.makeText(
+                        this,
+                        getString(R.string.mediapipe_models_download_failed),
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
+            }
+        }
     }
 
     private fun setupCameraSwitchButton() {

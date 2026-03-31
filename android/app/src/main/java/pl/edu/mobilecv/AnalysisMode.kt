@@ -2,7 +2,7 @@ package pl.edu.mobilecv
 
 /**
  * Groups [OpenCvFilter] entries into high-level image-analysis modes
- * displayed as top-bar tabs in [MainActivity].
+ * displayed as bottom-bar tabs in [MainActivity].
  *
  * Each mode exposes a [filters] list that drives the chip group shown
  * in the bottom bar when the tab is active.
@@ -46,6 +46,22 @@ enum class AnalysisMode(val displayName: String, val filters: List<OpenCvFilter>
             OpenCvFilter.APRIL_TAGS,
             OpenCvFilter.ARUCO,
             OpenCvFilter.QR_CODE,
+        )
+    ),
+
+    /**
+     * Human body, face and hand tracking using MediaPipe Holistic and Iris.
+     *
+     * Includes full-body pose estimation, bilateral hand tracking,
+     * 468-landmark face mesh, and iris/gaze tracking.
+     */
+    POSE(
+        "Poza / Twarz",
+        listOf(
+            OpenCvFilter.HOLISTIC_BODY,
+            OpenCvFilter.HOLISTIC_HANDS,
+            OpenCvFilter.HOLISTIC_FACE,
+            OpenCvFilter.IRIS,
         )
     ),
 

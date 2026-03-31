@@ -60,4 +60,12 @@
     <string name="robot_toast_error">Błąd połączenia z robotem</string>
     <string name="robot_host_empty_error">Adres IP nie może być pusty</string>
     <string name="robot_port_invalid_error">Port musi być liczbą od 1 do 65535</string>
+
+    <!-- MediaPipe Holistic & Iris -->
+    <string name="mediapipe_models_downloading">Pobieranie modeli MediaPipe w tle…</string>
+    <string name="mediapipe_models_ready">Modele MediaPipe gotowe</string>
+    <string name="mediapipe_models_download_failed">Nie udało się pobrać modeli MediaPipe. Sprawdź połączenie z internetem.</string>
+    <string name="mediapipe_model_missing_pose">Model pozy niedostępny – pobieranie…</string>
+    <string name="mediapipe_model_missing_hands">Model rąk niedostępny – pobieranie…</string>
+    <string name="mediapipe_model_missing_face">Model twarzy niedostępny – pobieranie…</string>
 </resources>

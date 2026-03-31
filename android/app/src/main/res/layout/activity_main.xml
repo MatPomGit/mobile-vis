@@ -2,10 +2,10 @@
 <!--
     activity_main.xml
     Full-screen processed camera preview with:
-      • a semi-transparent TabLayout at the top for switching analysis modes
-      • a semi-transparent bottom bar with a filter chip group,
-        a camera-switch FAB, a calibration-menu FAB (calibration mode only),
-        and a central capture (shutter) button.
+      • a semi-transparent bottom bar containing (from top to bottom):
+          – a filter chip group for selecting the active sub-filter,
+          – a scrollable TabLayout for switching analysis modes, and
+          – a button row with camera-switch FAB, capture button, and action FAB.
 -->
 <androidx.constraintlayout.widget.ConstraintLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
@@ -17,24 +17,7 @@
     tools:context=".MainActivity">
 
     <!-- ================================================================ -->
-    <!-- Top bar: analysis-mode tabs                                       -->
-    <!-- ================================================================ -->
-    <com.google.android.material.tabs.TabLayout
-        android:id="@+id/tabLayoutModes"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:background="#CC000000"
-        app:tabTextColor="#80FFFFFF"
-        app:tabSelectedTextColor="@android:color/white"
-        app:tabIndicatorColor="?attr/colorSecondary"
-        app:tabIndicatorHeight="3dp"
-        app:tabMode="scrollable"
-        app:layout_constraintTop_toTopOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent" />
-
-    <!-- ================================================================ -->
-    <!-- Camera preview (fills space between top tab bar and bottom bar)   -->
+    <!-- Camera preview (fills the area above the bottom bar)             -->
     <!-- ================================================================ -->
     <ImageView
         android:id="@+id/imageViewPreview"
@@ -42,13 +25,18 @@
         android:layout_height="0dp"
         android:scaleType="centerCrop"
         android:contentDescription="@string/camera_preview_description"
-        app:layout_constraintTop_toBottomOf="@id/tabLayoutModes"
+        app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintBottom_toTopOf="@id/bottomBar"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
 
     <!-- ================================================================ -->
-    <!-- Bottom control bar (semi-transparent dark background)             -->
+    <!-- Bottom control bar (semi-transparent dark background)            -->
+    <!-- Contains (top to bottom):                                        -->
+    <!--   1. Active filter label                                         -->
+    <!--   2. Horizontally scrollable filter chip group                   -->
+    <!--   3. Analysis-mode tab bar (moved from the top for ergonomics)   -->
+    <!--   4. Camera action buttons (switch | capture | settings FAB)     -->
     <!-- ================================================================ -->
     <LinearLayout
         android:id="@+id/bottomBar"
@@ -94,6 +82,23 @@
                 app:chipSpacingHorizontal="4dp" />
 
         </HorizontalScrollView>
+
+        <!-- ============================================================ -->
+        <!-- Analysis-mode tab bar (relocated from the top of the screen  -->
+        <!-- to the bottom for easier one-handed thumb access)            -->
+        <!-- ============================================================ -->
+        <com.google.android.material.tabs.TabLayout
+            android:id="@+id/tabLayoutModes"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:background="transparent"
+            app:tabTextColor="#80FFFFFF"
+            app:tabSelectedTextColor="@android:color/white"
+            app:tabIndicatorColor="?attr/colorSecondary"
+            app:tabIndicatorHeight="3dp"
+            app:tabMode="scrollable"
+            app:tabTextAppearance="@style/TextAppearance.Material3.LabelSmall" />
 
         <!--
             Button row:

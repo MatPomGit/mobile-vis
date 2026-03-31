@@ -14,11 +14,11 @@ jobs:
      - name: Grant execute permission for gradlew
         # run: chmod +x ./gradlew
         # Jeśli plik jest w podfolderze, użyj:
-        run: chmod +x ./Android/gradlew
+        run: chmod +x ./android/gradlew
 
       - name: Build Debug APK
         run: ./gradlew assembleDebug
-        working-directory: ./Android
+        working-directory: ./android
 
       - name: Checkout code
         uses: actions/checkout@v4

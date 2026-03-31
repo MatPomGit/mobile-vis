@@ -65,6 +65,17 @@ enum class AnalysisMode(val displayName: String, val filters: List<OpenCvFilter>
         )
     ),
 
+    /**
+     * Visual odometry and pseudo point-cloud reconstruction from monocular video.
+     */
+    ODOMETRY(
+        "Odometria 3D",
+        listOf(
+            OpenCvFilter.VISUAL_ODOMETRY,
+            OpenCvFilter.POINT_CLOUD,
+        )
+    ),
+
     /** Camera calibration using chessboard patterns. */
     CALIBRATION(
         "Kalibracja",

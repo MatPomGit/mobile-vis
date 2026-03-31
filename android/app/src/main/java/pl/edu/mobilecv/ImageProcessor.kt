@@ -59,6 +59,12 @@ class ImageProcessor {
      */
     var labelNoCalibration: String = "Brak kalibracji"
 
+    /** Overlay label prefix for visual odometry track statistics. */
+    var labelOdometryTracks: String = "Ścieżki"
+
+    /** Overlay label prefix for pseudo point-cloud statistics. */
+    var labelPointCloud: String = "Chmura"
+
     /**
      * Optional callback invoked after each frame in which at least one marker
      * (AprilTag, ArUco, or QR code) was detected.
@@ -88,6 +94,8 @@ class ImageProcessor {
     }
     private val qrCodeDetector: QRCodeDetector by lazy { QRCodeDetector() }
 
+    private val visualOdometryEngine = VisualOdometryEngine()
+
     // ------------------------------------------------------------------
     // Display constants
     // ------------------------------------------------------------------
@@ -108,6 +116,10 @@ class ImageProcessor {
      * @return New ARGB_8888 bitmap with the filter applied.
      */
     fun processFrame(bitmap: Bitmap, filter: OpenCvFilter): Bitmap {
+        if (filter != OpenCvFilter.VISUAL_ODOMETRY && filter != OpenCvFilter.POINT_CLOUD) {
+            visualOdometryEngine.reset()
+        }
+
         // Delegate MediaPipe filters to MediaPipeProcessor.
         if (filter.isMediaPipe) {
             return mediaPipeProcessor?.processFrame(bitmap, filter)
@@ -133,6 +145,8 @@ class ImageProcessor {
             OpenCvFilter.QR_CODE -> applyQrCodeDetection(src)
             OpenCvFilter.CHESSBOARD_CALIBRATION -> applyChessboardCalibration(src)
             OpenCvFilter.UNDISTORT -> applyUndistort(src)
+            OpenCvFilter.VISUAL_ODOMETRY -> applyVisualOdometry(src)
+            OpenCvFilter.POINT_CLOUD -> applyPointCloud(src)
             // MediaPipe filters are already handled above; exhaustive branch prevents warning.
             OpenCvFilter.HOLISTIC_BODY,
             OpenCvFilter.HOLISTIC_HANDS,
@@ -541,6 +555,86 @@ class ImageProcessor {
         // Vertical arms
         Imgproc.line(mat, Point(cx.toDouble(), 0.0), Point(cx.toDouble(), (cy - CROSSHAIR_GAP).toDouble()), color, thickness)
         Imgproc.line(mat, Point(cx.toDouble(), (cy + CROSSHAIR_GAP).toDouble()), Point(cx.toDouble(), h.toDouble()), color, thickness)
+    }
+
+    private fun applyVisualOdometry(src: Mat): Mat {
+        val result = src.clone()
+        val state = visualOdometryEngine.updateOdometry(src)
+
+        if (state == null) {
+            Imgproc.putText(
+                result,
+                "$labelOdometryTracks: inicjalizacja...",
+                Point(20.0, 40.0),
+                Imgproc.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                Scalar(0.0, 255.0, 255.0, 255.0),
+                2,
+            )
+            return result
+        }
+
+        Imgproc.putText(
+            result,
+            "$labelOdometryTracks: ${state.tracksCount} (inliers: ${state.inliersCount})",
+            Point(20.0, 40.0),
+            Imgproc.FONT_HERSHEY_SIMPLEX,
+            0.65,
+            Scalar(0.0, 255.0, 255.0, 255.0),
+            2,
+        )
+        Imgproc.putText(
+            result,
+            "T: ${"%.3f".format(state.translationNorm)}  R: ${"%.2f".format(state.rotationDeg)}°",
+            Point(20.0, 70.0),
+            Imgproc.FONT_HERSHEY_SIMPLEX,
+            0.65,
+            Scalar(255.0, 255.0, 0.0, 255.0),
+            2,
+        )
+        return result
+    }
+
+    private fun applyPointCloud(src: Mat): Mat {
+        val result = src.clone()
+        val cloudState = visualOdometryEngine.updatePointCloud(src)
+
+        if (cloudState == null) {
+            Imgproc.putText(
+                result,
+                "$labelPointCloud: inicjalizacja...",
+                Point(20.0, 40.0),
+                Imgproc.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                Scalar(255.0, 180.0, 0.0, 255.0),
+                2,
+            )
+            return result
+        }
+
+        val maxPoints = minOf(cloudState.points.size, 120)
+        for (i in 0 until maxPoints) {
+            val point = cloudState.points[i]
+            val depthRatio = ((point.y + src.rows()) / (2.0 * src.rows())).coerceIn(0.0, 1.0)
+            val color = Scalar(
+                255.0 * (1.0 - depthRatio),
+                255.0 * depthRatio,
+                200.0,
+                255.0,
+            )
+            Imgproc.circle(result, point, 2, color, -1)
+        }
+
+        Imgproc.putText(
+            result,
+            "$labelPointCloud: ${cloudState.points.size} pkt  p=${"%.2f".format(cloudState.meanParallax)}",
+            Point(20.0, 40.0),
+            Imgproc.FONT_HERSHEY_SIMPLEX,
+            0.65,
+            Scalar(255.0, 255.0, 0.0, 255.0),
+            2,
+        )
+        return result
     }
 
     // ------------------------------------------------------------------

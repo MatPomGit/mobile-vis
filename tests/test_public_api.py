@@ -50,13 +50,44 @@ def test_package_import_does_not_eagerly_import_heavy_submodules() -> None:
             f"stdout:\n{result.stdout}\n\nstderr:\n{result.stderr}"
         )
         pytest.fail(msg)
+
+
 def test_lazy_export_for_classification_symbol() -> None:
-    """A symbol exported in __all__ should be resolved lazily on first access."""
-    package = importlib.import_module("image_analysis")
+    """Accessing a symbol should trigger only its submodule import, not others."""
+    script = """
+    import importlib
+    import sys
 
-    symbol = package.classify_image
+    importlib.import_module("image_analysis")
 
-    assert callable(symbol)
+    assert "image_analysis.classification" not in sys.modules, (
+        "image_analysis.classification was eagerly imported"
+    )
+
+    import image_analysis
+    symbol = image_analysis.classify_image
+
+    assert callable(symbol), "classify_image should be callable"
+    assert "image_analysis.classification" in sys.modules, (
+        "image_analysis.classification should be imported after accessing classify_image"
+    )
+    assert "image_analysis.detection" not in sys.modules, (
+        "image_analysis.detection should not be imported when accessing classify_image"
+    )
+    """
+
+    result = subprocess.run(
+        [sys.executable, "-c", textwrap.dedent(script)],
+        capture_output=True,
+        text=True,
+    )
+
+    if result.returncode != 0:
+        msg = (
+            "Lazy export verification for classify_image failed.\n"
+            f"stdout:\n{result.stdout}\n\nstderr:\n{result.stderr}"
+        )
+        pytest.fail(msg)
 
 
 def test_missing_symbol_raises_attribute_error() -> None:

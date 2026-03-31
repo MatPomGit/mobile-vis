@@ -111,6 +111,20 @@
                 app:srcCompat="@drawable/ic_camera_switch"
                 app:tint="@android:color/white" />
 
+            <!-- Resolution Picker (shown to the right of the switch-camera FAB) -->
+            <com.google.android.material.floatingactionbutton.FloatingActionButton
+                android:id="@+id/fabResolution"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_vertical|start"
+                android:layout_marginStart="52dp"
+                android:contentDescription="@string/resolution_fab_description"
+                app:backgroundTint="#4DFFFFFF"
+                app:elevation="0dp"
+                app:fabSize="mini"
+                app:srcCompat="@android:drawable/ic_menu_zoom"
+                app:tint="@android:color/white" />
+
             <!-- Main Shutter / Action Button -->
             <ImageButton
                 android:id="@+id/btnCapture"

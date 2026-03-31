@@ -61,6 +61,13 @@
     <string name="robot_host_empty_error">Adres IP nie może być pusty</string>
     <string name="robot_port_invalid_error">Port musi być liczbą od 1 do 65535</string>
 
+    <!-- Camera resolution picker -->
+    <string name="resolution_fab_description">Zmień rozdzielczość kamery</string>
+    <string name="resolution_title">Rozdzielczość kamery</string>
+    <string name="resolution_description">Niższa rozdzielczość zwiększa płynność analizy w czasie rzeczywistym.</string>
+    <string name="resolution_btn_apply">Zastosuj</string>
+    <string name="resolution_applied">Rozdzielczość zmieniona na %1$s</string>
+
     <!-- MediaPipe Holistic & Iris -->
     <string name="mediapipe_models_downloading">Pobieranie modeli MediaPipe w tle…</string>
     <string name="mediapipe_models_ready">Modele MediaPipe gotowe</string>

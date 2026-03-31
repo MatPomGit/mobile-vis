@@ -10,6 +10,7 @@ opencv = "4.10.0"
 activity = "1.9.0"
 cameraVideo = "1.5.3"
 okhttp = "4.12.0"
+mediapipe = "0.10.14"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -24,6 +25,7 @@ androidx-camera-video = { group = "androidx.camera", name = "camera-video", vers
 opencv = { group = "org.opencv", name = "opencv", version.ref = "opencv" }
 camera-video = { group = "androidx.camera", name = "camera-video", version.ref = "cameraVideo" }
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
+mediapipe-tasks-vision = { group = "com.google.mediapipe", name = "tasks-vision", version.ref = "mediapipe" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

@@ -52,4 +52,5 @@ dependencies {
     implementation(libs.camera.video)
     implementation(libs.opencv)
     implementation(libs.okhttp)
+    implementation(libs.mediapipe.tasks.vision)
 }

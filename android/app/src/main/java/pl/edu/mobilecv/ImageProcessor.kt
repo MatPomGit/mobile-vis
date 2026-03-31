@@ -36,6 +36,12 @@ class ImageProcessor {
     var calibrator: CameraCalibrator? = null
 
     /**
+     * Reference to the [MediaPipeProcessor]; set by [MainActivity] after the processor
+     * has been initialised with downloaded models.
+     */
+    var mediaPipeProcessor: MediaPipeProcessor? = null
+
+    /**
      * Overlay label for the frame counter shown in [CHESSBOARD_CALIBRATION] mode.
      * Set by [MainActivity] from the string resource for proper localisation.
      */
@@ -98,10 +104,16 @@ class ImageProcessor {
      * Process a single [Bitmap] frame with the given [filter].
      *
      * @param bitmap ARGB_8888 bitmap to process.
-     * @param filter OpenCV filter to apply.
+     * @param filter Filter to apply.
      * @return New ARGB_8888 bitmap with the filter applied.
      */
     fun processFrame(bitmap: Bitmap, filter: OpenCvFilter): Bitmap {
+        // Delegate MediaPipe filters to MediaPipeProcessor.
+        if (filter.isMediaPipe) {
+            return mediaPipeProcessor?.processFrame(bitmap, filter)
+                ?: bitmap.copy(Bitmap.Config.ARGB_8888, false)
+        }
+
         val src = Mat()
         // bitmapToMat converts ARGB_8888 → RGBA Mat (4 channels)
         Utils.bitmapToMat(bitmap, src)
@@ -121,6 +133,11 @@ class ImageProcessor {
             OpenCvFilter.QR_CODE -> applyQrCodeDetection(src)
             OpenCvFilter.CHESSBOARD_CALIBRATION -> applyChessboardCalibration(src)
             OpenCvFilter.UNDISTORT -> applyUndistort(src)
+            // MediaPipe filters are already handled above; exhaustive branch prevents warning.
+            OpenCvFilter.HOLISTIC_BODY,
+            OpenCvFilter.HOLISTIC_HANDS,
+            OpenCvFilter.HOLISTIC_FACE,
+            OpenCvFilter.IRIS -> src.clone()
         }
 
         val result = Bitmap.createBitmap(processed.cols(), processed.rows(), Bitmap.Config.ARGB_8888)

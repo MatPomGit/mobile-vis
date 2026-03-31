@@ -10,7 +10,6 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
 import android.util.Log
-import android.util.Size
 import android.view.View
 import android.widget.ImageView
 import android.widget.Toast
@@ -42,6 +41,7 @@ import org.opencv.android.OpenCVLoader
 import pl.edu.mobilecv.databinding.ActivityMainBinding
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Main (and only) activity of the MobileCV application.
@@ -65,6 +65,7 @@ class MainActivity : AppCompatActivity() {
         private const val PREFS_NAME = "mobilecv_prefs"
         private const val PREF_ROBOT_HOST = "robot_host"
         private const val PREF_ROBOT_PORT = "robot_port"
+        private const val PREF_CAMERA_RESOLUTION = "camera_resolution"
     }
 
     private lateinit var binding: ActivityMainBinding
@@ -73,6 +74,8 @@ class MainActivity : AppCompatActivity() {
     private var cameraProvider: ProcessCameraProvider? = null
     @Volatile
     private var lensFacing = CameraSelector.LENS_FACING_BACK
+    @Volatile
+    private var currentResolution: CameraResolution = CameraResolution.DEFAULT
     private var imageCapture: ImageCapture? = null
     private var videoCapture: VideoCapture<Recorder>? = null
     private var activeRecording: Recording? = null
@@ -121,6 +124,14 @@ class MainActivity : AppCompatActivity() {
     private var lastProcessedBitmap: Bitmap? = null
     private var pendingRecycleBitmap: Bitmap? = null
 
+    /**
+     * Prevents stacking redundant UI-update runnables on the main thread when
+     * frame processing keeps up faster than vsync.  [AtomicBoolean.compareAndSet]
+     * atomically flips the flag from `false` to `true` so only one UI post is
+     * outstanding at a time; cleared back to `false` inside the posted runnable.
+     */
+    private val uiUpdatePending = AtomicBoolean(false)
+
     // Single-threaded executor so that frame processing is serialised and
     // we never accumulate a backlog of pending frames.
     private lateinit var analysisExecutor: ExecutorService
@@ -148,6 +159,15 @@ class MainActivity : AppCompatActivity() {
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         lastRobotHost = prefs.getString(PREF_ROBOT_HOST, lastRobotHost) ?: lastRobotHost
         lastRobotPort = prefs.getInt(PREF_ROBOT_PORT, lastRobotPort)
+        currentResolution = CameraResolution.entries.find {
+            it.name == prefs.getString(PREF_CAMERA_RESOLUTION, null)
+        } ?: run {
+            val saved = prefs.getString(PREF_CAMERA_RESOLUTION, null)
+            if (saved != null) {
+                Log.w(TAG, "Unrecognised resolution preference '$saved', falling back to default")
+            }
+            CameraResolution.DEFAULT
+        }
 
         imageProcessor.calibrator = cameraCalibrator
         imageProcessor.labelFrameCountSuffix = getString(R.string.calibration_overlay_frames_suffix)
@@ -177,6 +197,7 @@ class MainActivity : AppCompatActivity() {
         setupCaptureButton()
         setupCalibrationFab()
         setupRobotConnectionFab()
+        setupResolutionFab()
         requestPermissionsOrStart()
     }
 
@@ -416,6 +437,18 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
+     * Configure the resolution picker FAB.
+     *
+     * Tapping it opens [ResolutionBottomSheet] so the user can choose a lower
+     * resolution for better real-time performance or a higher one for quality.
+     */
+    private fun setupResolutionFab() {
+        binding.fabResolution.setOnClickListener {
+            openResolutionMenu()
+        }
+    }
+
+    /**
      * Open the robot connection bottom sheet.
      */
     private fun openRobotConnectionMenu() {
@@ -437,6 +470,30 @@ class MainActivity : AppCompatActivity() {
                 rosBridgeClient.disconnect()
             }
         }.show(supportFragmentManager, RobotConnectionSheet.TAG)
+    }
+
+    /**
+     * Open the resolution picker bottom sheet.
+     *
+     * When the user confirms a new resolution, it is persisted to SharedPreferences
+     * and the camera use-cases are rebound with the new target size.
+     */
+    private fun openResolutionMenu() {
+        ResolutionBottomSheet().apply {
+            currentResolution = this@MainActivity.currentResolution
+            onResolutionSelected = { resolution ->
+                this@MainActivity.currentResolution = resolution
+                getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
+                    .putString(PREF_CAMERA_RESOLUTION, resolution.name)
+                    .apply()
+                startCamera()
+                Toast.makeText(
+                    this@MainActivity,
+                    getString(R.string.resolution_applied, resolution.displayName),
+                    Toast.LENGTH_SHORT,
+                ).show()
+            }
+        }.show(supportFragmentManager, ResolutionBottomSheet.TAG)
     }
 
     /**
@@ -564,7 +621,9 @@ class MainActivity : AppCompatActivity() {
      * Unbind all existing use-cases and bind [ImageAnalysis], [ImageCapture]
      * and [VideoCapture] for the currently selected lens.
      *
-     * [ImageAnalysis] drives the live processed preview.
+     * [ImageAnalysis] drives the live processed preview.  The resolution is
+     * controlled by [currentResolution] so the user can trade image quality
+     * for lower per-frame processing latency.
      * [ImageCapture] enables single-frame photo capture.
      * [VideoCapture] enables video recording.
      */
@@ -578,7 +637,7 @@ class MainActivity : AppCompatActivity() {
         val resolutionSelector = ResolutionSelector.Builder()
             .setResolutionStrategy(
                 ResolutionStrategy(
-                    Size(640, 480),
+                    currentResolution.size,
                     ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER
                 )
             )
@@ -754,6 +813,12 @@ class MainActivity : AppCompatActivity() {
      * current [OpenCvFilter] via [ImageProcessor], and post the result to
      * the UI thread for display.
      *
+     * If a UI update is already pending (i.e., the main thread has not yet
+     * consumed the previous frame), the processed result is discarded to
+     * avoid stacking redundant runnables.  Combined with
+     * [ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST] this keeps end-to-end latency
+     * as low as possible while the UI remains fully responsive.
+     *
      * **Must be called on the [analysisExecutor] thread.**
      *
      * @param imageProxy Frame delivered by the [ImageAnalysis] analyser.
@@ -768,6 +833,27 @@ class MainActivity : AppCompatActivity() {
             // Rotate and mirror (if front camera) the bitmap.
             val oriented: Bitmap = orientBitmap(bitmap, rotation, lensFacing)
 
+            // Apply OpenCV filters.
+            val processed: Bitmap = imageProcessor.processFrame(oriented, currentFilter)
+
+            // Skip the UI post if the main thread is still rendering the previous frame.
+            // This prevents runOnUiThread runnables from accumulating under load and
+            // reduces perceived jitter without dropping any analysis work.
+            // compareAndSet atomically transitions false → true, ensuring at most one
+            // UI update runnable is queued at any given time.
+            if (uiUpdatePending.compareAndSet(false, true)) {
+                runOnUiThread {
+                    // Recycle the bitmap from two frames ago – by then the RenderThread has had
+                    // at least one full vsync cycle to upload the previous bitmap to a GPU texture
+                    // and no longer reads from its CPU pixel buffer.
+                    pendingRecycleBitmap?.recycle()
+                    pendingRecycleBitmap = lastProcessedBitmap
+                    binding.imageViewPreview.setImageBitmap(processed)
+                    lastProcessedBitmap = processed
+                    uiUpdatePending.set(false)
+                }
+            } else {
+                processed.recycle()
             // Measure filter processing time.
             val frameStart = System.nanoTime()
 

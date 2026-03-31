@@ -69,6 +69,11 @@ class ImageProcessor {
      */
     var onMarkersDetected: ((List<MarkerDetection>) -> Unit)? = null
 
+    /** Enables Active Vision ROI optimisation pipeline. */
+    var isActiveVisionEnabled: Boolean = false
+
+    private val activeVisionOptimizer = ActiveVisionOptimizer()
+
     // ------------------------------------------------------------------
     // Cached detector instances – created lazily so that native OpenCV
     // methods are not called before the library is loaded.
@@ -118,32 +123,39 @@ class ImageProcessor {
         // bitmapToMat converts ARGB_8888 → RGBA Mat (4 channels)
         Utils.bitmapToMat(bitmap, src)
 
+        val baseFrame = if (isActiveVisionEnabled) {
+            activeVisionOptimizer.optimize(src)
+        } else {
+            src.clone()
+        }
+
         val processed: Mat = when (filter) {
-            OpenCvFilter.ORIGINAL -> src.clone()
-            OpenCvFilter.GRAYSCALE -> applyGrayscale(src)
-            OpenCvFilter.CANNY_EDGES -> applyCanny(src)
-            OpenCvFilter.GAUSSIAN_BLUR -> applyGaussianBlur(src)
-            OpenCvFilter.THRESHOLD -> applyThreshold(src)
-            OpenCvFilter.SOBEL -> applySobel(src)
-            OpenCvFilter.LAPLACIAN -> applyLaplacian(src)
-            OpenCvFilter.DILATE -> applyDilate(src)
-            OpenCvFilter.ERODE -> applyErode(src)
-            OpenCvFilter.APRIL_TAGS -> applyAprilTagDetection(src)
-            OpenCvFilter.ARUCO -> applyArucoDetection(src)
-            OpenCvFilter.QR_CODE -> applyQrCodeDetection(src)
-            OpenCvFilter.CHESSBOARD_CALIBRATION -> applyChessboardCalibration(src)
-            OpenCvFilter.UNDISTORT -> applyUndistort(src)
+            OpenCvFilter.ORIGINAL -> baseFrame.clone()
+            OpenCvFilter.GRAYSCALE -> applyGrayscale(baseFrame)
+            OpenCvFilter.CANNY_EDGES -> applyCanny(baseFrame)
+            OpenCvFilter.GAUSSIAN_BLUR -> applyGaussianBlur(baseFrame)
+            OpenCvFilter.THRESHOLD -> applyThreshold(baseFrame)
+            OpenCvFilter.SOBEL -> applySobel(baseFrame)
+            OpenCvFilter.LAPLACIAN -> applyLaplacian(baseFrame)
+            OpenCvFilter.DILATE -> applyDilate(baseFrame)
+            OpenCvFilter.ERODE -> applyErode(baseFrame)
+            OpenCvFilter.APRIL_TAGS -> applyAprilTagDetection(baseFrame)
+            OpenCvFilter.ARUCO -> applyArucoDetection(baseFrame)
+            OpenCvFilter.QR_CODE -> applyQrCodeDetection(baseFrame)
+            OpenCvFilter.CHESSBOARD_CALIBRATION -> applyChessboardCalibration(baseFrame)
+            OpenCvFilter.UNDISTORT -> applyUndistort(baseFrame)
             // MediaPipe filters are already handled above; exhaustive branch prevents warning.
             OpenCvFilter.HOLISTIC_BODY,
             OpenCvFilter.HOLISTIC_HANDS,
             OpenCvFilter.HOLISTIC_FACE,
-            OpenCvFilter.IRIS -> src.clone()
+            OpenCvFilter.IRIS -> baseFrame.clone()
         }
 
         val result = Bitmap.createBitmap(processed.cols(), processed.rows(), Bitmap.Config.ARGB_8888)
         Utils.matToBitmap(processed, result)
 
         src.release()
+        baseFrame.release()
         processed.release()
 
         return result

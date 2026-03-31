@@ -61,6 +61,11 @@
     <string name="robot_host_empty_error">Adres IP nie może być pusty</string>
     <string name="robot_port_invalid_error">Port musi być liczbą od 1 do 65535</string>
 
+    <string name="active_vision_toggle">Active Vision</string>
+    <string name="active_vision_enabled">Tryb Active Vision włączony</string>
+    <string name="active_vision_disabled">Tryb Active Vision wyłączony</string>
+    <string name="diagnostics_active_vision">Active Vision: %1$b</string>
+
     <!-- Diagnostics overlay (FPS indicator and processing info) -->
     <string name="diagnostics_fps">FPS: %1$.1f</string>
     <string name="diagnostics_resolution">Rozdzielczość: %1$d×%2$d</string>

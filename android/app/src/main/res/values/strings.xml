@@ -87,4 +87,6 @@
     <string name="mediapipe_model_missing_pose">Model pozy niedostępny – pobieranie…</string>
     <string name="mediapipe_model_missing_hands">Model rąk niedostępny – pobieranie…</string>
     <string name="mediapipe_model_missing_face">Model twarzy niedostępny – pobieranie…</string>
+    <string name="vo_overlay_tracks">Ścieżki VO</string>
+    <string name="vo_overlay_point_cloud">Chmura</string>
 </resources>

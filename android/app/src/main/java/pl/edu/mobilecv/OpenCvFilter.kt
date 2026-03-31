@@ -76,6 +76,12 @@ enum class OpenCvFilter(val displayName: String) {
      * iris refinement enabled.
      */
     IRIS("Wzrok (Iris)"),
+
+    /** Estimates sparse monocular visual odometry from tracked feature points. */
+    VISUAL_ODOMETRY("Odometria wizyjna"),
+
+    /** Builds a pseudo 3D point cloud view from frame-to-frame parallax. */
+    POINT_CLOUD("Chmura punktów"),
 }
 
 /**

@@ -173,6 +173,8 @@ class MainActivity : AppCompatActivity() {
         imageProcessor.labelFrameCountSuffix = getString(R.string.calibration_overlay_frames_suffix)
         imageProcessor.labelBoardNotFound = getString(R.string.calibration_overlay_board_not_found)
         imageProcessor.labelNoCalibration = getString(R.string.calibration_overlay_no_calibration)
+        imageProcessor.labelOdometryTracks = getString(R.string.vo_overlay_tracks)
+        imageProcessor.labelPointCloud = getString(R.string.vo_overlay_point_cloud)
         imageProcessor.onMarkersDetected = { detections ->
             rosBridgeClient.publishMarkers(detections)
         }

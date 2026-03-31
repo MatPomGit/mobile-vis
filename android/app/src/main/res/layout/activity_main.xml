@@ -86,6 +86,17 @@
             android:textSize="12sp"
             android:visibility="gone" />
 
+        <com.google.android.material.switchmaterial.SwitchMaterial
+            android:id="@+id/switchActiveVision"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginTop="4dp"
+            android:text="@string/active_vision_toggle"
+            android:textColor="@android:color/white"
+            app:thumbTint="@color/active_vision_thumb"
+            app:trackTint="@color/active_vision_track" />
+
         <!-- ============================================================ -->
         <!-- Analysis-mode tab bar (relocated from the top of the screen  -->
         <!-- to the bottom for easier one-handed thumb access)            -->
@@ -123,7 +134,7 @@
                 android:layout_height="wrap_content"
                 android:layout_gravity="center_vertical|start"
                 android:contentDescription="@string/switch_camera_description"
-                app:backgroundTint="#4DFFFFFF"
+                app:backgroundTint="@color/button_switch_camera"
                 app:elevation="0dp"
                 app:fabSize="mini"
                 app:srcCompat="@drawable/ic_camera_switch"
@@ -146,7 +157,7 @@
                 android:layout_height="wrap_content"
                 android:layout_gravity="center_vertical|end"
                 android:contentDescription="@string/robot_connection_description"
-                app:backgroundTint="@color/robot_disconnected"
+                app:backgroundTint="@color/button_robot_default"
                 app:elevation="0dp"
                 app:fabSize="mini"
                 app:srcCompat="@android:drawable/ic_menu_share"
@@ -160,7 +171,7 @@
                 android:layout_gravity="center_vertical|end"
                 android:contentDescription="@string/calibration_menu_description"
                 android:visibility="gone"
-                app:backgroundTint="#4DFFFFFF"
+                app:backgroundTint="@color/button_calibration"
                 app:elevation="0dp"
                 app:fabSize="mini"
                 app:srcCompat="@android:drawable/ic_menu_manage"

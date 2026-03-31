@@ -32,6 +32,9 @@ import androidx.camera.video.Recording
 import androidx.camera.video.VideoCapture
 import androidx.camera.video.VideoRecordEvent
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import com.google.android.material.chip.Chip
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 import com.google.android.material.tabs.TabLayout
@@ -85,6 +88,9 @@ class MainActivity : AppCompatActivity() {
 
     @Volatile
     private var currentFilter = OpenCvFilter.ORIGINAL
+
+    @Volatile
+    private var isActiveVisionEnabled = false
 
     // Calibration
     val cameraCalibrator = CameraCalibrator()
@@ -166,11 +172,25 @@ class MainActivity : AppCompatActivity() {
 
         initOpenCv()
         setupAnalysisTabs()
+        setupActiveVisionToggle()
         setupCameraSwitchButton()
         setupCaptureButton()
         setupCalibrationFab()
         setupRobotConnectionFab()
         requestPermissionsOrStart()
+    }
+
+
+    override fun onResume() {
+        super.onResume()
+        enableImmersiveFullscreen()
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) {
+            enableImmersiveFullscreen()
+        }
     }
 
     override fun onDestroy() {
@@ -217,6 +237,28 @@ class MainActivity : AppCompatActivity() {
 
         // Initialise chip group for the first (pre-selected) tab.
         updateFilterChips(AnalysisMode.entries.first())
+    }
+
+    private fun setupActiveVisionToggle() {
+        binding.switchActiveVision.setOnCheckedChangeListener { _, isChecked ->
+            isActiveVisionEnabled = isChecked
+            imageProcessor.isActiveVisionEnabled = isChecked
+            val messageRes = if (isChecked) {
+                R.string.active_vision_enabled
+            } else {
+                R.string.active_vision_disabled
+            }
+            Toast.makeText(this, getString(messageRes), Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun enableImmersiveFullscreen() {
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        WindowInsetsControllerCompat(window, window.decorView).let { controller ->
+            controller.hide(WindowInsetsCompat.Type.systemBars())
+            controller.systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        }
     }
 
     /**
@@ -407,7 +449,7 @@ class MainActivity : AppCompatActivity() {
             RosBridgeClient.State.CONNECTED ->
                 Pair(R.string.robot_toast_connected, R.color.robot_connected)
             RosBridgeClient.State.DISCONNECTED ->
-                Pair(R.string.robot_toast_disconnected, R.color.robot_disconnected)
+                Pair(R.string.robot_toast_disconnected, R.color.button_robot_default)
             RosBridgeClient.State.ERROR ->
                 Pair(R.string.robot_toast_error, R.color.robot_error)
             RosBridgeClient.State.CONNECTING -> return
@@ -753,6 +795,7 @@ class MainActivity : AppCompatActivity() {
                     processingMs = lastProcessingTimeMs,
                     filter = currentFilter,
                     isFrontCamera = lensFacing == CameraSelector.LENS_FACING_FRONT,
+                    activeVisionEnabled = isActiveVisionEnabled,
                 )
             }
 
@@ -787,6 +830,7 @@ class MainActivity : AppCompatActivity() {
         processingMs: Long,
         filter: OpenCvFilter,
         isFrontCamera: Boolean,
+        activeVisionEnabled: Boolean,
     ) {
         val cameraLabel = if (isFrontCamera) {
             getString(R.string.diagnostics_camera_front)
@@ -800,6 +844,7 @@ class MainActivity : AppCompatActivity() {
             }
             appendLine(getString(R.string.diagnostics_processing_time, processingMs))
             appendLine(getString(R.string.diagnostics_filter, filter.displayName))
+            appendLine(getString(R.string.diagnostics_active_vision, activeVisionEnabled))
             append(cameraLabel)
         }
         binding.textViewDiagnostics.text = text

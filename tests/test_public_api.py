@@ -3,17 +3,53 @@
 from __future__ import annotations
 
 import importlib
+import subprocess
+import sys
+import textwrap
 
 import pytest
 
 
 def test_package_import_does_not_eagerly_import_heavy_submodules() -> None:
     """Importing image_analysis should not eagerly import optional modules."""
-    package = importlib.import_module("image_analysis")
+    script = """
+    import importlib
+    import sys
 
-    assert package.__name__ == "image_analysis"
+    heavy_modules = [
+        "cv2",
+        "mediapipe",
+        "image_analysis.detection",
+        "image_analysis.holistic",
+        "image_analysis.iris",
+    ]
 
+    for name in heavy_modules:
+        assert name not in sys.modules, (
+            f"{name} unexpectedly in sys.modules before importing image_analysis"
+        )
 
+    importlib.import_module("image_analysis")
+
+    for name in heavy_modules:
+        assert name not in sys.modules, (
+            f"{name} eagerly imported during image_analysis import"
+        )
+    """
+
+    result = subprocess.run(
+        [sys.executable, "-c", textwrap.dedent(script)],
+        capture_output=True,
+        text=True,
+    )
+
+    if result.returncode != 0:
+        msg = (
+            "Subprocess importing image_analysis eagerly imported heavy modules "
+            "or failed.\n"
+            f"stdout:\n{result.stdout}\n\nstderr:\n{result.stderr}"
+        )
+        pytest.fail(msg)
 def test_lazy_export_for_classification_symbol() -> None:
     """A symbol exported in __all__ should be resolved lazily on first access."""
     package = importlib.import_module("image_analysis")

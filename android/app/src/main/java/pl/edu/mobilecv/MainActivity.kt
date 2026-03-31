@@ -31,6 +31,9 @@ import androidx.camera.video.Recording
 import androidx.camera.video.VideoCapture
 import androidx.camera.video.VideoRecordEvent
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import com.google.android.material.chip.Chip
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 import com.google.android.material.tabs.TabLayout
@@ -89,6 +92,9 @@ class MainActivity : AppCompatActivity() {
     @Volatile
     private var currentFilter = OpenCvFilter.ORIGINAL
 
+    @Volatile
+    private var isActiveVisionEnabled = false
+
     // Calibration
     val cameraCalibrator = CameraCalibrator()
 
@@ -96,6 +102,21 @@ class MainActivity : AppCompatActivity() {
     private val rosBridgeClient = RosBridgeClient()
     private var lastRobotHost: String = "192.168.1.100"
     private var lastRobotPort: Int = RosBridgeClient.DEFAULT_PORT
+
+    // FPS and diagnostics
+    private val fpsCounter = FpsCounter()
+
+    /** Last processed-frame width in pixels (updated on the analysis executor). */
+    @Volatile
+    private var frameWidth: Int = 0
+
+    /** Last processed-frame height in pixels (updated on the analysis executor). */
+    @Volatile
+    private var frameHeight: Int = 0
+
+    /** Processing time for the last frame in milliseconds (updated on the analysis executor). */
+    @Volatile
+    private var lastProcessingTimeMs: Long = 0
 
     // Bitmap double-buffer: we keep two references so we can safely recycle the one that
     // was displayed TWO frames ago.  Recycling one frame earlier risks a RenderThread race
@@ -171,12 +192,26 @@ class MainActivity : AppCompatActivity() {
 
         initOpenCv()
         setupAnalysisTabs()
+        setupActiveVisionToggle()
         setupCameraSwitchButton()
         setupCaptureButton()
         setupCalibrationFab()
         setupRobotConnectionFab()
         setupResolutionFab()
         requestPermissionsOrStart()
+    }
+
+
+    override fun onResume() {
+        super.onResume()
+        enableImmersiveFullscreen()
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) {
+            enableImmersiveFullscreen()
+        }
     }
 
     override fun onDestroy() {
@@ -223,6 +258,28 @@ class MainActivity : AppCompatActivity() {
 
         // Initialise chip group for the first (pre-selected) tab.
         updateFilterChips(AnalysisMode.entries.first())
+    }
+
+    private fun setupActiveVisionToggle() {
+        binding.switchActiveVision.setOnCheckedChangeListener { _, isChecked ->
+            isActiveVisionEnabled = isChecked
+            imageProcessor.isActiveVisionEnabled = isChecked
+            val messageRes = if (isChecked) {
+                R.string.active_vision_enabled
+            } else {
+                R.string.active_vision_disabled
+            }
+            Toast.makeText(this, getString(messageRes), Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun enableImmersiveFullscreen() {
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        WindowInsetsControllerCompat(window, window.decorView).let { controller ->
+            controller.hide(WindowInsetsCompat.Type.systemBars())
+            controller.systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        }
     }
 
     /**
@@ -449,7 +506,7 @@ class MainActivity : AppCompatActivity() {
             RosBridgeClient.State.CONNECTED ->
                 Pair(R.string.robot_toast_connected, R.color.robot_connected)
             RosBridgeClient.State.DISCONNECTED ->
-                Pair(R.string.robot_toast_disconnected, R.color.robot_disconnected)
+                Pair(R.string.robot_toast_disconnected, R.color.button_robot_default)
             RosBridgeClient.State.ERROR ->
                 Pair(R.string.robot_toast_error, R.color.robot_error)
             RosBridgeClient.State.CONNECTING -> return
@@ -608,6 +665,7 @@ class MainActivity : AppCompatActivity() {
 
         try {
             provider.unbindAll()
+            fpsCounter.reset()
             val capture = imageCapture ?: return
             val video = videoCapture ?: return
             provider.bindToLifecycle(
@@ -796,6 +854,35 @@ class MainActivity : AppCompatActivity() {
                 }
             } else {
                 processed.recycle()
+            // Measure filter processing time.
+            val frameStart = System.nanoTime()
+
+            // Apply OpenCV filters.
+            val processed: Bitmap = imageProcessor.processFrame(oriented, currentFilter)
+
+            lastProcessingTimeMs = (System.nanoTime() - frameStart) / 1_000_000L
+            frameWidth = processed.width
+            frameHeight = processed.height
+            fpsCounter.onFrame()
+
+            runOnUiThread {
+                // Recycle the bitmap from two frames ago – by then the RenderThread has had
+                // at least one full vsync cycle to upload the previous bitmap to a GPU texture
+                // and no longer reads from its CPU pixel buffer.
+                pendingRecycleBitmap?.recycle()
+                pendingRecycleBitmap = lastProcessedBitmap
+                binding.imageViewPreview.setImageBitmap(processed)
+                lastProcessedBitmap = processed
+
+                updateDiagnosticsOverlay(
+                    fps = fpsCounter.fps,
+                    width = frameWidth,
+                    height = frameHeight,
+                    processingMs = lastProcessingTimeMs,
+                    filter = currentFilter,
+                    isFrontCamera = lensFacing == CameraSelector.LENS_FACING_FRONT,
+                    activeVisionEnabled = isActiveVisionEnabled,
+                )
             }
 
             // Cleanup intermediate bitmaps.
@@ -808,6 +895,45 @@ class MainActivity : AppCompatActivity() {
         } finally {
             imageProxy.close()
         }
+    }
+
+    /**
+     * Update the on-screen diagnostics overlay with current performance metrics.
+     *
+     * Must be called on the main thread.
+     *
+     * @param fps            Current frames per second.
+     * @param width          Processed frame width in pixels.
+     * @param height         Processed frame height in pixels.
+     * @param processingMs   Time spent processing the last frame (milliseconds).
+     * @param filter         Currently active [OpenCvFilter].
+     * @param isFrontCamera  `true` if the front-facing camera is active.
+     */
+    private fun updateDiagnosticsOverlay(
+        fps: Double,
+        width: Int,
+        height: Int,
+        processingMs: Long,
+        filter: OpenCvFilter,
+        isFrontCamera: Boolean,
+        activeVisionEnabled: Boolean,
+    ) {
+        val cameraLabel = if (isFrontCamera) {
+            getString(R.string.diagnostics_camera_front)
+        } else {
+            getString(R.string.diagnostics_camera_back)
+        }
+        val text = buildString {
+            appendLine(getString(R.string.diagnostics_fps, fps))
+            if (width > 0 && height > 0) {
+                appendLine(getString(R.string.diagnostics_resolution, width, height))
+            }
+            appendLine(getString(R.string.diagnostics_processing_time, processingMs))
+            appendLine(getString(R.string.diagnostics_filter, filter.displayName))
+            appendLine(getString(R.string.diagnostics_active_vision, activeVisionEnabled))
+            append(cameraLabel)
+        }
+        binding.textViewDiagnostics.text = text
     }
 
     private fun orientBitmap(bitmap: Bitmap, rotationDegrees: Int, lensFacing: Int): Bitmap {

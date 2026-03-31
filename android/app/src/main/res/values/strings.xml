@@ -67,6 +67,18 @@
     <string name="resolution_description">Niższa rozdzielczość zwiększa płynność analizy w czasie rzeczywistym.</string>
     <string name="resolution_btn_apply">Zastosuj</string>
     <string name="resolution_applied">Rozdzielczość zmieniona na %1$s</string>
+    <string name="active_vision_toggle">Active Vision</string>
+    <string name="active_vision_enabled">Tryb Active Vision włączony</string>
+    <string name="active_vision_disabled">Tryb Active Vision wyłączony</string>
+    <string name="diagnostics_active_vision">Active Vision: %1$b</string>
+
+    <!-- Diagnostics overlay (FPS indicator and processing info) -->
+    <string name="diagnostics_fps">FPS: %1$.1f</string>
+    <string name="diagnostics_resolution">Rozdzielczość: %1$d×%2$d</string>
+    <string name="diagnostics_processing_time">Czas: %1$d ms</string>
+    <string name="diagnostics_filter">Filtr: %1$s</string>
+    <string name="diagnostics_camera_back">Kamera: tylna</string>
+    <string name="diagnostics_camera_front">Kamera: przednia</string>
 
     <!-- MediaPipe Holistic & Iris -->
     <string name="mediapipe_models_downloading">Pobieranie modeli MediaPipe w tle…</string>

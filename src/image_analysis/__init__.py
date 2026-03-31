@@ -95,7 +95,7 @@ def __getattr__(name: str) -> object:
     except KeyError as exc:
         raise AttributeError(f"module 'image_analysis' has no attribute '{name}'") from exc
 
-    module = import_module(f". {module_name}".replace(" ", ""), __name__)
+    module = import_module(f".{module_name}", __name__)
     value = getattr(module, attr_name)
     globals()[name] = value
     return value

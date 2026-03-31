@@ -79,6 +79,10 @@ class MainActivity : AppCompatActivity() {
     private val imageProcessor = ImageProcessor()
     private val mediaPipeProcessor: MediaPipeProcessor by lazy { MediaPipeProcessor(this) }
 
+    /** Guards against concurrent model downloads when POSE tab is tapped rapidly. */
+    @Volatile
+    private var mediaPipeDownloadInProgress = false
+
     @Volatile
     private var currentFilter = OpenCvFilter.ORIGINAL
 
@@ -249,35 +253,43 @@ class MainActivity : AppCompatActivity() {
     /**
      * Start downloading MediaPipe model files in the background.
      *
-     * Shows a toast when download starts, and re-initialises [MediaPipeProcessor]
-     * once all files are available.
+     * A volatile flag prevents concurrent duplicate downloads if the user switches
+     * tabs rapidly.  Shows a toast when download starts, and re-initialises
+     * [MediaPipeProcessor] once all files are available.
      */
     private fun startMediaPipeModelDownload() {
+        if (mediaPipeDownloadInProgress) return
+        mediaPipeDownloadInProgress = true
+
         Toast.makeText(this, getString(R.string.mediapipe_models_downloading), Toast.LENGTH_LONG)
             .show()
 
         analysisExecutor.execute {
-            val success = ModelDownloadManager.downloadMissingModels(this)
-            if (success) {
-                // Re-initialise the processor now that model files are present.
-                mediaPipeProcessor.close()
-                mediaPipeProcessor.initialize()
-                imageProcessor.mediaPipeProcessor = mediaPipeProcessor
-                runOnUiThread {
-                    Toast.makeText(
-                        this,
-                        getString(R.string.mediapipe_models_ready),
-                        Toast.LENGTH_SHORT,
-                    ).show()
+            try {
+                val success = ModelDownloadManager.downloadMissingModels(this)
+                if (success) {
+                    // Re-initialise the processor now that model files are present.
+                    mediaPipeProcessor.close()
+                    mediaPipeProcessor.initialize()
+                    imageProcessor.mediaPipeProcessor = mediaPipeProcessor
+                    runOnUiThread {
+                        Toast.makeText(
+                            this,
+                            getString(R.string.mediapipe_models_ready),
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    }
+                } else {
+                    runOnUiThread {
+                        Toast.makeText(
+                            this,
+                            getString(R.string.mediapipe_models_download_failed),
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    }
                 }
-            } else {
-                runOnUiThread {
-                    Toast.makeText(
-                        this,
-                        getString(R.string.mediapipe_models_download_failed),
-                        Toast.LENGTH_LONG,
-                    ).show()
-                }
+            } finally {
+                mediaPipeDownloadInProgress = false
             }
         }
     }

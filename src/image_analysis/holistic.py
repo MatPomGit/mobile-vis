@@ -23,7 +23,7 @@ Example::
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import cv2
@@ -94,7 +94,7 @@ class HolisticResult:
     pose_landmarks: list[HolisticLandmark] | None = None
     left_hand_landmarks: list[HolisticLandmark] | None = None
     right_hand_landmarks: list[HolisticLandmark] | None = None
-    face_landmarks: list[HolisticLandmark] | None = field(default=None)
+    face_landmarks: list[HolisticLandmark] | None = None
 
 
 # ---------------------------------------------------------------------------

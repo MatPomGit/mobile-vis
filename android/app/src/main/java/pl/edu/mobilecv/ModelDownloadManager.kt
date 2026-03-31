@@ -23,6 +23,12 @@ object ModelDownloadManager {
     private const val TAG = "ModelDownloadManager"
     private const val MEDIAPIPE_DIR = "mediapipe"
 
+    /** Connection timeout in seconds for model download requests. */
+    private const val CONNECT_TIMEOUT_SECONDS = 30L
+
+    /** Read timeout in seconds for model download responses. */
+    private const val READ_TIMEOUT_SECONDS = 120L
+
     /**
      * Remote base URL for MediaPipe model bundles hosted on Google Cloud Storage.
      *
@@ -44,8 +50,8 @@ object ModelDownloadManager {
 
     private val httpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
-            .connectTimeout(30, TimeUnit.SECONDS)
-            .readTimeout(120, TimeUnit.SECONDS)
+            .connectTimeout(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .readTimeout(READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .build()
     }
 

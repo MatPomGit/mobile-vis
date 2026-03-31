@@ -98,7 +98,7 @@
             app:tabIndicatorColor="?attr/colorSecondary"
             app:tabIndicatorHeight="3dp"
             app:tabMode="scrollable"
-            app:tabTextAppearance="@style/TextAppearance.Material3.LabelSmall" />
+            app:tabTextAppearance="@style/TextAppearance.Material3.LabelMedium" />
 
         <!--
             Button row:

@@ -16,6 +16,7 @@ import com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarker
 import com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarkerResult
 import com.google.mediapipe.tasks.vision.poselandmarker.PoseLandmarker
 import com.google.mediapipe.tasks.vision.poselandmarker.PoseLandmarkerResult
+import kotlin.math.sqrt
 
 /**
  * Applies MediaPipe-based detection and tracking filters to Android [Bitmap] frames.
@@ -301,7 +302,7 @@ class MediaPipeProcessor(private val context: Context) {
             val pt = landmarks[i]
             val dx = pt.x() * width - cx
             val dy = pt.y() * height - cy
-            totalRadius += Math.sqrt((dx * dx + dy * dy).toDouble()).toFloat()
+            totalRadius += sqrt(dx * dx + dy * dy)
             count++
         }
         val radius = if (count > 0) maxOf(4f, totalRadius / count) else 10f

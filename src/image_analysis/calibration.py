@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from typing import cast
 
 import cv2
 import numpy as np
@@ -85,18 +86,16 @@ def find_chessboard_corners(
     found, corners = cv2.findChessboardCorners(
         gray,
         pattern_size,
-        cv2.CALIB_CB_ADAPTIVE_THRESH | cv2.CALIB_CB_NORMALIZE_IMAGE,
+        flags=cv2.CALIB_CB_ADAPTIVE_THRESH | cv2.CALIB_CB_NORMALIZE_IMAGE,
     )
 
     if not found or corners is None:
         logger.debug("Chessboard %dx%d not found", board_width, board_height)
         return None
 
-    refined: NDArray[np.float32] = cv2.cornerSubPix(
-        gray, corners, (11, 11), (-1, -1), _SUBPIX_CRITERIA
-    )
+    refined = cv2.cornerSubPix(gray, corners, (11, 11), (-1, -1), _SUBPIX_CRITERIA)
     logger.debug("Found chessboard %dx%d corners", board_width, board_height)
-    return refined.astype(np.float32)
+    return np.asarray(refined, dtype=np.float32)
 
 
 def calibrate_camera(
@@ -180,12 +179,14 @@ def calibrate_camera(
 
     assert img_size is not None  # guaranteed by the check above
 
+    initial_camera_matrix = np.eye(3, dtype=np.float64)
+    initial_dist_coeffs = np.zeros((8, 1), dtype=np.float64)
     rms, camera_matrix, dist_coeffs, _, _ = cv2.calibrateCamera(
         object_points,
         image_points,
         img_size,
-        None,  # type: ignore[arg-type]
-        None,  # type: ignore[arg-type]
+        initial_camera_matrix,
+        initial_dist_coeffs,
     )
 
     logger.info(
@@ -224,12 +225,12 @@ def undistort_image(
     if image.dtype != np.uint8:
         raise ValueError(f"Expected uint8 image, got {image.dtype}")
 
-    result: NDArray[np.uint8] = cv2.undistort(
+    result = cv2.undistort(
         image,
         calibration.camera_matrix,
         calibration.dist_coefficients,
     )
-    return result
+    return np.asarray(result, dtype=np.uint8)
 
 
 def draw_chessboard_corners(
@@ -280,15 +281,18 @@ def _to_grayscale_uint8(
     image: NDArray[np.uint8] | NDArray[np.float32],
 ) -> NDArray[np.uint8]:
     """Convert an image to a single-channel ``uint8`` grayscale array."""
-    arr = np.asarray(image)
-    if arr.dtype == np.float32:
-        arr = np.asarray(np.round(np.clip(arr, 0.0, 1.0) * 255.0), dtype=np.uint8)
+    if image.dtype == np.float32:
+        float_image = np.asarray(image, dtype=np.float32)
+        scaled = np.round(np.clip(float_image, 0.0, 1.0) * 255)
+        arr_uint8: NDArray[np.uint8] = np.asarray(scaled, dtype=np.uint8)
+    else:
+        arr_uint8 = np.asarray(image, dtype=np.uint8)
 
-    if arr.ndim == 2:
-        return arr
-    if arr.ndim == 3 and arr.shape[2] == 1:
-        return arr[:, :, 0]
-    if arr.ndim == 3 and arr.shape[2] == 3:
-        return cv2.cvtColor(arr, cv2.COLOR_BGR2GRAY)  # type: ignore[return-value]
+    if arr_uint8.ndim == 2:
+        return arr_uint8
+    if arr_uint8.ndim == 3 and arr_uint8.shape[2] == 1:
+        return arr_uint8[:, :, 0]
+    if arr_uint8.ndim == 3 and arr_uint8.shape[2] == 3:
+        return cast(NDArray[np.uint8], cv2.cvtColor(arr_uint8, cv2.COLOR_BGR2GRAY))
 
-    raise ValueError(f"Unsupported image shape for grayscale conversion: {arr.shape}")
+    raise ValueError(f"Unsupported image shape for grayscale conversion: {arr_uint8.shape}")

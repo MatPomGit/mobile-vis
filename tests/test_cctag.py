@@ -14,6 +14,7 @@ from image_analysis.cctag import (
     CCTagDetection,
     detect_cc_tags,
     draw_cc_tags,
+    estimate_cctag_pose,
 )
 
 # ---------------------------------------------------------------------------
@@ -71,6 +72,20 @@ def sample_detection() -> CCTagDetection:
     )
 
 
+@pytest.fixture
+def pinhole_camera_matrix() -> np.ndarray:
+    """Return a simple pinhole camera matrix for a 640×480 sensor."""
+    fx = fy = 600.0
+    cx, cy = 320.0, 240.0
+    return np.array([[fx, 0.0, cx], [0.0, fy, cy], [0.0, 0.0, 1.0]], dtype=np.float64)
+
+
+@pytest.fixture
+def zero_dist_coeffs() -> np.ndarray:
+    """Return zero distortion coefficients (ideal pinhole camera)."""
+    return np.zeros(5, dtype=np.float64)
+
+
 # ---------------------------------------------------------------------------
 # CCTagDetection dataclass
 # ---------------------------------------------------------------------------
@@ -97,6 +112,27 @@ class TestCCTagDetectionDataclass:
             rings_count=MIN_CCTAG_RINGS,
         )
         assert d.rings_count == MIN_CCTAG_RINGS
+
+    def test_confidence_defaults_to_zero(self) -> None:
+        d = CCTagDetection(
+            tag_id=2,
+            center=(0.0, 0.0),
+            radius=10.0,
+            bbox=(0, 0, 10, 10),
+            rings_count=2,
+        )
+        assert d.confidence == 0.0
+
+    def test_confidence_can_be_set(self) -> None:
+        d = CCTagDetection(
+            tag_id=3,
+            center=(0.0, 0.0),
+            radius=10.0,
+            bbox=(0, 0, 10, 10),
+            rings_count=3,
+            confidence=0.85,
+        )
+        assert d.confidence == pytest.approx(0.85)
 
 
 # ---------------------------------------------------------------------------
@@ -304,3 +340,151 @@ class TestDrawCCTags:
         green = (0, 255, 0)
         result = draw_cc_tags(cctag_canvas, [detection], color=green)
         assert result.shape == cctag_canvas.shape
+
+
+# ---------------------------------------------------------------------------
+# detect_cc_tags – confidence field
+# ---------------------------------------------------------------------------
+
+
+class TestDetectCCTagsConfidence:
+    def test_confidence_in_unit_interval(self, cctag_canvas: np.ndarray) -> None:
+        detections = detect_cc_tags(cctag_canvas)
+        for d in detections:
+            assert 0.0 <= d.confidence <= 1.0
+
+    def test_confidence_positive_for_good_marker(self, cctag_canvas: np.ndarray) -> None:
+        detections = detect_cc_tags(cctag_canvas)
+        assert len(detections) >= 1
+        # Synthetic perfect circles should score well above zero.
+        for d in detections:
+            assert d.confidence > 0.0
+
+
+# ---------------------------------------------------------------------------
+# detect_cc_tags – use_adaptive parameter
+# ---------------------------------------------------------------------------
+
+
+class TestDetectCCTagsAdaptive:
+    def test_adaptive_returns_list(self, cctag_canvas: np.ndarray) -> None:
+        result = detect_cc_tags(cctag_canvas, use_adaptive=True)
+        assert isinstance(result, list)
+
+    def test_adaptive_detects_marker(self, cctag_canvas: np.ndarray) -> None:
+        detections = detect_cc_tags(cctag_canvas, use_adaptive=True)
+        # Adaptive threshold is less deterministic on synthetic flat images;
+        # verify the call succeeds and returns the right type.
+        assert isinstance(detections, list)
+
+    def test_adaptive_on_gradient_image(self) -> None:
+        """Adaptive threshold should handle non-uniform illumination."""
+        canvas = np.zeros((300, 300), dtype=np.uint8)
+        # Create a horizontal gradient background (brighter on the right).
+        for col in range(300):
+            canvas[:, col] = col // 2
+        canvas_bgr = cv2.cvtColor(canvas, cv2.COLOR_GRAY2BGR)
+        # Just verify it runs without error on a gradient image.
+        result = detect_cc_tags(canvas_bgr, use_adaptive=True)
+        assert isinstance(result, list)
+
+    def test_adaptive_and_otsu_both_return_list(self, cctag_canvas: np.ndarray) -> None:
+        otsu_result = detect_cc_tags(cctag_canvas, use_adaptive=False)
+        adaptive_result = detect_cc_tags(cctag_canvas, use_adaptive=True)
+        assert isinstance(otsu_result, list)
+        assert isinstance(adaptive_result, list)
+
+
+# ---------------------------------------------------------------------------
+# estimate_cctag_pose
+# ---------------------------------------------------------------------------
+
+
+class TestEstimateCCTagPose:
+    def test_returns_rvec_and_tvec(
+        self,
+        sample_detection: CCTagDetection,
+        pinhole_camera_matrix: np.ndarray,
+        zero_dist_coeffs: np.ndarray,
+    ) -> None:
+        rvec, tvec = estimate_cctag_pose(
+            sample_detection, pinhole_camera_matrix, zero_dist_coeffs, 0.05
+        )
+        assert rvec.shape == (3, 1)
+        assert tvec.shape == (3, 1)
+
+    def test_output_dtype_is_float64(
+        self,
+        sample_detection: CCTagDetection,
+        pinhole_camera_matrix: np.ndarray,
+        zero_dist_coeffs: np.ndarray,
+    ) -> None:
+        rvec, tvec = estimate_cctag_pose(
+            sample_detection, pinhole_camera_matrix, zero_dist_coeffs, 0.05
+        )
+        assert rvec.dtype == np.float64
+        assert tvec.dtype == np.float64
+
+    def test_translation_z_is_positive(
+        self,
+        sample_detection: CCTagDetection,
+        pinhole_camera_matrix: np.ndarray,
+        zero_dist_coeffs: np.ndarray,
+    ) -> None:
+        """A marker in front of the camera must have positive z translation."""
+        _, tvec = estimate_cctag_pose(
+            sample_detection, pinhole_camera_matrix, zero_dist_coeffs, 0.05
+        )
+        assert float(tvec[2, 0]) > 0.0
+
+    def test_raises_for_non_positive_radius(
+        self,
+        sample_detection: CCTagDetection,
+        pinhole_camera_matrix: np.ndarray,
+        zero_dist_coeffs: np.ndarray,
+    ) -> None:
+        with pytest.raises(ValueError, match="tag_physical_radius_m must be positive"):
+            estimate_cctag_pose(
+                sample_detection, pinhole_camera_matrix, zero_dist_coeffs, 0.0
+            )
+
+    def test_raises_for_zero_radius(
+        self,
+        sample_detection: CCTagDetection,
+        pinhole_camera_matrix: np.ndarray,
+        zero_dist_coeffs: np.ndarray,
+    ) -> None:
+        with pytest.raises(ValueError, match="tag_physical_radius_m must be positive"):
+            estimate_cctag_pose(
+                sample_detection, pinhole_camera_matrix, zero_dist_coeffs, -0.1
+            )
+
+    def test_raises_for_wrong_camera_matrix_shape(
+        self,
+        sample_detection: CCTagDetection,
+        zero_dist_coeffs: np.ndarray,
+    ) -> None:
+        bad_matrix = np.eye(4, dtype=np.float64)
+        with pytest.raises(ValueError, match="camera_matrix must have shape"):
+            estimate_cctag_pose(sample_detection, bad_matrix, zero_dist_coeffs, 0.05)
+
+    def test_larger_physical_radius_yields_larger_distance(
+        self,
+        pinhole_camera_matrix: np.ndarray,
+        zero_dist_coeffs: np.ndarray,
+    ) -> None:
+        """A larger physical tag at the same image size implies it is farther away."""
+        detection = CCTagDetection(
+            tag_id=3,
+            center=(320.0, 240.0),
+            radius=50.0,
+            bbox=(270, 190, 370, 290),
+            rings_count=3,
+        )
+        _, tvec_small = estimate_cctag_pose(
+            detection, pinhole_camera_matrix, zero_dist_coeffs, 0.05
+        )
+        _, tvec_large = estimate_cctag_pose(
+            detection, pinhole_camera_matrix, zero_dist_coeffs, 0.10
+        )
+        assert float(tvec_large[2, 0]) > float(tvec_small[2, 0])

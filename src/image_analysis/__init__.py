@@ -26,6 +26,7 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "create_holistic": (".holistic", "create_holistic"),
     "detect_april_tags": (".april_tags", "detect_april_tags"),
     "detect_cc_tags": (".cctag", "detect_cc_tags"),
+    "estimate_cctag_pose": (".cctag", "estimate_cctag_pose"),
     "detect_objects": (".detection", "detect_objects"),
     "detect_qr_codes": (".qr_detection", "detect_qr_codes"),
     "draw_april_tags": (".april_tags", "draw_april_tags"),

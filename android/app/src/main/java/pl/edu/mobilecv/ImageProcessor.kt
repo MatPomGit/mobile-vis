@@ -52,7 +52,11 @@ class ImageProcessor {
         set(value) { field = value; visualOdometryEngine.isMeshEnabled = value }
 
     private val activeVisionOptimizer = ActiveVisionOptimizer()
-    private val visualOdometryEngine = VisualOdometryEngine()
+    private val visualOdometryEngine = VisualOdometryEngine().also {
+        it.maxFeatures = voMaxFeatures
+        it.minParallax = voMinParallax
+        it.isMeshEnabled = isVoMeshEnabled
+    }
 
     private val aprilTagDetector by lazy { ArucoDetector(Objdetect.getPredefinedDictionary(Objdetect.DICT_APRILTAG_36h11)) }
     private val arucoDetector by lazy { ArucoDetector(Objdetect.getPredefinedDictionary(Objdetect.DICT_4X4_50)) }
@@ -256,6 +260,10 @@ class ImageProcessor {
             Calib3d.drawChessboardCorners(res, pattern, corners, found)
             Imgproc.putText(res, "Board Detected", Point(30.0, 40.0), Imgproc.FONT_HERSHEY_SIMPLEX, 1.0, Scalar(0.0, 255.0, 0.0), 2)
         } else Imgproc.putText(res, labelBoardNotFound, Point(30.0, 40.0), Imgproc.FONT_HERSHEY_SIMPLEX, 1.0, Scalar(255.0, 0.0, 0.0), 2)
+        calibrator?.storeDetectedCorners(
+            if (found) corners else null,
+            Size(src.cols().toDouble(), src.rows().toDouble()),
+        )
         Imgproc.putText(res, "${calibrator?.frameCount ?: 0} $labelFrameCountSuffix", Point(30.0, 80.0), Imgproc.FONT_HERSHEY_SIMPLEX, 1.0, Scalar(255.0, 255.0, 255.0), 2)
         gray.release(); corners.release(); return res
     }

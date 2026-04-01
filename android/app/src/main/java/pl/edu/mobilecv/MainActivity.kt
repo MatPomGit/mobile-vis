@@ -296,8 +296,9 @@ class MainActivity : AppCompatActivity() {
     ) + if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE) else emptyArray()
 
     private fun startCamera() {
-        ProcessCameraProvider.getInstance(this).addListener({
-            cameraProvider = try { ProcessCameraProvider.getInstance(this).get() } catch (e: Exception) { null }
+        val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
+        cameraProviderFuture.addListener({
+            cameraProvider = try { cameraProviderFuture.get() } catch (e: Exception) { null }
             bindUseCases()
         }, ContextCompat.getMainExecutor(this))
     }

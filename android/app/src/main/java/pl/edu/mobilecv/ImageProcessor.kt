@@ -320,7 +320,7 @@ class ImageProcessor {
 
         // Build vanishing points from the two largest clusters
         val planeColors = arrayOf(Scalar(0.0, 255.0, 0.0), Scalar(0.0, 0.0, 255.0), Scalar(0.0, 165.0, 255.0))
-        val sortedClusters = clusters.sortedByDescending { it.size }.take(4)
+        val sortedClusters = clusters.sortedByDescending { it.size }.take(MAX_LINE_DIRECTION_CLUSTERS)
         var planeIdx = 0
         for (i in sortedClusters.indices) {
             for (j in i + 1 until sortedClusters.size) {
@@ -380,7 +380,7 @@ class ImageProcessor {
         }
 
         val vpColors = arrayOf(Scalar(0.0, 255.0, 0.0), Scalar(0.0, 0.0, 255.0), Scalar(0.0, 165.0, 255.0), Scalar(255.0, 255.0, 0.0))
-        for ((idx, cluster) in clusters.sortedByDescending { it.size }.take(4).withIndex()) {
+        for ((idx, cluster) in clusters.sortedByDescending { it.size }.take(MAX_LINE_DIRECTION_CLUSTERS).withIndex()) {
             if (cluster.size < 2) continue
             val color = vpColors[idx % vpColors.size]
             for (seg in cluster) {
@@ -427,5 +427,7 @@ class ImageProcessor {
     private companion object {
         private const val CROSSHAIR_GAP = 30
         private const val MAX_QR_TEXT_DISPLAY_LENGTH = 20
+        /** Maximum number of line-direction clusters used for plane and VP detection. */
+        private const val MAX_LINE_DIRECTION_CLUSTERS = 4
     }
 }

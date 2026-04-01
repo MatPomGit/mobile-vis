@@ -43,11 +43,15 @@ HOUGH_THRESHOLD: int = 50
 # parallel (same direction cluster).
 ANGLE_CLUSTER_TOLERANCE: float = 5.0
 
+# Multiplier applied to RANSAC_THRESHOLD when testing whether a line's
+# midpoint lies close enough to a vanishing point to count as an inlier.
+# A wider tolerance is used here than for plane fitting because vanishing
+# points can lie far outside the image bounds.
+VP_INLIER_DISTANCE_MULTIPLIER: float = 5.0
+
 # Minimum pixel distance from a line to treat a point as an inlier when
 # computing a RANSAC-based vanishing point.
 RANSAC_THRESHOLD: float = 3.0
-
-# Maximum RANSAC iterations when fitting a plane to a 3-D point cloud.
 RANSAC_MAX_ITER: int = 1000
 
 # Minimum fraction of inliers required to accept a RANSAC-fit plane.
@@ -178,7 +182,8 @@ def detect_vanishing_points(
         if vp is None:
             continue
         vx, vy = vp
-        inlier_lines = _inlier_lines_for_vp(cluster, vx, vy, RANSAC_THRESHOLD * 5)
+        vp_threshold = RANSAC_THRESHOLD * VP_INLIER_DISTANCE_MULTIPLIER
+        inlier_lines = _inlier_lines_for_vp(cluster, vx, vy, vp_threshold)
         if not inlier_lines:
             inlier_lines = cluster
         confidence = min(1.0, len(inlier_lines) / max(1, len(lines)))

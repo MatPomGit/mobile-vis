@@ -176,10 +176,16 @@ def _validate_bgr_image(image: object) -> None:
     """
     validate_image(image)
     # validate_image is generic, we need specifically BGR 3-channel for these functions
-    if not isinstance(image, np.ndarray) or image.ndim != 3 or image.shape[2] != 3:
+    if (
+        not isinstance(image, np.ndarray)
+        or image.ndim != 3
+        or image.shape[2] != 3
+        or image.dtype != np.uint8
+    ):
         raise ValueError(
-            f"Expected 3-channel BGR image with shape (H, W, 3), got shape "
-            f"{getattr(image, 'shape', 'N/A')}"
+            "Expected uint8 3-channel BGR image with shape (H, W, 3), "
+            f"got shape {getattr(image, 'shape', 'N/A')} and "
+            f"dtype {getattr(image, 'dtype', 'N/A')}"
         )
 
 

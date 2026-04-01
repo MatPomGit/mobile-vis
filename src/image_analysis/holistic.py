@@ -23,8 +23,9 @@ Example::
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 import cv2
 import numpy as np
@@ -34,6 +35,21 @@ if TYPE_CHECKING:
     import mediapipe as mp
 
 logger = logging.getLogger(__name__)
+
+
+class _LandmarkLike(Protocol):
+    """Protocol for MediaPipe-like normalized landmarks."""
+
+    x: float
+    y: float
+    z: float
+    visibility: float
+
+
+class _LandmarkListLike(Protocol):
+    """Protocol for MediaPipe-like landmark list containers."""
+
+    landmark: Iterable[_LandmarkLike]
 
 # ---------------------------------------------------------------------------
 # Drawing constants
@@ -308,7 +324,7 @@ def _check_mediapipe() -> None:
 
 
 def _extract_landmark_list(
-    mp_landmark_list: object,
+    mp_landmark_list: _LandmarkListLike | None,
     *,
     with_visibility: bool = False,
 ) -> list[HolisticLandmark] | None:

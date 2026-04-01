@@ -3,11 +3,26 @@
 from __future__ import annotations
 
 import importlib
+import os
 import subprocess
 import sys
 import textwrap
+from pathlib import Path
 
 import pytest
+
+SRC_PATH = Path(__file__).resolve().parents[1] / "src"
+
+
+def _subprocess_env_with_src_path() -> dict[str, str]:
+    """Build subprocess environment that includes local src/ on PYTHONPATH."""
+    env = os.environ.copy()
+    existing_pythonpath = env.get("PYTHONPATH", "")
+    if existing_pythonpath:
+        env["PYTHONPATH"] = f"{SRC_PATH}:{existing_pythonpath}"
+    else:
+        env["PYTHONPATH"] = str(SRC_PATH)
+    return env
 
 
 def test_package_import_does_not_eagerly_import_heavy_submodules() -> None:
@@ -41,6 +56,7 @@ def test_package_import_does_not_eagerly_import_heavy_submodules() -> None:
         [sys.executable, "-c", textwrap.dedent(script)],
         capture_output=True,
         text=True,
+        env=_subprocess_env_with_src_path(),
     )
 
     if result.returncode != 0:
@@ -80,6 +96,7 @@ def test_lazy_export_for_classification_symbol() -> None:
         [sys.executable, "-c", textwrap.dedent(script)],
         capture_output=True,
         text=True,
+        env=_subprocess_env_with_src_path(),
     )
 
     if result.returncode != 0:

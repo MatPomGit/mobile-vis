@@ -202,6 +202,9 @@ class VisualOdometryEngine {
     }
         
     private fun detectFeatures(gray: Mat): MatOfPoint2f {
+        // goodFeaturesToTrack requires MatOfPoint output, but the underlying native code
+        // writes CV_32FC2 (float) data. convertTo with depth CV_32F is a no-op copy
+        // (same depth, same channels) that places the data into a properly typed MatOfPoint2f.
         val cornersInt = MatOfPoint()
         Imgproc.goodFeaturesToTrack(
             gray,
@@ -255,6 +258,9 @@ class VisualOdometryEngine {
         val focal = maxOf(width, height)
         val principalPoint = Point(width / 2.0, height / 2.0)
 
+        // OpenCV 4.10 removed the (points1, points2, focal, pp, method, prob, threshold, mask)
+        // overload of findEssentialMat. Build the 3×3 intrinsic camera matrix manually so we
+        // can use the overload that accepts a cameraMatrix: (p0, p1, K, method, prob, threshold, maxIters, mask).
         val cameraMatrix = Mat.eye(3, 3, CvType.CV_64F)
         cameraMatrix.put(0, 0, focal)
         cameraMatrix.put(1, 1, focal)
@@ -359,6 +365,7 @@ class VisualOdometryEngine {
         private const val MIN_FEATURES_TO_KEEP = 60
         private const val RANSAC_CONFIDENCE = 0.999
         private const val RANSAC_THRESHOLD = 1.0
+        /** Upper bound on RANSAC iterations for findEssentialMat; 1000 balances accuracy and speed. */
         private const val RANSAC_MAX_ITERS = 1000
         private const val EPSILON = 1e-6
         private const val DEPTH_VISUAL_GAIN = 180.0

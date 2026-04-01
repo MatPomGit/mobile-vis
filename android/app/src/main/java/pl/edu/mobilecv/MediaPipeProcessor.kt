@@ -48,83 +48,74 @@ class MediaPipeProcessor(private val context: Context) {
         // Drawing constants
         // ------------------------------------------------------------------
 
-        private const val LANDMARK_RADIUS = 6f
-        private const val CONNECTION_STROKE = 4f
+        private val POSE_COLOR = Color.GREEN
+        private val LEFT_HAND_COLOR = Color.YELLOW
+        private val RIGHT_HAND_COLOR = Color.CYAN
+        private val FACE_COLOR = Color.WHITE
+        private val IRIS_COLOR_LEFT = Color.RED
+        private val IRIS_COLOR_RIGHT = Color.BLUE
 
-        private val POSE_COLOR = Color.rgb(0, 220, 0)
-        private val LEFT_HAND_COLOR = Color.rgb(255, 140, 0)
-        private val RIGHT_HAND_COLOR = Color.rgb(0, 140, 255)
-        private val FACE_COLOR = Color.rgb(180, 180, 180)
-        private val IRIS_COLOR_LEFT = Color.rgb(0, 220, 0)
-        private val IRIS_COLOR_RIGHT = Color.rgb(220, 0, 0)
+        private const val LANDMARK_RADIUS = 4f
+        private const val LINE_WIDTH = 3f
 
-        /** MediaPipe pose landmark connection pairs (indices into the 33-landmark list). */
+        /** MediaPipe Pose landmarks connections (subset for visualization). */
         private val POSE_CONNECTIONS = listOf(
             0 to 1, 1 to 2, 2 to 3, 3 to 7, 0 to 4, 4 to 5, 5 to 6, 6 to 8,
-            9 to 10, 11 to 12, 11 to 13, 13 to 15, 15 to 17, 15 to 19, 15 to 21,
-            17 to 19, 12 to 14, 14 to 16, 16 to 18, 16 to 20, 16 to 22, 18 to 20,
-            11 to 23, 12 to 24, 23 to 24, 23 to 25, 24 to 26, 25 to 27, 26 to 28,
-            27 to 29, 28 to 30, 29 to 31, 30 to 32, 27 to 31, 28 to 32,
+            9 to 10, 11 to 12, 11 to 13, 13 to 15, 12 to 14, 14 to 16,
+            11 to 23, 12 to 24, 23 to 24, 23 to 25, 25 to 27, 27 to 29, 29 to 31,
+            24 to 26, 26 to 28, 28 to 30, 30 to 32, 27 to 31, 28 to 32,
         )
 
-        /** MediaPipe hand landmark connection pairs (indices into the 21-landmark list). */
+        /** MediaPipe Hand landmarks connections. */
         private val HAND_CONNECTIONS = listOf(
             0 to 1, 1 to 2, 2 to 3, 3 to 4,
             0 to 5, 5 to 6, 6 to 7, 7 to 8,
-            0 to 9, 9 to 10, 10 to 11, 11 to 12,
-            0 to 13, 13 to 14, 14 to 15, 15 to 16,
-            0 to 17, 17 to 18, 18 to 19, 19 to 20,
-            5 to 9, 9 to 13, 13 to 17,
+            5 to 9, 9 to 10, 10 to 11, 11 to 12,
+            9 to 13, 13 to 14, 14 to 15, 15 to 16,
+            13 to 17, 17 to 18, 18 to 19, 19 to 20,
+            0 to 17,
         )
 
-        /** Iris landmark index range in the refined (478) face-landmark set. */
+        /** Indices for iris landmarks in the 478 face mesh. */
         private val LEFT_IRIS_INDICES = 468..472
         private val RIGHT_IRIS_INDICES = 473..477
     }
-
-    // ------------------------------------------------------------------
-    // Lazy detector instances
-    // ------------------------------------------------------------------
 
     private var poseLandmarker: PoseLandmarker? = null
     private var handLandmarker: HandLandmarker? = null
     private var faceLandmarker: FaceLandmarker? = null
     private var faceLandmarkerIris: FaceLandmarker? = null
 
-    // ------------------------------------------------------------------
-    // Paint objects (reused across frames)
-    // ------------------------------------------------------------------
-
-    private val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
-    private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
-        strokeWidth = CONNECTION_STROKE
+    private val dotPaint = Paint().apply {
+        style = Paint.Style.FILL
+        isAntiAlias = true
     }
-    private val overlayPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.rgb(255, 80, 0)
-        textSize = 48f
+    private val linePaint = Paint().apply {
+        style = Paint.Style.STROKE
+        strokeWidth = LINE_WIDTH
+        isAntiAlias = true
+    }
+    private val overlayPaint = Paint().apply {
+        color = Color.RED
+        textSize = 40f
+        isFakeBoldText = true
+        setShadowLayer(5f, 0f, 0f, Color.BLACK)
     }
 
     /**
-     * Initialise all available MediaPipe detectors.
+     * Initialize all required MediaPipe detectors.
      *
-     * Detectors whose model file is absent (not yet downloaded) are silently skipped;
-     * [processFrame] will display an info overlay for that filter instead.
-     *
-     * Call this method once, on the analysis executor thread, after [ModelDownloadManager]
-     * has finished downloading model files.
+     * Should be called from a background thread to avoid blocking the UI.
      */
     fun initialize() {
         poseLandmarker = tryCreatePoseLandmarker()
         handLandmarker = tryCreateHandLandmarker()
-        faceLandmarker = tryCreateFaceLandmarker(refineIris = false)
-        faceLandmarkerIris = tryCreateFaceLandmarker(refineIris = true)
+        faceLandmarker = tryCreateFaceLandmarker(false)
+        faceLandmarkerIris = tryCreateFaceLandmarker(true)
     }
 
     /**
-     * Release all native MediaPipe resources.
-     *
-     * Must be called from the same thread as [initialize] and [processFrame].
+     * Release all detector resources.
      */
     fun close() {
         poseLandmarker?.close()
@@ -138,25 +129,19 @@ class MediaPipeProcessor(private val context: Context) {
     }
 
     /**
-     * Process a single [bitmap] frame with the given MediaPipe [filter].
+     * Process the given [bitmap] according to the specified [filter] mode.
      *
-     * @param bitmap ARGB_8888 bitmap to process.
-     * @param filter One of the MediaPipe-specific [OpenCvFilter] values.
-     * @return New ARGB_8888 bitmap with landmarks overlaid.
+     * Returns a new [Bitmap] containing the visualized landmarks.
      */
     fun processFrame(bitmap: Bitmap, filter: OpenCvFilter): Bitmap {
         return when (filter) {
             OpenCvFilter.HOLISTIC_BODY -> applyPoseLandmarker(bitmap)
             OpenCvFilter.HOLISTIC_HANDS -> applyHandLandmarker(bitmap)
-            OpenCvFilter.HOLISTIC_FACE -> applyFaceLandmarker(bitmap, iris = false)
-            OpenCvFilter.IRIS -> applyFaceLandmarker(bitmap, iris = true)
-            else -> bitmap.copy(Bitmap.Config.ARGB_8888, false)
+            OpenCvFilter.HOLISTIC_FACE -> applyFaceLandmarker(bitmap, false)
+            OpenCvFilter.IRIS -> applyFaceLandmarker(bitmap, true)
+            else -> bitmap
         }
     }
-
-    // ------------------------------------------------------------------
-    // Private processing methods
-    // ------------------------------------------------------------------
 
     private fun applyPoseLandmarker(bitmap: Bitmap): Bitmap {
         val detector = poseLandmarker
@@ -191,7 +176,8 @@ class MediaPipeProcessor(private val context: Context) {
         val canvas = Canvas(output)
 
         for ((index, hand) in result.landmarks().withIndex()) {
-            val handedness = result.handedness().getOrNull(index)
+            val handednesses = result.handednesses()
+            val handedness = handednesses.getOrNull(index)
             val isLeft = handedness?.firstOrNull()?.categoryName()
                 ?.equals("Left", ignoreCase = true) == true
             val color = if (isLeft) LEFT_HAND_COLOR else RIGHT_HAND_COLOR

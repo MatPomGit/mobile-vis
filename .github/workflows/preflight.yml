@@ -1,0 +1,150 @@
+name: Preflight Checks
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+  workflow_call:
+
+jobs:
+  python-preflight:
+    name: Python – verify dependencies
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Verify core library imports
+        run: |
+          python - <<'EOF'
+          import importlib, sys
+
+          libraries = {
+              "numpy":    "numpy",
+              "cv2":      "opencv-python-headless",
+              "PIL":      "Pillow",
+              "mediapipe": "mediapipe",
+          }
+
+          failed = []
+          for module, package in libraries.items():
+              try:
+                  importlib.import_module(module)
+                  print(f"[OK]  {package} ({module})")
+              except ImportError as exc:
+                  print(f"[FAIL] {package} ({module}): {exc}")
+                  failed.append(package)
+
+          if failed:
+              print(f"\nMissing packages: {', '.join(failed)}")
+              sys.exit(1)
+
+          print("\nAll Python dependencies are installed and importable.")
+          EOF
+
+      - name: Verify dev tools
+        run: |
+          python - <<'EOF'
+          import importlib, sys
+
+          dev_tools = {
+              "pytest":    "pytest",
+              "ruff":      "ruff",
+              "mypy":      "mypy",
+          }
+
+          failed = []
+          for module, package in dev_tools.items():
+              try:
+                  importlib.import_module(module)
+                  print(f"[OK]  {package}")
+              except ImportError as exc:
+                  print(f"[FAIL] {package}: {exc}")
+                  failed.append(package)
+
+          if failed:
+              print(f"\nMissing dev tools: {', '.join(failed)}")
+              sys.exit(1)
+
+          print("\nAll dev tools are installed.")
+          EOF
+
+  android-preflight:
+    name: Android – verify Gradle and dependencies
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: gradle
+
+      - name: Validate Gradle wrapper
+        uses: gradle/actions/wrapper-validation@v4
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+        working-directory: ./android
+
+      - name: Resolve Android dependencies
+        run: ./gradlew dependencies --configuration releaseRuntimeClasspath --no-daemon
+        working-directory: ./android
+
+      - name: Verify key Android libraries present in resolved classpath
+        run: |
+          ./gradlew dependencies \
+            --configuration releaseRuntimeClasspath \
+            --no-daemon \
+            | tee /tmp/deps.txt
+
+          check_dep() {
+            local name="$1"
+            local pattern="$2"
+            if grep -qE "$pattern" /tmp/deps.txt; then
+              echo "[OK]  $name"
+            else
+              echo "[FAIL] $name – not found in resolved classpath"
+              MISSING_DEPS=1
+            fi
+          }
+
+          MISSING_DEPS=0
+
+          check_dep "OpenCV"            "org\.opencv:opencv"
+          check_dep "MediaPipe"         "com\.google\.mediapipe:tasks-vision"
+          check_dep "OkHttp"            "com\.squareup\.okhttp3:okhttp"
+          check_dep "CameraX core"      "androidx\.camera:camera-core"
+          check_dep "CameraX camera2"   "androidx\.camera:camera-camera2"
+          check_dep "CameraX lifecycle" "androidx\.camera:camera-lifecycle"
+          check_dep "CameraX view"      "androidx\.camera:camera-view"
+          check_dep "AndroidX AppCompat" "androidx\.appcompat:appcompat"
+          check_dep "Material"          "com\.google\.android\.material:material"
+
+          if [ "$MISSING_DEPS" -eq 1 ]; then
+            echo ""
+            echo "One or more Android dependencies could not be resolved."
+            exit 1
+          fi
+
+          echo ""
+          echo "All Android dependencies are resolved successfully."
+        working-directory: ./android

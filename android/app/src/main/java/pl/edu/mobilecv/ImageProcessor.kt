@@ -121,6 +121,25 @@ class ImageProcessor {
 
         /** Maximum number of QR-code characters shown in the HUD label. */
         private const val MAX_QR_TEXT_DISPLAY_LENGTH = 20
+
+        // ------------------------------------------------------------------
+        // CCTag detection constants (mirror the Python cctag.py defaults)
+        // ------------------------------------------------------------------
+
+        /** Minimum area in pixels² for a contour to be a CCTag ring candidate. */
+        private const val CCTAG_MIN_CONTOUR_AREA = 50.0
+
+        /** Minimum circularity score [0, 1] for a contour to be treated as a ring. */
+        private const val CCTAG_MIN_CIRCULARITY = 0.5
+
+        /** Maximum centre-to-centre distance (fraction of outer radius) for concentricity. */
+        private const val CCTAG_MAX_CENTRE_OFFSET_FRACTION = 0.25
+
+        /** Minimum number of concentric ring boundaries for a valid CCTag. */
+        private const val CCTAG_MIN_RINGS = 2
+
+        /** Maximum number of concentric ring boundaries for a valid CCTag. */
+        private const val CCTAG_MAX_RINGS = 5
     }
 
     /**
@@ -169,6 +188,7 @@ class ImageProcessor {
             OpenCvFilter.APRIL_TAGS -> applyAprilTagDetection(src)
             OpenCvFilter.ARUCO -> applyArucoDetection(src)
             OpenCvFilter.QR_CODE -> applyQrCodeDetection(src)
+            OpenCvFilter.CCTAG -> applyCCTagDetection(src)
             OpenCvFilter.CHESSBOARD_CALIBRATION -> applyChessboardCalibration(src)
             OpenCvFilter.UNDISTORT -> applyUndistort(src)
             OpenCvFilter.VISUAL_ODOMETRY -> applyVisualOdometry(src)
@@ -589,7 +609,166 @@ class ImageProcessor {
     }
 
     /**
-     * Draw a centre crosshair on [mat] made of four lines extending from
+     * Detect CCTag (Circular Concentric Tag) markers in the frame.
+     *
+     * CCTag markers consist of concentric black-and-white rings.  The ring
+     * count (2–5) is used as the tag identifier.
+     *
+     * Algorithm:
+     * 1. Convert RGBA → grayscale.
+     * 2. Apply 5×5 Gaussian blur.
+     * 3. Binary threshold (Otsu method).
+     * 4. Extract contours with full hierarchy (RETR_TREE).
+     * 5. Filter contours by minimum area and circularity (4π·A/P²).
+     * 6. Group circles whose centres are within 25 % of the outer radius.
+     * 7. Groups with 2–5 rings become detections; overlaid in orange.
+     *
+     * Input/output: RGBA Mat (shape H × W × 4).
+     */
+    private fun applyCCTagDetection(src: Mat): Mat {
+        val result = src.clone()
+        val gray = Mat()
+        Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
+
+        val cx = src.cols() / 2
+        val cy = src.rows() / 2
+        drawCrosshair(result, cx, cy)
+
+        // Gaussian blur + Otsu threshold
+        val blurred = Mat()
+        Imgproc.GaussianBlur(gray, blurred, Size(5.0, 5.0), 0.0)
+        val binary = Mat()
+        Imgproc.threshold(blurred, binary, 0.0, 255.0, Imgproc.THRESH_BINARY + Imgproc.THRESH_OTSU)
+
+        // Extract contours with hierarchy for parent-child relationships
+        val contours = ArrayList<MatOfPoint>()
+        val hierarchy = Mat()
+        Imgproc.findContours(
+            binary, contours, hierarchy,
+            Imgproc.RETR_TREE, Imgproc.CHAIN_APPROX_SIMPLE,
+        )
+
+        // Filter contours: skip top-level (no parent), require area and circularity thresholds.
+        // Each entry is Triple(cx, cy, radius).
+        val circles = mutableListOf<Triple<Float, Float, Float>>()
+        if (!hierarchy.empty() && contours.isNotEmpty()) {
+            for (i in contours.indices) {
+                // hierarchy row: [next, prev, firstChild, parent]; parent == -1 → top-level
+                val parent = hierarchy.get(0, i)[3].toInt()
+                if (parent == -1) continue
+
+                val contour = contours[i]
+                val area = Imgproc.contourArea(contour)
+                if (area < CCTAG_MIN_CONTOUR_AREA) continue
+
+                val contour2f = MatOfPoint2f(*contour.toArray())
+                val perimeter = Imgproc.arcLength(contour2f, true)
+                val circularity = if (perimeter > 0.0) {
+                    4.0 * Math.PI * area / (perimeter * perimeter)
+                } else {
+                    0.0
+                }
+                if (circularity < CCTAG_MIN_CIRCULARITY) {
+                    contour2f.release()
+                    continue
+                }
+
+                val center = Point()
+                val radiusArr = FloatArray(1)
+                Imgproc.minEnclosingCircle(contour2f, center, radiusArr)
+                contour2f.release()
+
+                circles.add(Triple(center.x.toFloat(), center.y.toFloat(), radiusArr[0]))
+            }
+        }
+
+        // Group concentric circles: sort descending by radius, then greedily assign inner circles.
+        circles.sortByDescending { it.third }
+        val used = BooleanArray(circles.size)
+        val groups = mutableListOf<List<Triple<Float, Float, Float>>>()
+
+        for (i in circles.indices) {
+            if (used[i]) continue
+            val outer = circles[i]
+            val group = mutableListOf(outer)
+
+            for (j in circles.indices) {
+                if (i == j || used[j]) continue
+                val inner = circles[j]
+                if (inner.third >= outer.third) continue
+                val dist = Math.hypot(
+                    (inner.first - outer.first).toDouble(),
+                    (inner.second - outer.second).toDouble(),
+                )
+                if (dist <= CCTAG_MAX_CENTRE_OFFSET_FRACTION * outer.third) {
+                    group.add(inner)
+                    used[j] = true
+                }
+            }
+
+            if (group.size >= CCTAG_MIN_RINGS) {
+                used[i] = true
+                groups.add(group)
+            }
+        }
+
+        // Draw detections and collect results.
+        val color = Scalar(0.0, 165.0, 255.0, 255.0) // orange (RGBA)
+        val detections = mutableListOf<MarkerDetection>()
+        val timestampMs = System.currentTimeMillis()
+
+        for (group in groups) {
+            val ringsCount = group.size
+            if (ringsCount > CCTAG_MAX_RINGS) continue
+
+            val outer = group[0]
+            val markerCx = outer.first.toDouble()
+            val markerCy = outer.second.toDouble()
+            val radius = maxOf(1, outer.third.toInt())
+
+            // Draw outer circle and centre dot
+            Imgproc.circle(result, Point(markerCx, markerCy), radius, color, 2)
+            Imgproc.circle(result, Point(markerCx, markerCy), 6, color, -1)
+
+            // Draw label: id=<rings> dx=<Δx> dy=<Δy>
+            val dx = (markerCx - cx).toInt()
+            val dy = (markerCy - cy).toInt()
+            val label = "id=$ringsCount  dx=$dx  dy=$dy"
+            Imgproc.putText(
+                result, label,
+                Point(markerCx - radius, maxOf(markerCy - radius - 8.0, 12.0)),
+                Imgproc.FONT_HERSHEY_SIMPLEX, 0.55, color, 2,
+            )
+
+            // Build bounding-box corners (TL, TR, BR, BL) for MarkerDetection
+            val x1 = maxOf(0, (markerCx - radius).toInt()).toFloat()
+            val y1 = maxOf(0, (markerCy - radius).toInt()).toFloat()
+            val x2 = (markerCx + radius).toInt().toFloat()
+            val y2 = (markerCy + radius).toInt().toFloat()
+
+            detections += MarkerDetection.CCTag(
+                id = ringsCount,
+                center = Pair(outer.first, outer.second),
+                radius = outer.third,
+                corners = listOf(
+                    Pair(x1, y1), Pair(x2, y1), Pair(x2, y2), Pair(x1, y2),
+                ),
+                timestampMs = timestampMs,
+            )
+        }
+
+        // Cleanup
+        gray.release()
+        blurred.release()
+        binary.release()
+        hierarchy.release()
+        contours.forEach { it.release() }
+
+        if (detections.isNotEmpty()) {
+            onMarkersDetected?.invoke(detections)
+        }
+        return result
+    }
      * the centre gap to the respective image edges.
      *
      * The 30-pixel gap keeps the crosshair centre unobstructed so the

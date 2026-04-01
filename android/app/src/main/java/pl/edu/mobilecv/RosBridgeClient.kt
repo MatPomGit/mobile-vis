@@ -206,6 +206,15 @@ class RosBridgeClient {
                     obj.put("corners", cornersToJsonArray(detection.corners))
                     obj.put("timestamp_ms", detection.timestampMs)
                 }
+                is MarkerDetection.CCTag -> {
+                    obj.put("type", "cctag")
+                    obj.put("id", detection.id)
+                    obj.put("center_x", detection.center.first.toDouble())
+                    obj.put("center_y", detection.center.second.toDouble())
+                    obj.put("radius", detection.radius.toDouble())
+                    obj.put("corners", cornersToJsonArray(detection.corners))
+                    obj.put("timestamp_ms", detection.timestampMs)
+                }
             }
             array.put(obj)
         }

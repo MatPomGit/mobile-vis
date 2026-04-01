@@ -105,16 +105,14 @@ jobs:
         run: chmod +x gradlew
         working-directory: ./android
 
-      - name: Resolve Android dependencies
-        run: ./gradlew dependencies --configuration releaseRuntimeClasspath --no-daemon
-        working-directory: ./android
-
-      - name: Verify key Android libraries present in resolved classpath
+      - name: Resolve Android dependencies and verify key libraries
         run: |
           ./gradlew dependencies \
             --configuration releaseRuntimeClasspath \
             --no-daemon \
             | tee /tmp/deps.txt
+
+          declare -i MISSING_DEPS=0
 
           check_dep() {
             local name="$1"
@@ -126,8 +124,6 @@ jobs:
               MISSING_DEPS=1
             fi
           }
-
-          MISSING_DEPS=0
 
           check_dep "OpenCV"            "org\.opencv:opencv"
           check_dep "MediaPipe"         "com\.google\.mediapipe:tasks-vision"

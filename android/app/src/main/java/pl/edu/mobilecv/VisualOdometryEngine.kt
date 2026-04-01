@@ -202,19 +202,24 @@ class VisualOdometryEngine {
     }
         
     private fun detectFeatures(gray: Mat): MatOfPoint2f {
-        val corners = MatOfPoint2f()
-             // goodFeaturesToTrack przyjmuje MatOfPoint2f i wypełnia ją punktami Float
+        // goodFeaturesToTrack requires MatOfPoint output, but the underlying native code
+        // writes CV_32FC2 (float) data. convertTo with depth CV_32F is a no-op copy
+        // (same depth, same channels) that places the data into a properly typed MatOfPoint2f.
+        val cornersInt = MatOfPoint()
         Imgproc.goodFeaturesToTrack(
             gray,
-            corners,
+            cornersInt,
             MAX_FEATURES,
             QUALITY_LEVEL,
             MIN_DISTANCE,
-            Mat(), // maska (opcjonalnie)
-            3,     // blockSize
-            false, // useHarrisDetector
-            0.04   // k
+            Mat(),
+            3,
+            false,
+            0.04,
         )
+        val corners = MatOfPoint2f()
+        cornersInt.convertTo(corners, CvType.CV_32F)
+        cornersInt.release()
         return corners
     }
 
@@ -253,17 +258,27 @@ class VisualOdometryEngine {
         val focal = maxOf(width, height)
         val principalPoint = Point(width / 2.0, height / 2.0)
 
+        // OpenCV 4.10 removed the (points1, points2, focal, pp, method, prob, threshold, mask)
+        // overload of findEssentialMat. Build the 3×3 intrinsic camera matrix manually so we
+        // can use the overload that accepts a cameraMatrix: (p0, p1, K, method, prob, threshold, maxIters, mask).
+        val cameraMatrix = Mat.eye(3, 3, CvType.CV_64F)
+        cameraMatrix.put(0, 0, focal)
+        cameraMatrix.put(1, 1, focal)
+        cameraMatrix.put(0, 2, principalPoint.x)
+        cameraMatrix.put(1, 2, principalPoint.y)
+
         val essentialMask = Mat()
         val essential = Calib3d.findEssentialMat(
             previous,
             current,
-            focal,
-            principalPoint,
+            cameraMatrix,
             Calib3d.RANSAC,
             RANSAC_CONFIDENCE,
             RANSAC_THRESHOLD,
+            RANSAC_MAX_ITERS,
             essentialMask,
         )
+        cameraMatrix.release()
 
         if (essential.empty()) {
             essential.release()
@@ -350,6 +365,8 @@ class VisualOdometryEngine {
         private const val MIN_FEATURES_TO_KEEP = 60
         private const val RANSAC_CONFIDENCE = 0.999
         private const val RANSAC_THRESHOLD = 1.0
+        /** Upper bound on RANSAC iterations for findEssentialMat; 1000 balances accuracy and speed. */
+        private const val RANSAC_MAX_ITERS = 1000
         private const val EPSILON = 1e-6
         private const val DEPTH_VISUAL_GAIN = 180.0
         private const val MAX_CLOUD_POINTS = 160

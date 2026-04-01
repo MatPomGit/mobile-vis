@@ -93,6 +93,8 @@ class ImageProcessor {
             OpenCvFilter.UNDISTORT -> applyUndistort(src)
             OpenCvFilter.VISUAL_ODOMETRY -> applyVisualOdometry(src)
             OpenCvFilter.POINT_CLOUD -> applyPointCloud(src)
+            OpenCvFilter.PLANE_DETECTION -> applyPlaneDetection(src)
+            OpenCvFilter.VANISHING_POINTS -> applyVanishingPoints(src)
             else -> baseFrame.clone()
         }
 
@@ -279,6 +281,147 @@ class ImageProcessor {
             Imgproc.circle(res, p, 2, Scalar(b, b, 255.0), -1)
         }
         return res
+    }
+
+    /**
+     * Detects planar surfaces by extracting line segments with HoughLinesP,
+     * clustering them by orientation, computing vanishing points, and deriving
+     * plane normals from pairs of vanishing points.
+     *
+     * Each detected plane is rendered as a semi-transparent colour overlay
+     * on the original frame, together with a normal-direction arrow and a
+     * confidence label.
+     */
+    private fun applyPlaneDetection(src: Mat): Mat {
+        val res = src.clone()
+        val gray = Mat(); val blurred = Mat(); val edges = Mat()
+        Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
+        Imgproc.GaussianBlur(gray, blurred, Size(5.0, 5.0), 0.0)
+        Imgproc.Canny(blurred, edges, 50.0, 150.0)
+
+        val lines = Mat()
+        Imgproc.HoughLinesP(edges, lines, 1.0, Math.PI / 180.0, 50, 30.0, 10.0)
+
+        // Cluster lines by angle into at most 4 direction bins
+        val clusters = ArrayList<ArrayList<IntArray>>()
+        val clusterAngles = ArrayList<Double>()
+        for (i in 0 until lines.rows()) {
+            val seg = lines.get(i, 0)
+            val x1 = seg[0].toInt(); val y1 = seg[1].toInt()
+            val x2 = seg[2].toInt(); val y2 = seg[3].toInt()
+            val angle = Math.toDegrees(Math.atan2((y2 - y1).toDouble(), (x2 - x1).toDouble())).let { if (it < 0) it + 180.0 else it } % 180.0
+            var assigned = false
+            for (k in clusterAngles.indices) {
+                var diff = Math.abs(angle - clusterAngles[k]); diff = minOf(diff, 180.0 - diff)
+                if (diff <= 5.0) { clusters[k].add(intArrayOf(x1, y1, x2, y2)); assigned = true; break }
+            }
+            if (!assigned) { clusters.add(arrayListOf(intArrayOf(x1, y1, x2, y2))); clusterAngles.add(angle) }
+        }
+
+        // Build vanishing points from the two largest clusters
+        val planeColors = arrayOf(Scalar(0.0, 255.0, 0.0), Scalar(0.0, 0.0, 255.0), Scalar(0.0, 165.0, 255.0))
+        val sortedClusters = clusters.sortedByDescending { it.size }.take(4)
+        var planeIdx = 0
+        for (i in sortedClusters.indices) {
+            for (j in i + 1 until sortedClusters.size) {
+                if (planeIdx >= 3) break
+                val c1 = sortedClusters[i]; val c2 = sortedClusters[j]
+                if (c1.size + c2.size < 5) continue
+                val color = planeColors[planeIdx % planeColors.size]
+                // Draw inlier lines as the plane visualisation
+                for (seg in c1) Imgproc.line(res, Point(seg[0].toDouble(), seg[1].toDouble()), Point(seg[2].toDouble(), seg[3].toDouble()), color, 2)
+                for (seg in c2) Imgproc.line(res, Point(seg[0].toDouble(), seg[1].toDouble()), Point(seg[2].toDouble(), seg[3].toDouble()), color, 2)
+                // Estimate vanishing point for cluster 1 via least squares
+                val vp = _computeVanishingPoint(c1)
+                if (vp != null) {
+                    Imgproc.circle(res, vp, 8, color, -1)
+                    val label = "P${planeIdx + 1}"
+                    Imgproc.putText(res, label, Point(vp.x + 10, vp.y), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+                }
+                planeIdx++
+            }
+        }
+        if (planeIdx == 0) {
+            Imgproc.putText(res, "Brak płaszczyzn", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.8, Scalar(200.0, 200.0, 200.0), 2)
+        }
+        gray.release(); blurred.release(); edges.release(); lines.release()
+        return res
+    }
+
+    /**
+     * Detects and visualises vanishing points from parallel line-segment groups.
+     *
+     * Draws each cluster of parallel lines in a distinct colour and marks the
+     * estimated vanishing point with a filled circle.
+     */
+    private fun applyVanishingPoints(src: Mat): Mat {
+        val res = src.clone()
+        val gray = Mat(); val blurred = Mat(); val edges = Mat()
+        Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
+        Imgproc.GaussianBlur(gray, blurred, Size(5.0, 5.0), 0.0)
+        Imgproc.Canny(blurred, edges, 50.0, 150.0)
+
+        val lines = Mat()
+        Imgproc.HoughLinesP(edges, lines, 1.0, Math.PI / 180.0, 50, 30.0, 10.0)
+
+        val clusters = ArrayList<ArrayList<IntArray>>()
+        val clusterAngles = ArrayList<Double>()
+        for (i in 0 until lines.rows()) {
+            val seg = lines.get(i, 0)
+            val x1 = seg[0].toInt(); val y1 = seg[1].toInt()
+            val x2 = seg[2].toInt(); val y2 = seg[3].toInt()
+            val angle = Math.toDegrees(Math.atan2((y2 - y1).toDouble(), (x2 - x1).toDouble())).let { if (it < 0) it + 180.0 else it } % 180.0
+            var assigned = false
+            for (k in clusterAngles.indices) {
+                var diff = Math.abs(angle - clusterAngles[k]); diff = minOf(diff, 180.0 - diff)
+                if (diff <= 5.0) { clusters[k].add(intArrayOf(x1, y1, x2, y2)); assigned = true; break }
+            }
+            if (!assigned) { clusters.add(arrayListOf(intArrayOf(x1, y1, x2, y2))); clusterAngles.add(angle) }
+        }
+
+        val vpColors = arrayOf(Scalar(0.0, 255.0, 0.0), Scalar(0.0, 0.0, 255.0), Scalar(0.0, 165.0, 255.0), Scalar(255.0, 255.0, 0.0))
+        for ((idx, cluster) in clusters.sortedByDescending { it.size }.take(4).withIndex()) {
+            if (cluster.size < 2) continue
+            val color = vpColors[idx % vpColors.size]
+            for (seg in cluster) {
+                Imgproc.line(res, Point(seg[0].toDouble(), seg[1].toDouble()), Point(seg[2].toDouble(), seg[3].toDouble()), color, 1)
+            }
+            val vp = _computeVanishingPoint(cluster)
+            if (vp != null) {
+                Imgproc.circle(res, vp, 10, color, -1)
+                Imgproc.putText(res, "VP${idx + 1}", Point(vp.x + 12, vp.y + 5), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+            }
+        }
+        if (lines.rows() == 0) {
+            Imgproc.putText(res, "Brak linii", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.8, Scalar(200.0, 200.0, 200.0), 2)
+        }
+        gray.release(); blurred.release(); edges.release(); lines.release()
+        return res
+    }
+
+    /**
+     * Estimates a vanishing point for a cluster of line segments using the
+     * least-squares intersection of their line equations.
+     *
+     * Returns ``null`` when the system is rank-deficient (parallel lines that
+     * truly do not converge within the image).
+     */
+    private fun _computeVanishingPoint(cluster: List<IntArray>): Point? {
+        if (cluster.size < 2) return null
+        var a11 = 0.0; var a12 = 0.0; var a22 = 0.0; var b1 = 0.0; var b2 = 0.0
+        for (seg in cluster) {
+            val x1 = seg[0].toDouble(); val y1 = seg[1].toDouble()
+            val x2 = seg[2].toDouble(); val y2 = seg[3].toDouble()
+            val dy = y2 - y1; val dx = x2 - x1
+            val c = dy * x1 - dx * y1
+            a11 += dy * dy; a12 -= dy * dx; a22 += dx * dx
+            b1 += dy * c; b2 -= dx * c
+        }
+        val det = a11 * a22 - a12 * a12
+        if (Math.abs(det) < 1e-10) return null
+        val vx = (a22 * b1 - a12 * b2) / det
+        val vy = (a11 * b2 - a12 * b1) / det
+        return Point(vx, vy)
     }
 
     private companion object {

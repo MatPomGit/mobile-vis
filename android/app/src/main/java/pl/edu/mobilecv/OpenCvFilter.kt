@@ -100,6 +100,19 @@ enum class OpenCvFilter(val displayName: String) {
 
     /** Builds a pseudo 3D point cloud view from frame-to-frame parallax. */
     POINT_CLOUD("Chmura punktów"),
+
+    /**
+     * Detects planar surfaces using vanishing-point analysis and RANSAC-based
+     * line clustering.  Detected planes are highlighted with semi-transparent
+     * colour overlays and normal-direction arrows.
+     */
+    PLANE_DETECTION("Detekcja płaszczyzn"),
+
+    /**
+     * Detects vanishing points from groups of parallel line segments and
+     * visualises them with converging-line bundles and point markers.
+     */
+    VANISHING_POINTS("Punkty zbieżności"),
 }
 
 /**

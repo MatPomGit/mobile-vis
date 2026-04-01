@@ -8,6 +8,7 @@ import org.opencv.core.Mat
 import org.opencv.core.MatOfByte
 import org.opencv.core.MatOfFloat
 import org.opencv.core.MatOfPoint2f
+import org.opencv.core.MatOfPoint
 import org.opencv.core.Point
 import org.opencv.imgproc.Imgproc
 import org.opencv.video.Video
@@ -199,15 +200,20 @@ class VisualOdometryEngine {
 
         return PointCloudState(cloudPoints.take(MAX_CLOUD_POINTS), meanParallax)
     }
-
+        
     private fun detectFeatures(gray: Mat): MatOfPoint2f {
         val corners = MatOfPoint2f()
+             // goodFeaturesToTrack przyjmuje MatOfPoint2f i wypełnia ją punktami Float
         Imgproc.goodFeaturesToTrack(
             gray,
             corners,
             MAX_FEATURES,
             QUALITY_LEVEL,
             MIN_DISTANCE,
+            Mat(), // maska (opcjonalnie)
+            3,     // blockSize
+            false, // useHarrisDetector
+            0.04   // k
         )
         return corners
     }

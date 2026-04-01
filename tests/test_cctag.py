@@ -448,7 +448,7 @@ class TestEstimateCCTagPose:
                 sample_detection, pinhole_camera_matrix, zero_dist_coeffs, 0.0
             )
 
-    def test_raises_for_zero_radius(
+    def test_raises_for_negative_radius(
         self,
         sample_detection: CCTagDetection,
         pinhole_camera_matrix: np.ndarray,

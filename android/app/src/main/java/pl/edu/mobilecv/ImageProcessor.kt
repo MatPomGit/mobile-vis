@@ -769,6 +769,9 @@ class ImageProcessor {
         }
         return result
     }
+
+    /**
+     * Draw a centre crosshair on [mat] made of four lines extending from
      * the centre gap to the respective image edges.
      *
      * The 30-pixel gap keeps the crosshair centre unobstructed so the

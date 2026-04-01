@@ -44,13 +44,14 @@ enum class AnalysisMode(val displayName: String, val filters: List<OpenCvFilter>
         )
     ),
 
-    /** Visual marker detection: AprilTags, ArUco markers, and QR codes. */
+    /** Visual marker detection: AprilTags, ArUco markers, QR codes, and CCTags. */
     MARKERS(
         "Markery",
         listOf(
             OpenCvFilter.APRIL_TAGS,
             OpenCvFilter.ARUCO,
             OpenCvFilter.QR_CODE,
+            OpenCvFilter.CCTAG,
         )
     ),
 

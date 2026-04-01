@@ -92,4 +92,10 @@
     <string name="mediapipe_model_missing_face">Model twarzy niedostępny – pobieranie…</string>
     <string name="vo_overlay_tracks">Ścieżki VO</string>
     <string name="vo_overlay_point_cloud">Chmura</string>
+
+    <!-- Visual Odometry parameters -->
+    <string name="vo_max_features_label">Max cech:</string>
+    <string name="vo_min_parallax_label">Próg paralaksy:</string>
+    <string name="vo_depth_gain_label">Wzmocnienie głębi:</string>
+    <string name="vo_mesh_toggle">Pokaż siatkę (Mesh)</string>
 </resources>

@@ -185,11 +185,20 @@ class ImageProcessor {
             Objdetect.drawDetectedMarkers(res, corners, ids, Scalar(255.0, 255.0, 0.0))
             onMarkersDetected?.invoke(corners.indices.map { i ->
                 val c = corners[i]
-                val pts = listOf(Pair(c.get(0,0)[0].toFloat(), c.get(0,0)[1].toFloat()), Pair(c.get(0,1)[0].toFloat(), c.get(0,1)[1].toFloat()), Pair(c.get(0,2)[0].toFloat(), c.get(0,2)[1].toFloat()), Pair(c.get(0,3)[0].toFloat(), c.get(0,3)[1].toFloat()))
+                val pts = ptsToList(c)
                 MarkerDetection.Aruco(ids.get(i,0)[0].toInt(), pts)
             })
         }
         ids.release(); return res
+    }
+
+    private fun ptsToList(c: Mat): List<Pair<Float, Float>> {
+        return listOf(
+            Pair(c.get(0,0)[0].toFloat(), c.get(0,0)[1].toFloat()),
+            Pair(c.get(0,1)[0].toFloat(), c.get(0,1)[1].toFloat()),
+            Pair(c.get(0,2)[0].toFloat(), c.get(0,2)[1].toFloat()),
+            Pair(c.get(0,3)[0].toFloat(), c.get(0,3)[1].toFloat())
+        )
     }
 
     private fun applyQrCodeDetection(src: Mat): Mat {
@@ -272,7 +281,7 @@ class ImageProcessor {
         val res = Mat.zeros(src.size(), src.type()); val state = visualOdometryEngine.updatePointCloud(src) ?: return res
         Imgproc.putText(res, "$labelPointCloud: ${state.points.size} (parallax: %.1f)".format(state.meanParallax), Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.7, Scalar(255.0, 255.0, 255.0), 2)
         if (isVoMeshEnabled) {
-            for (e in state.meshEdges) Imgproc.line(res, e.first, e.second, Scalar(100.0, 100.0, 100.0), 1)
+            for (e in state.edges) Imgproc.line(res, e.first, e.second, Scalar(100.0, 100.0, 100.0), 1)
         }
         for (p in state.points) {
             val b = 150.0 + 105.0 * (1.0 - p.y / src.rows())

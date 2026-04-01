@@ -290,6 +290,11 @@ class MainActivity : AppCompatActivity() {
 
     private fun requestPermissionsOrStart() { if (requiredPermissions().all { ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED }) startCamera() else permissionsLauncher.launch(requiredPermissions()) }
 
+    private fun requiredPermissions(): Array<String> = arrayOf(
+        Manifest.permission.CAMERA,
+        Manifest.permission.RECORD_AUDIO
+    ) + if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE) else emptyArray()
+
     private fun startCamera() {
         ProcessCameraProvider.getInstance(this).addListener({
             cameraProvider = try { ProcessCameraProvider.getInstance(this).get() } catch (e: Exception) { null }

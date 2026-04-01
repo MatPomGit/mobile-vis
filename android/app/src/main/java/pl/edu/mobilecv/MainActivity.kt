@@ -835,8 +835,20 @@ class MainActivity : AppCompatActivity() {
             // Rotate and mirror (if front camera) the bitmap.
             val oriented: Bitmap = orientBitmap(bitmap, rotation, lensFacing)
 
+            // Measure filter processing time.
+            val frameStart = System.nanoTime()
+
             // Apply OpenCV filters.
             val processed: Bitmap = imageProcessor.processFrame(oriented, currentFilter)
+
+            val processingMs = (System.nanoTime() - frameStart) / 1_000_000L
+            lastProcessingTimeMs = processingMs
+            val w = processed.width
+            val h = processed.height
+            frameWidth = w
+            frameHeight = h
+            fpsCounter.onFrame()
+            val fps = fpsCounter.fps
 
             // Skip the UI post if the main thread is still rendering the previous frame.
             // This prevents runOnUiThread runnables from accumulating under load and
@@ -853,38 +865,19 @@ class MainActivity : AppCompatActivity() {
                     binding.imageViewPreview.setImageBitmap(processed)
                     lastProcessedBitmap = processed
                     uiUpdatePending.set(false)
+
+                    updateDiagnosticsOverlay(
+                        fps = fps,
+                        width = w,
+                        height = h,
+                        processingMs = processingMs,
+                        filter = currentFilter,
+                        isFrontCamera = lensFacing == CameraSelector.LENS_FACING_FRONT,
+                        activeVisionEnabled = isActiveVisionEnabled,
+                    )
                 }
             } else {
                 processed.recycle()
-            // Measure filter processing time.
-            val frameStart = System.nanoTime()
-
-            // Apply OpenCV filters.
-            val processed: Bitmap = imageProcessor.processFrame(oriented, currentFilter)
-
-            lastProcessingTimeMs = (System.nanoTime() - frameStart) / 1_000_000L
-            frameWidth = processed.width
-            frameHeight = processed.height
-            fpsCounter.onFrame()
-
-            runOnUiThread {
-                // Recycle the bitmap from two frames ago – by then the RenderThread has had
-                // at least one full vsync cycle to upload the previous bitmap to a GPU texture
-                // and no longer reads from its CPU pixel buffer.
-                pendingRecycleBitmap?.recycle()
-                pendingRecycleBitmap = lastProcessedBitmap
-                binding.imageViewPreview.setImageBitmap(processed)
-                lastProcessedBitmap = processed
-
-                updateDiagnosticsOverlay(
-                    fps = fpsCounter.fps,
-                    width = frameWidth,
-                    height = frameHeight,
-                    processingMs = lastProcessingTimeMs,
-                    filter = currentFilter,
-                    isFrontCamera = lensFacing == CameraSelector.LENS_FACING_FRONT,
-                    activeVisionEnabled = isActiveVisionEnabled,
-                )
             }
 
             // Cleanup intermediate bitmaps.

@@ -57,6 +57,9 @@ enum class OpenCvFilter(val displayName: String) {
     /** Detects QR codes and overlays position info. */
     QR_CODE("QR Code"),
 
+    /** Detects CCTag (Circular Concentric Tag) markers and overlays ring count and position. */
+    CCTAG("CCTag"),
+
     /** Detects chessboard corners for camera calibration. */
     CHESSBOARD_CALIBRATION("Szachownica"),
 

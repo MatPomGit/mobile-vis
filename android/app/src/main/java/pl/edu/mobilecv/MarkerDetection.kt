@@ -51,4 +51,24 @@ sealed class MarkerDetection {
         override val corners: List<Pair<Float, Float>>,
         override val timestampMs: Long = System.currentTimeMillis(),
     ) : MarkerDetection()
+
+    /**
+     * CCTag (Circular Concentric Tag) detection.
+     *
+     * CCTag markers are concentric black-and-white rings.  The [id] equals
+     * the number of concentric ring boundaries detected (2–5).
+     *
+     * @param id      Ring count used as the tag identifier (2–5).
+     * @param center  Tag centre in image pixels as ``(x, y)``.
+     * @param radius  Radius of the outermost detected ring in pixels.
+     * @param corners Four corners of the bounding box in pixel coordinates,
+     *                ordered: top-left, top-right, bottom-right, bottom-left.
+     */
+    data class CCTag(
+        val id: Int,
+        val center: Pair<Float, Float>,
+        val radius: Float,
+        override val corners: List<Pair<Float, Float>>,
+        override val timestampMs: Long = System.currentTimeMillis(),
+    ) : MarkerDetection()
 }

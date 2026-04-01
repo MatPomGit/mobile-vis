@@ -10,7 +10,7 @@ concentric ring boundaries detected in a group determines the tag identifier.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import cast
 
 import cv2
@@ -20,6 +20,9 @@ from numpy.typing import NDArray
 from .utils import validate_image
 
 logger = logging.getLogger(__name__)
+
+# Private internal type alias: (cx, cy, radius, circularity)
+_Circle = tuple[float, float, float, float]
 
 # Minimum area (pixels²) for a contour to be considered a ring candidate.
 MIN_CONTOUR_AREA: float = 50.0
@@ -64,6 +67,11 @@ class CCTagDetection:
             coordinates, where ``(x1, y1)`` is the top-left corner and
             ``(x2, y2)`` is the bottom-right corner.
         rings_count: Number of concentric ring boundaries detected.
+        confidence: Detection quality score in ``[0, 1]`` computed as the mean
+            circularity of the concentric ring contours.  A higher value
+            indicates more circle-like contours and a more reliable detection.
+            Defaults to ``0.0`` when constructed directly without a computed
+            value.
     """
 
     tag_id: int
@@ -71,12 +79,14 @@ class CCTagDetection:
     radius: float
     bbox: tuple[int, int, int, int]
     rings_count: int
+    confidence: float = field(default=0.0)
 
 
 def detect_cc_tags(
     image: NDArray[np.uint8] | NDArray[np.float32],
     min_circularity: float = MIN_CIRCULARITY,
     min_area: float = MIN_CONTOUR_AREA,
+    use_adaptive: bool = False,
 ) -> list[CCTagDetection]:
     """Detect CCTag markers in *image*.
 
@@ -92,6 +102,10 @@ def detect_cc_tags(
             require more circle-like shapes.
         min_area: Minimum enclosed area in pixels² for a contour to be
             considered.
+        use_adaptive: When ``True``, use adaptive Gaussian thresholding
+            instead of global Otsu thresholding.  Adaptive thresholding is
+            more robust under non-uniform illumination at the cost of
+            increased computation.
 
     Returns:
         List of :class:`CCTagDetection` objects sorted by ascending
@@ -110,7 +124,7 @@ def detect_cc_tags(
         raise ValueError(f"min_area must be positive, got {min_area}")
 
     gray = _to_grayscale_uint8(image)
-    circles = _find_circle_contours(gray, min_circularity, min_area)
+    circles = _find_circle_contours(gray, min_circularity, min_area, use_adaptive)
     groups = _group_concentric_circles(circles)
     detections = _build_detections(groups)
     detections.sort(key=lambda d: d.tag_id)
@@ -168,6 +182,73 @@ def draw_cc_tags(
     return output
 
 
+def estimate_cctag_pose(
+    detection: CCTagDetection,
+    camera_matrix: NDArray[np.float64],
+    dist_coeffs: NDArray[np.float64],
+    tag_physical_radius_m: float,
+) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    """Estimate the 6-DoF pose of a CCTag marker via OpenCV PnP.
+
+    Four cardinal points on the detected circle boundary are matched to
+    the corresponding physical positions on the marker plane (``z = 0``)
+    to compute rotation and translation vectors.
+
+    Args:
+        detection: A :class:`CCTagDetection` produced by
+            :func:`detect_cc_tags`.
+        camera_matrix: ``(3, 3)`` intrinsic camera matrix of dtype
+            ``float64`` as returned by :func:`calibrate_camera`.
+        dist_coeffs: Distortion coefficients array (length 4, 5, or 8)
+            of dtype ``float64`` as returned by :func:`calibrate_camera`.
+        tag_physical_radius_m: Physical radius of the outermost ring in
+            **metres** (must be positive).
+
+    Returns:
+        ``(rvec, tvec)`` – rotation vector ``(3, 1)`` and translation
+        vector ``(3, 1)`` in the camera coordinate frame, both as
+        ``float64`` NumPy arrays.
+
+    Raises:
+        ValueError: If *tag_physical_radius_m* is not positive.
+        ValueError: If *camera_matrix* is not a ``(3, 3)`` array.
+        RuntimeError: If :func:`cv2.solvePnP` fails to converge.
+    """
+    if tag_physical_radius_m <= 0.0:
+        raise ValueError(
+            f"tag_physical_radius_m must be positive, got {tag_physical_radius_m}"
+        )
+    cm = np.asarray(camera_matrix, dtype=np.float64)
+    if cm.shape != (3, 3):
+        raise ValueError(f"camera_matrix must have shape (3, 3), got {cm.shape}")
+
+    r = tag_physical_radius_m
+    # Cardinal points on the physical marker plane at z = 0 (right, top, left, bottom).
+    object_points = np.array(
+        [[r, 0.0, 0.0], [0.0, r, 0.0], [-r, 0.0, 0.0], [0.0, -r, 0.0]],
+        dtype=np.float64,
+    )
+
+    cx, cy = detection.center
+    pr = detection.radius
+    # Corresponding pixel positions on the detected circle boundary.
+    image_points = np.array(
+        [[cx + pr, cy], [cx, cy + pr], [cx - pr, cy], [cx, cy - pr]],
+        dtype=np.float64,
+    )
+
+    success, rvec, tvec = cv2.solvePnP(
+        object_points,
+        image_points,
+        cm,
+        np.asarray(dist_coeffs, dtype=np.float64),
+    )
+    if not success:
+        raise RuntimeError("cv2.solvePnP failed to converge for the given CCTag detection.")
+
+    return cast(NDArray[np.float64], rvec), cast(NDArray[np.float64], tvec)
+
+
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
@@ -212,30 +293,40 @@ def _find_circle_contours(
     gray: NDArray[np.uint8],
     min_circularity: float,
     min_area: float,
-) -> list[tuple[float, float, float]]:
-    """Return ``(cx, cy, radius)`` for each circle-like contour in *gray*.
+    use_adaptive: bool = False,
+) -> list[_Circle]:
+    """Return ``(cx, cy, radius, circularity)`` for each circle-like contour in *gray*.
 
-    A binary threshold (Otsu) is applied before contour extraction.
-    Top-level contours (those with no parent in the hierarchy, i.e. image
-    background regions) are excluded so that the frame boundary does not
-    interfere with CCTag grouping.
+    A binary threshold is applied before contour extraction: Otsu's global
+    method by default, or adaptive Gaussian thresholding when *use_adaptive*
+    is ``True``.  Top-level contours (those with no parent in the hierarchy,
+    i.e. image background regions) are excluded so that the frame boundary
+    does not interfere with CCTag grouping.
 
     Args:
         gray: Grayscale uint8 image.
         min_circularity: Minimum circularity score for a contour to be kept.
         min_area: Minimum enclosed area for a contour to be kept.
+        use_adaptive: When ``True``, use adaptive Gaussian thresholding
+            instead of Otsu global thresholding.
 
     Returns:
-        List of ``(cx, cy, radius)`` tuples for candidate ring contours.
+        List of ``(cx, cy, radius, circularity)`` tuples for candidate ring
+        contours.
     """
     blurred = cv2.GaussianBlur(gray, BLUR_KERNEL_SIZE, 0)
-    _, binary = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    if use_adaptive:
+        binary = cv2.adaptiveThreshold(
+            blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2
+        )
+    else:
+        _, binary = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     contours, hierarchy = cv2.findContours(binary, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
 
     if hierarchy is None or len(contours) == 0:
         return []
 
-    circles: list[tuple[float, float, float]] = []
+    circles: list[_Circle] = []
     for i, contour in enumerate(contours):
         # Skip top-level (parentless) contours - these are background regions
         # spanning the full image, not CCTag ring boundaries.
@@ -245,17 +336,18 @@ def _find_circle_contours(
         if area < min_area:
             continue
         perimeter = float(cv2.arcLength(contour, True))
-        if _circularity(area, perimeter) < min_circularity:
+        circ = _circularity(area, perimeter)
+        if circ < min_circularity:
             continue
         (cx, cy), radius = cv2.minEnclosingCircle(contour)
-        circles.append((float(cx), float(cy), float(radius)))
+        circles.append((float(cx), float(cy), float(radius), circ))
 
     return circles
 
 
 def _group_concentric_circles(
-    circles: list[tuple[float, float, float]],
-) -> list[list[tuple[float, float, float]]]:
+    circles: list[_Circle],
+) -> list[list[_Circle]]:
     """Group circles with the same centre into concentric groups.
 
     Circles are considered concentric if the distance between their centres
@@ -263,7 +355,7 @@ def _group_concentric_circles(
     Only groups with at least :data:`MIN_CCTAG_RINGS` circles are returned.
 
     Args:
-        circles: List of ``(cx, cy, radius)`` tuples sorted by radius.
+        circles: List of ``(cx, cy, radius, circularity)`` tuples.
 
     Returns:
         List of concentric-circle groups, each ordered by descending radius.
@@ -272,19 +364,19 @@ def _group_concentric_circles(
         return []
 
     sorted_circles = sorted(circles, key=lambda c: c[2], reverse=True)
-    groups: list[list[tuple[float, float, float]]] = []
+    groups: list[list[_Circle]] = []
     used = [False] * len(sorted_circles)
 
     for i, outer in enumerate(sorted_circles):
         if used[i]:
             continue
-        outer_cx, outer_cy, outer_r = outer
-        group: list[tuple[float, float, float]] = [outer]
+        outer_cx, outer_cy, outer_r, _ = outer
+        group: list[_Circle] = [outer]
 
         for j, inner in enumerate(sorted_circles):
             if i == j or used[j]:
                 continue
-            inner_cx, inner_cy, inner_r = inner
+            inner_cx, inner_cy, inner_r, _ = inner
             if inner_r >= outer_r:
                 continue
             dist = float(np.hypot(inner_cx - outer_cx, inner_cy - outer_cy))
@@ -300,9 +392,12 @@ def _group_concentric_circles(
 
 
 def _build_detections(
-    groups: list[list[tuple[float, float, float]]],
+    groups: list[list[_Circle]],
 ) -> list[CCTagDetection]:
     """Build :class:`CCTagDetection` objects from concentric circle groups.
+
+    The ``confidence`` of each detection is computed as the mean circularity
+    of the ring contours in its group.
 
     Args:
         groups: List of concentric-circle groups as returned by
@@ -316,7 +411,8 @@ def _build_detections(
         rings_count = len(group)
         if rings_count > MAX_CCTAG_RINGS:
             continue
-        cx, cy, outer_radius = group[0]
+        cx, cy, outer_radius, _ = group[0]
+        confidence = float(np.mean([c[3] for c in group]))
         r = int(np.ceil(outer_radius))
         bbox = (
             max(0, int(cx) - r),
@@ -331,6 +427,7 @@ def _build_detections(
                 radius=outer_radius,
                 bbox=bbox,
                 rings_count=rings_count,
+                confidence=confidence,
             )
         )
     return detections

@@ -82,6 +82,18 @@ enum class AnalysisMode(val displayName: String, val filters: List<OpenCvFilter>
         )
     ),
 
+    /**
+     * 3-D geometry analysis: plane detection, vanishing-point extraction,
+     * and point-cloud visualisation.
+     */
+    GEOMETRY(
+        "Geometria 3D",
+        listOf(
+            OpenCvFilter.PLANE_DETECTION,
+            OpenCvFilter.VANISHING_POINTS,
+        )
+    ),
+
     /** Camera calibration using chessboard patterns. */
     CALIBRATION(
         "Kalibracja",

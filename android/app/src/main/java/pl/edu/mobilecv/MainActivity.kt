@@ -12,6 +12,7 @@ import android.provider.MediaStore
 import android.util.Log
 import android.view.View
 import android.widget.ImageView
+import android.widget.SeekBar
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -194,6 +195,7 @@ class MainActivity : AppCompatActivity() {
 
         initOpenCv()
         setupAnalysisTabs()
+        setupKernelSizeSlider()
         setupActiveVisionToggle()
         setupCameraSwitchButton()
         setupCaptureButton()
@@ -233,6 +235,35 @@ class MainActivity : AppCompatActivity() {
             Log.e(TAG, "OpenCV initialisation failed")
             Toast.makeText(this, getString(R.string.opencv_init_error), Toast.LENGTH_LONG).show()
         }
+    }
+
+    /**
+     * Wire the kernel-size [SeekBar] to [ImageProcessor.morphKernelSize].
+     *
+     * The slider range is 0–19 (mapped to half-sizes 1–20), giving kernel side
+     * lengths from 3×3 up to 41×41.  The label next to the slider shows the
+     * actual kernel dimensions.
+     */
+    private fun setupKernelSizeSlider() {
+        // Reflect the default kernel size already set in ImageProcessor.
+        updateKernelSizeLabel(imageProcessor.morphKernelSize)
+
+        binding.seekBarKernelSize.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar, progress: Int, fromUser: Boolean) {
+                val half = progress + 1          // progress 0..19  →  half 1..20
+                imageProcessor.morphKernelSize = half
+                updateKernelSizeLabel(half)
+            }
+
+            override fun onStartTrackingTouch(seekBar: SeekBar) = Unit
+            override fun onStopTrackingTouch(seekBar: SeekBar) = Unit
+        })
+    }
+
+    /** Update the kernel-size label next to the [SeekBar] to show `side×side`. */
+    private fun updateKernelSizeLabel(half: Int) {
+        val side = 2 * half + 1
+        binding.textViewKernelSize.text = getString(R.string.morphology_kernel_size_value, side, side)
     }
 
     /**
@@ -316,6 +347,10 @@ class MainActivity : AppCompatActivity() {
             }
             binding.chipGroupFilters.addView(chip)
         }
+
+        // Show the kernel-size slider only in MORPHOLOGY mode.
+        binding.layoutKernelSize.visibility =
+            if (mode == AnalysisMode.MORPHOLOGY) View.VISIBLE else View.GONE
 
         // Show calibration FAB only in CALIBRATION mode;
         // robot FAB is hidden in CALIBRATION mode to avoid visual clutter.

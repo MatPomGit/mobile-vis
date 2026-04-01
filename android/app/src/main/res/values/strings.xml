@@ -72,6 +72,9 @@
     <string name="active_vision_disabled">Tryb Active Vision wyłączony</string>
     <string name="diagnostics_active_vision">Active Vision: %1$b</string>
 
+    <string name="morphology_kernel_size_label">Jądro:</string>
+    <string name="morphology_kernel_size_value">%1$d×%2$d</string>
+
     <!-- Diagnostics overlay (FPS indicator and processing info) -->
     <string name="diagnostics_fps">FPS: %1$.1f</string>
     <string name="diagnostics_resolution">Rozdzielczość: %1$d×%2$d</string>

@@ -12,6 +12,7 @@ class TestImageAnalysisPackage:
 
     def test_classification_export_is_lazy_loaded(self) -> None:
         """The package should expose non-CV utilities without importing CV modules."""
+        importlib.sys.modules.pop("image_analysis.april_tags", None)
         package = importlib.import_module("image_analysis")
 
         assert "classify_image" in package.__all__

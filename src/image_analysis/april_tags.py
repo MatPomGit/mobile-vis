@@ -54,7 +54,7 @@ def detect_april_tags(
     """Detect AprilTag markers in *image*.
 
     Args:
-        image: Grayscale ``(H, W)``, BGR ``(H, W, 3)`` or BGRA ``(H, W, 4)`` image with dtype
+        image: Grayscale ``(H, W)`` or BGR ``(H, W, 3)`` image with dtype
             ``uint8 [0, 255]`` or ``float32 [0.0, 1.0]``.
         family: AprilTag family name. Supported values are listed in
             :data:`APRILTAG_FAMILY_TO_DICTIONARY`.
@@ -161,10 +161,6 @@ def _to_grayscale_uint8(
         if image_uint8.shape[2] == 3:
             grayscale = cv2.cvtColor(image_uint8, cv2.COLOR_BGR2GRAY)
             return cast(NDArray[np.uint8], grayscale)
-        if image_uint8.shape[2] == 4:
-            grayscale = cv2.cvtColor(image_uint8, cv2.COLOR_BGRA2GRAY)
-            return cast(NDArray[np.uint8], grayscale)
-
     raise ValueError(f"Unsupported image shape for AprilTag detection: {image_array.shape}")
 
 

@@ -60,6 +60,49 @@
         android:orientation="vertical"
         android:paddingBottom="16dp">
 
+        <!-- Kernel-size slider – shown only in MORPHOLOGY mode -->
+        <LinearLayout
+            android:id="@+id/layoutKernelSize"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:paddingTop="4dp"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_vertical"
+                android:text="@string/morphology_kernel_size_label"
+                android:textColor="@android:color/white"
+                android:textSize="12sp"
+                android:minWidth="80dp" />
+
+            <SeekBar
+                android:id="@+id/seekBarKernelSize"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_vertical"
+                android:layout_weight="1"
+                android:max="19"
+                android:progress="3"
+                android:progressTint="@android:color/white"
+                android:thumbTint="@android:color/white" />
+
+            <TextView
+                android:id="@+id/textViewKernelSize"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_vertical"
+                android:layout_marginStart="8dp"
+                android:textColor="@android:color/white"
+                android:textSize="12sp"
+                tools:text="9×9" />
+
+        </LinearLayout>
+
         <!-- Mode-specific context chips (e.g., settings for the current filter) -->
         <HorizontalScrollView
             android:layout_width="match_parent"

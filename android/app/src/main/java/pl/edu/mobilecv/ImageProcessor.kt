@@ -78,6 +78,16 @@ class ImageProcessor {
     /** Enables Active Vision ROI optimisation pipeline. */
     var isActiveVisionEnabled: Boolean = false
 
+    /**
+     * Kernel half-size for all morphological operations (DILATE, ERODE, OPEN, CLOSE,
+     * GRADIENT, TOP_HAT, BLACK_HAT).  The actual structuring element will be a square
+     * with side length `2 * morphKernelSize + 1`.
+     *
+     * Valid range: 1–20 (inclusive).  Values outside the range are silently clamped.
+     */
+    @Volatile
+    var morphKernelSize: Int = 4
+
     private val activeVisionOptimizer = ActiveVisionOptimizer()
 
     // ------------------------------------------------------------------
@@ -151,6 +161,11 @@ class ImageProcessor {
             OpenCvFilter.LAPLACIAN -> applyLaplacian(src)
             OpenCvFilter.DILATE -> applyDilate(src)
             OpenCvFilter.ERODE -> applyErode(src)
+            OpenCvFilter.OPEN -> applyMorphEx(src, Imgproc.MORPH_OPEN)
+            OpenCvFilter.CLOSE -> applyMorphEx(src, Imgproc.MORPH_CLOSE)
+            OpenCvFilter.GRADIENT -> applyMorphEx(src, Imgproc.MORPH_GRADIENT)
+            OpenCvFilter.TOP_HAT -> applyMorphEx(src, Imgproc.MORPH_TOPHAT)
+            OpenCvFilter.BLACK_HAT -> applyMorphEx(src, Imgproc.MORPH_BLACKHAT)
             OpenCvFilter.APRIL_TAGS -> applyAprilTagDetection(src)
             OpenCvFilter.ARUCO -> applyArucoDetection(src)
             OpenCvFilter.QR_CODE -> applyQrCodeDetection(src)
@@ -294,29 +309,59 @@ class ImageProcessor {
     }
 
     /**
-     * Apply morphological dilation with a 9×9 rectangular structuring element.
+     * Apply morphological dilation with a rectangular structuring element whose
+     * side length is determined by [morphKernelSize].
      *
      * Brightens bright regions, useful for closing small dark holes.
      */
     private fun applyDilate(src: Mat): Mat {
         val result = Mat()
-        val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(9.0, 9.0))
+        val kernel = buildMorphKernel()
         Imgproc.dilate(src, result, kernel)
         kernel.release()
         return result
     }
 
     /**
-     * Apply morphological erosion with a 9×9 rectangular structuring element.
+     * Apply morphological erosion with a rectangular structuring element whose
+     * side length is determined by [morphKernelSize].
      *
      * Darkens dark regions, useful for removing small bright specks.
      */
     private fun applyErode(src: Mat): Mat {
         val result = Mat()
-        val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(9.0, 9.0))
+        val kernel = buildMorphKernel()
         Imgproc.erode(src, result, kernel)
         kernel.release()
         return result
+    }
+
+    /**
+     * Apply a compound morphological operation via [Imgproc.morphologyEx].
+     *
+     * Supports MORPH_OPEN, MORPH_CLOSE, MORPH_GRADIENT, MORPH_TOPHAT, and
+     * MORPH_BLACKHAT.  The structuring element size is controlled by [morphKernelSize].
+     *
+     * @param src   Input RGBA Mat.
+     * @param op    One of the `Imgproc.MORPH_*` constants.
+     * @return      Result RGBA Mat.
+     */
+    private fun applyMorphEx(src: Mat, op: Int): Mat {
+        val result = Mat()
+        val kernel = buildMorphKernel()
+        Imgproc.morphologyEx(src, result, op, kernel)
+        kernel.release()
+        return result
+    }
+
+    /**
+     * Build a square MORPH_RECT structuring element with side length
+     * `2 * clamp(morphKernelSize, 1, 20) + 1`.
+     */
+    private fun buildMorphKernel(): Mat {
+        val half = morphKernelSize.coerceIn(1, 20)
+        val side = (2 * half + 1).toDouble()
+        return Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(side, side))
     }
 
     // ------------------------------------------------------------------

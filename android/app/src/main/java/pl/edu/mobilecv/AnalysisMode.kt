@@ -30,12 +30,17 @@ enum class AnalysisMode(val displayName: String, val filters: List<OpenCvFilter>
         )
     ),
 
-    /** Morphological operations: dilation and erosion. */
+    /** Morphological operations: dilation, erosion, open, close, gradient, top-hat, black-hat. */
     MORPHOLOGY(
         "Morfologia",
         listOf(
             OpenCvFilter.DILATE,
             OpenCvFilter.ERODE,
+            OpenCvFilter.OPEN,
+            OpenCvFilter.CLOSE,
+            OpenCvFilter.GRADIENT,
+            OpenCvFilter.TOP_HAT,
+            OpenCvFilter.BLACK_HAT,
         )
     ),
 

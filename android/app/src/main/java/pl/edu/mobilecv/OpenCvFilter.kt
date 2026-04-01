@@ -27,11 +27,26 @@ enum class OpenCvFilter(val displayName: String) {
     /** Second-order derivative edges via the Laplacian operator. */
     LAPLACIAN("Laplacian"),
 
-    /** Morphological dilation with a 9×9 rectangular kernel. */
+    /** Morphological dilation with a configurable rectangular kernel. */
     DILATE("Dilate"),
 
-    /** Morphological erosion with a 9×9 rectangular kernel. */
+    /** Morphological erosion with a configurable rectangular kernel. */
     ERODE("Erode"),
+
+    /** Morphological opening (erosion then dilation) – removes small bright spots. */
+    OPEN("Open"),
+
+    /** Morphological closing (dilation then erosion) – fills small dark holes. */
+    CLOSE("Close"),
+
+    /** Morphological gradient (dilation minus erosion) – highlights object boundaries. */
+    GRADIENT("Gradient"),
+
+    /** White top-hat transform (original minus opening) – extracts bright fine details. */
+    TOP_HAT("Top-Hat"),
+
+    /** Black top-hat transform (closing minus original) – extracts dark fine details. */
+    BLACK_HAT("Black-Hat"),
 
     /** Detects AprilTag fiducial markers and overlays position info. */
     APRIL_TAGS("AprilTag"),

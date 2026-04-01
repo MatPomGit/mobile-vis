@@ -55,6 +55,7 @@ class MainActivity : AppCompatActivity() {
         private const val PREF_ROBOT_HOST = "robot_host"
         private const val PREF_ROBOT_PORT = "robot_port"
         private const val PREF_CAMERA_RESOLUTION = "camera_resolution"
+        private const val RECORDING_TIMER_FORMAT = "%02d:%02d"
     }
 
     private lateinit var binding: ActivityMainBinding
@@ -67,6 +68,9 @@ class MainActivity : AppCompatActivity() {
     private var videoCapture: VideoCapture<Recorder>? = null
     private var activeRecording: Recording? = null
     private var isRecording = false
+    private var recordingStartTimeMs: Long = 0
+    private val recordingTimerHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var recordingTimerRunnable: Runnable? = null
 
     // OpenCV + MediaPipe
     private val imageProcessor = ImageProcessor()
@@ -143,6 +147,7 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         activeRecording?.stop()
+        stopRecordingTimer()
         analysisExecutor.execute { mediaPipeProcessor.close() }
         analysisExecutor.shutdown()
         pendingRecycleBitmap?.recycle(); lastProcessedBitmap?.recycle()
@@ -360,7 +365,37 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun stopVideoRecording() = activeRecording?.stop()
-    private fun updateCaptureButtonState() { binding.btnCapture.isActivated = isRecording; binding.btnCapture.contentDescription = getString(if (isRecording) R.string.stop_recording_description else R.string.capture_button_description) }
+
+    private fun startRecordingTimer() {
+        recordingStartTimeMs = System.currentTimeMillis()
+        val runnable = object : Runnable {
+            override fun run() {
+                val elapsed = (System.currentTimeMillis() - recordingStartTimeMs) / 1000L
+                binding.textViewRecordingTimer.text = RECORDING_TIMER_FORMAT.format(elapsed / 60, elapsed % 60)
+                recordingTimerHandler.postDelayed(this, 1000)
+            }
+        }
+        recordingTimerRunnable = runnable
+        recordingTimerHandler.post(runnable)
+    }
+
+    private fun stopRecordingTimer() {
+        recordingTimerRunnable?.let { recordingTimerHandler.removeCallbacks(it) }
+        recordingTimerRunnable = null
+        if (!isDestroyed) binding.textViewRecordingTimer.text = RECORDING_TIMER_FORMAT.format(0, 0)
+    }
+
+    private fun updateCaptureButtonState() {
+        binding.btnCapture.isActivated = isRecording
+        binding.btnCapture.contentDescription = getString(if (isRecording) R.string.stop_recording_description else R.string.capture_button_description)
+        if (isRecording) {
+            binding.layoutRecordingIndicator.visibility = View.VISIBLE
+            startRecordingTimer()
+        } else {
+            binding.layoutRecordingIndicator.visibility = View.GONE
+            stopRecordingTimer()
+        }
+    }
 
     private fun enableImmersiveFullscreen() { WindowCompat.setDecorFitsSystemWindows(window, false); WindowInsetsControllerCompat(window, window.decorView).let { it.hide(WindowInsetsCompat.Type.systemBars()); it.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE } }
 }

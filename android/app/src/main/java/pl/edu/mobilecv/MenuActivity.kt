@@ -11,7 +11,7 @@ import pl.edu.mobilecv.databinding.ActivityMenuBinding
  *
  * The user picks a mode and is taken to [MainActivity], which opens the camera
  * and pre-selects the chosen mode tab.  Separating the launcher from the camera
- * activity prevents crashes caused by eager camera / OpenCV initialisation
+ * activity prevents crashes caused by eager camera / OpenCV initialization
  * before the user has made a selection.
  */
 class MenuActivity : AppCompatActivity() {

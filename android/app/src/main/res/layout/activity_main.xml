@@ -164,7 +164,7 @@
                 android:layout_height="wrap_content"
                 android:layout_gravity="center_vertical"
                 android:layout_weight="1"
-                android:max="1000"
+                android:max="5000"
                 android:progress="300"
                 android:progressTint="@android:color/white"
                 android:thumbTint="@android:color/white" />
@@ -207,7 +207,7 @@
                 android:layout_height="wrap_content"
                 android:layout_gravity="center_vertical"
                 android:layout_weight="1"
-                android:max="100"
+                android:max="500"
                 android:progress="10"
                 android:progressTint="@android:color/white"
                 android:thumbTint="@android:color/white" />
@@ -286,6 +286,7 @@
             android:layout_marginTop="4dp"
             android:text="@string/active_vision_toggle"
             android:textColor="@android:color/white"
+            android:visibility="gone"
             app:thumbTint="@color/active_vision_thumb"
             app:trackTint="@color/active_vision_track" />
 
@@ -295,9 +296,9 @@
             android:layout_height="wrap_content"
             android:layout_gravity="center_horizontal"
             android:layout_marginTop="2dp"
-            android:enabled="false"
             android:text="@string/active_vision_visualization_toggle"
-            android:textColor="@android:color/white" />
+            android:textColor="@android:color/white"
+            android:visibility="gone" />
 
         <!-- ============================================================ -->
         <!-- Analysis-mode tab bar (relocated from the top of the screen  -->
@@ -377,6 +378,21 @@
                 app:elevation="0dp"
                 app:fabSize="mini"
                 app:srcCompat="@android:drawable/ic_menu_share"
+                app:tint="@android:color/white" />
+
+            <!-- Save Point Cloud FAB (visible only during POINT_CLOUD filter) -->
+            <com.google.android.material.floatingactionbutton.FloatingActionButton
+                android:id="@+id/fabSavePointCloud"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_vertical|end"
+                android:layout_marginEnd="52dp"
+                android:contentDescription="@string/save_point_cloud_description"
+                android:visibility="gone"
+                app:backgroundTint="#4DFFFFFF"
+                app:elevation="0dp"
+                app:fabSize="mini"
+                app:srcCompat="@android:drawable/ic_menu_save"
                 app:tint="@android:color/white" />
 
             <!-- Calibration (optional FAB, visible when in calibration mode) -->

@@ -39,6 +39,7 @@ class ImageProcessor {
 
     var onMarkersDetected: ((List<MarkerDetection>) -> Unit)? = null
     var isActiveVisionEnabled: Boolean = false
+    var isActiveVisionVisualizationEnabled: Boolean = false
 
     @Volatile
     var morphKernelSize: Int = 4
@@ -76,10 +77,14 @@ class ImageProcessor {
 
         val src = Mat()
         Utils.bitmapToMat(bitmap, src)
-        val baseFrame = if (isActiveVisionEnabled) activeVisionOptimizer.optimize(src) else src.clone()
+        val baseFrame = if (isActiveVisionEnabled) {
+            activeVisionOptimizer.optimize(src, visualizeWork = isActiveVisionVisualizationEnabled)
+        } else {
+            src.clone()
+        }
 
         val processed: Mat = when (filter) {
-            OpenCvFilter.ORIGINAL -> src.clone()
+            OpenCvFilter.ORIGINAL -> baseFrame.clone()
             OpenCvFilter.GRAYSCALE -> applyGrayscale(src)
             OpenCvFilter.CANNY_EDGES -> applyCanny(src)
             OpenCvFilter.GAUSSIAN_BLUR -> applyGaussianBlur(src)

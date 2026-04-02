@@ -1,0 +1,998 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>MobileCV Web</title>
+  <style>
+    :root {
+      --bg:      #0d0d1a;
+      --bar:     #1a1a2e;
+      --border:  #2e2e45;
+      --accent:  #4fc3f7;
+      --chip-bg: #252540;
+      --chip-active-bg: #1565c0;
+      --text:    #e0e0e0;
+      --muted:   #888;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Roboto', Arial, sans-serif;
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Camera area ─────────────────────────────────────────────────── */
+    #canvas-container {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+      background: #000;
+    }
+
+    #video {
+      position: absolute;
+      inset: 0;
+      width: 100%; height: 100%;
+      object-fit: cover;
+      opacity: 0;       /* hidden; canvas shows the processed frame */
+    }
+
+    #canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%; height: 100%;
+      object-fit: cover;
+    }
+
+    /* ── Overlays ────────────────────────────────────────────────────── */
+    #fps {
+      position: absolute;
+      top: 10px; right: 10px;
+      background: rgba(0,0,0,.55);
+      color: var(--accent);
+      padding: 3px 8px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-family: monospace;
+      z-index: 5;
+    }
+
+    #detection-info {
+      display: none;
+      position: absolute;
+      bottom: 8px; left: 8px;
+      background: rgba(0,0,0,.6);
+      color: #fff;
+      padding: 5px 10px;
+      border-radius: 8px;
+      font-size: 12px;
+      z-index: 5;
+      max-width: 70%;
+      word-break: break-word;
+    }
+
+    #overlay-msg {
+      display: none;
+      position: absolute;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(0,0,0,.75);
+      color: #fff;
+      padding: 16px 24px;
+      border-radius: 12px;
+      font-size: 14px;
+      text-align: center;
+      max-width: 80%;
+      z-index: 10;
+    }
+
+    /* ── Bottom bar ──────────────────────────────────────────────────── */
+    #bottom-bar {
+      background: var(--bar);
+      border-top: 1px solid var(--border);
+      padding-bottom: env(safe-area-inset-bottom, 8px);
+    }
+
+    /* Tabs */
+    #tabs {
+      display: flex;
+      overflow-x: auto;
+      scrollbar-width: none;
+      border-bottom: 1px solid var(--border);
+      padding: 0 4px;
+    }
+    #tabs::-webkit-scrollbar { display: none; }
+
+    .tab {
+      flex: 0 0 auto;
+      padding: 9px 14px;
+      font-size: 13px;
+      color: var(--muted);
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      white-space: nowrap;
+      transition: color .15s, border-color .15s;
+      user-select: none;
+    }
+    .tab.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+    }
+
+    /* Filter chips */
+    #chips {
+      display: flex;
+      overflow-x: auto;
+      scrollbar-width: none;
+      padding: 7px 8px;
+      gap: 7px;
+    }
+    #chips::-webkit-scrollbar { display: none; }
+
+    .chip {
+      flex: 0 0 auto;
+      padding: 5px 13px;
+      border-radius: 20px;
+      background: var(--chip-bg);
+      color: var(--text);
+      font-size: 12px;
+      cursor: pointer;
+      border: 1px solid var(--border);
+      white-space: nowrap;
+      transition: background .15s, color .15s, border-color .15s;
+      user-select: none;
+    }
+    .chip.active {
+      background: var(--chip-active-bg);
+      color: #fff;
+      border-color: var(--accent);
+    }
+
+    /* ── Loading screen ──────────────────────────────────────────────── */
+    #loading {
+      position: fixed;
+      inset: 0;
+      background: #000;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      gap: 16px;
+    }
+    #loading h1 { font-size: 22px; color: var(--accent); }
+    .spinner {
+      width: 44px; height: 44px;
+      border: 4px solid #333;
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin .8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #loading-status { color: var(--muted); font-size: 13px; }
+  </style>
+</head>
+<body>
+
+<!-- Loading screen -->
+<div id="loading">
+  <h1>MobileCV Web</h1>
+  <div class="spinner"></div>
+  <div id="loading-status">Ładowanie OpenCV.js…</div>
+</div>
+
+<!-- Camera / canvas -->
+<div id="canvas-container">
+  <video id="video" autoplay muted playsinline></video>
+  <canvas id="canvas"></canvas>
+  <div id="fps">-- FPS</div>
+  <div id="detection-info"></div>
+  <div id="overlay-msg"></div>
+</div>
+
+<!-- Bottom bar -->
+<div id="bottom-bar">
+  <div id="tabs"></div>
+  <div id="chips"></div>
+</div>
+
+<!-- jsQR (QR code detection, ~25 kB) -->
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<!-- OpenCV.js (loaded async; ready when window.cv.Mat exists) -->
+<script async src="https://docs.opencv.org/4.8.0/opencv.js"></script>
+
+<script type="module">
+// ── MediaPipe Tasks Vision imports ──────────────────────────────────────────
+import { FaceLandmarker, HandLandmarker, PoseLandmarker, FilesetResolver }
+  from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
+
+// ── Mode / filter definitions (mirrors Android AnalysisMode + OpenCvFilter) ─
+const MODES = [
+  {
+    id: "FILTERS", label: "Filtry",
+    filters: [
+      { id: "ORIGINAL",               label: "Original" },
+      { id: "GRAYSCALE",              label: "Grayscale" },
+      { id: "GAUSSIAN_BLUR",          label: "Gaussian Blur" },
+      { id: "MEDIAN_BLUR",            label: "Median Blur" },
+      { id: "BILATERAL_FILTER",       label: "Bilateral Filter" },
+      { id: "BOX_FILTER",             label: "Box Filter" },
+      { id: "THRESHOLD",              label: "Threshold" },
+      { id: "ADAPTIVE_THRESHOLD",     label: "Adaptive Threshold" },
+      { id: "HISTOGRAM_EQUALIZATION", label: "Histogram Eq." },
+    ],
+  },
+  {
+    id: "EDGES", label: "Krawędzie",
+    filters: [
+      { id: "CANNY_EDGES", label: "Canny Edges" },
+      { id: "SOBEL",       label: "Sobel" },
+      { id: "SCHARR",      label: "Scharr" },
+      { id: "LAPLACIAN",   label: "Laplacian" },
+      { id: "PREWITT",     label: "Prewitt" },
+      { id: "ROBERTS",     label: "Roberts" },
+    ],
+  },
+  {
+    id: "MORPHOLOGY", label: "Morfologia",
+    filters: [
+      { id: "DILATE",    label: "Dilate" },
+      { id: "ERODE",     label: "Erode" },
+      { id: "OPEN",      label: "Open" },
+      { id: "CLOSE",     label: "Close" },
+      { id: "GRADIENT",  label: "Gradient" },
+      { id: "TOP_HAT",   label: "Top-Hat" },
+      { id: "BLACK_HAT", label: "Black-Hat" },
+    ],
+  },
+  {
+    id: "MARKERS", label: "Markery",
+    filters: [
+      { id: "QR_CODE", label: "QR Code" },
+      { id: "ARUCO",   label: "ArUco" },
+    ],
+  },
+  {
+    id: "POSE", label: "Poza / Twarz",
+    filters: [
+      { id: "HOLISTIC_FACE",  label: "Twarz" },
+      { id: "HOLISTIC_HANDS", label: "Ręce" },
+      { id: "HOLISTIC_BODY",  label: "Poza ciała" },
+      { id: "IRIS",           label: "Wzrok (Iris)" },
+    ],
+  },
+  {
+    id: "GEOMETRY", label: "Geometria",
+    filters: [
+      { id: "VANISHING_POINTS", label: "Punkty zbieżności" },
+    ],
+  },
+];
+
+// ── App state ────────────────────────────────────────────────────────────────
+let activeMode   = MODES[0];
+let activeFilter = MODES[0].filters[0];
+let cvReady      = false;
+let mpReady      = false;
+let lastRafTs    = 0;
+let frameCount   = 0;
+let fps          = 0;
+
+// MediaPipe landmarkers (created once)
+let faceLandmarker = null;
+let handLandmarker = null;
+let poseLandmarker = null;
+
+// ── DOM references ───────────────────────────────────────────────────────────
+const video         = document.getElementById("video");
+const canvas        = document.getElementById("canvas");
+const ctx           = canvas.getContext("2d", { willReadFrequently: true });
+const fpsEl         = document.getElementById("fps");
+const detectionInfo = document.getElementById("detection-info");
+const overlayMsg    = document.getElementById("overlay-msg");
+
+// ── UI helpers ───────────────────────────────────────────────────────────────
+function setLoadingStatus(msg) {
+  document.getElementById("loading-status").textContent = msg;
+}
+function hideLoading() {
+  document.getElementById("loading").style.display = "none";
+}
+function showOverlay(msg) {
+  overlayMsg.textContent = msg;
+  overlayMsg.style.display = "block";
+}
+function setInfo(msg) {
+  detectionInfo.style.display = msg ? "block" : "none";
+  detectionInfo.textContent   = msg ?? "";
+}
+
+// ── Build tab + chip UI ──────────────────────────────────────────────────────
+function buildUI() {
+  const tabsEl  = document.getElementById("tabs");
+  const chipsEl = document.getElementById("chips");
+
+  MODES.forEach((mode) => {
+    const tab = document.createElement("div");
+    tab.className = "tab" + (mode === activeMode ? " active" : "");
+    tab.textContent = mode.label;
+    tab.addEventListener("click", () => {
+      if (activeMode === mode) return;
+      activeMode   = mode;
+      activeFilter = mode.filters[0];
+      tabsEl.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
+      tab.classList.add("active");
+      buildChips();
+      setInfo(null);
+    });
+    tabsEl.appendChild(tab);
+  });
+
+  buildChips();
+}
+
+function buildChips() {
+  const chipsEl = document.getElementById("chips");
+  chipsEl.innerHTML = "";
+  activeMode.filters.forEach((filter) => {
+    const chip = document.createElement("div");
+    chip.className = "chip" + (filter === activeFilter ? " active" : "");
+    chip.textContent = filter.label;
+    chip.addEventListener("click", () => {
+      if (activeFilter === filter) return;
+      activeFilter = filter;
+      chipsEl.querySelectorAll(".chip").forEach((c) => c.classList.remove("active"));
+      chip.classList.add("active");
+      setInfo(null);
+    });
+    chipsEl.appendChild(chip);
+  });
+}
+
+// ── Camera setup ─────────────────────────────────────────────────────────────
+async function startCamera() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: "environment",
+        width:  { ideal: 1280 },
+        height: { ideal: 720 },
+      },
+      audio: false,
+    });
+    video.srcObject = stream;
+    await new Promise((resolve, reject) => {
+      video.onloadedmetadata = resolve;
+      video.onerror = reject;
+    });
+    await video.play();
+    canvas.width  = video.videoWidth;
+    canvas.height = video.videoHeight;
+  } catch (err) {
+    showOverlay("Brak dostępu do kamery: " + err.message);
+  }
+}
+
+// ── MediaPipe init ───────────────────────────────────────────────────────────
+async function initMediaPipe() {
+  setLoadingStatus("Ładowanie MediaPipe…");
+  const wasmBase =
+    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
+  try {
+    const vision = await FilesetResolver.forVisionTasks(wasmBase);
+    const modelBase = "https://storage.googleapis.com/mediapipe-models";
+
+    [faceLandmarker, handLandmarker, poseLandmarker] = await Promise.all([
+      FaceLandmarker.createFromOptions(vision, {
+        baseOptions: {
+          modelAssetPath: `${modelBase}/face_landmarker/face_landmarker/float16/1/face_landmarker.task`,
+          delegate: "GPU",
+        },
+        runningMode: "VIDEO",
+        numFaces: 1,
+      }),
+      HandLandmarker.createFromOptions(vision, {
+        baseOptions: {
+          modelAssetPath: `${modelBase}/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task`,
+          delegate: "GPU",
+        },
+        runningMode: "VIDEO",
+        numHands: 2,
+      }),
+      PoseLandmarker.createFromOptions(vision, {
+        baseOptions: {
+          modelAssetPath: `${modelBase}/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task`,
+          delegate: "GPU",
+        },
+        runningMode: "VIDEO",
+        numPoses: 1,
+      }),
+    ]);
+    mpReady = true;
+  } catch (err) {
+    console.warn("MediaPipe init failed:", err);
+    // App still works for OpenCV-only tabs
+  }
+}
+
+// ── Wait for opencv.js global `cv` to be ready (polling) ─────────────────────
+function waitForCv() {
+  return new Promise((resolve) => {
+    const check = () => {
+      if (typeof cv !== "undefined" && cv.Mat) {
+        resolve();
+      } else {
+        setTimeout(check, 100);
+      }
+    };
+    check();
+  });
+}
+
+// ── Main init sequence ───────────────────────────────────────────────────────
+async function main() {
+  setLoadingStatus("Ładowanie OpenCV.js…");
+  await waitForCv();
+  cvReady = true;
+
+  setLoadingStatus("Uruchamianie kamery…");
+  await startCamera();
+
+  // MediaPipe loads in background; don't block the main loop
+  initMediaPipe().then(() => {
+    if (mpReady) console.info("MediaPipe ready");
+  });
+
+  buildUI();
+  hideLoading();
+  requestAnimationFrame(processFrame);
+}
+
+main();
+
+// ── Frame processing loop ────────────────────────────────────────────────────
+function processFrame(rafTs) {
+  requestAnimationFrame(processFrame);
+  if (video.readyState < 2) return;
+
+  // Update FPS
+  frameCount++;
+  if (rafTs - lastRafTs >= 1000) {
+    fps       = frameCount;
+    frameCount = 0;
+    lastRafTs = rafTs;
+    fpsEl.textContent = fps + " FPS";
+  }
+
+  // Resize canvas if video dimensions changed
+  if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
+    canvas.width  = video.videoWidth;
+    canvas.height = video.videoHeight;
+  }
+
+  // Draw raw frame to canvas (required for getImageData)
+  ctx.drawImage(video, 0, 0);
+
+  const { id: modeId }   = activeMode;
+  const { id: filterId } = activeFilter;
+
+  if (modeId === "FILTERS" || modeId === "EDGES" || modeId === "MORPHOLOGY") {
+    if (cvReady) applyCvFilter(filterId);
+  } else if (modeId === "MARKERS") {
+    applyMarkers(filterId);
+  } else if (modeId === "POSE") {
+    applyMediaPipe(filterId, rafTs);
+  } else if (modeId === "GEOMETRY") {
+    if (cvReady) applyGeometry(filterId);
+  }
+}
+
+// ── OpenCV filters ───────────────────────────────────────────────────────────
+function applyCvFilter(filterId) {
+  const w = canvas.width, h = canvas.height;
+  let src = null, dst = null, tmp = null;
+  const extras = [];
+  try {
+    src = cv.matFromImageData(ctx.getImageData(0, 0, w, h));
+    dst = new cv.Mat();
+
+    switch (filterId) {
+      case "ORIGINAL":
+        src.copyTo(dst);
+        break;
+
+      case "GRAYSCALE":
+        cv.cvtColor(src, dst, cv.COLOR_RGBA2GRAY);
+        cv.cvtColor(dst, dst, cv.COLOR_GRAY2RGBA);
+        break;
+
+      case "GAUSSIAN_BLUR":
+        cv.GaussianBlur(src, dst, new cv.Size(15, 15), 0);
+        break;
+
+      case "MEDIAN_BLUR":
+        cv.medianBlur(src, dst, 15);
+        break;
+
+      case "BILATERAL_FILTER":
+        tmp = new cv.Mat();
+        cv.cvtColor(src, tmp, cv.COLOR_RGBA2RGB);
+        cv.bilateralFilter(tmp, dst, 9, 75, 75);
+        cv.cvtColor(dst, dst, cv.COLOR_RGB2RGBA);
+        break;
+
+      case "BOX_FILTER":
+        cv.boxFilter(src, dst, -1, new cv.Size(15, 15));
+        break;
+
+      case "THRESHOLD":
+        tmp = new cv.Mat();
+        cv.cvtColor(src, tmp, cv.COLOR_RGBA2GRAY);
+        cv.threshold(tmp, dst, 127, 255, cv.THRESH_BINARY);
+        cv.cvtColor(dst, dst, cv.COLOR_GRAY2RGBA);
+        break;
+
+      case "ADAPTIVE_THRESHOLD":
+        tmp = new cv.Mat();
+        cv.cvtColor(src, tmp, cv.COLOR_RGBA2GRAY);
+        cv.adaptiveThreshold(tmp, dst, 255,
+          cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 11, 2);
+        cv.cvtColor(dst, dst, cv.COLOR_GRAY2RGBA);
+        break;
+
+      case "HISTOGRAM_EQUALIZATION":
+        tmp = new cv.Mat();
+        cv.cvtColor(src, tmp, cv.COLOR_RGBA2GRAY);
+        cv.equalizeHist(tmp, dst);
+        cv.cvtColor(dst, dst, cv.COLOR_GRAY2RGBA);
+        break;
+
+      case "CANNY_EDGES":
+        tmp = new cv.Mat();
+        cv.cvtColor(src, tmp, cv.COLOR_RGBA2GRAY);
+        cv.Canny(tmp, dst, 50, 150);
+        cv.cvtColor(dst, dst, cv.COLOR_GRAY2RGBA);
+        break;
+
+      case "SOBEL": {
+        tmp = new cv.Mat();
+        const gx = new cv.Mat(); extras.push(gx);
+        const gy = new cv.Mat(); extras.push(gy);
+        cv.cvtColor(src, tmp, cv.COLOR_RGBA2GRAY);
+        cv.Sobel(tmp, gx, cv.CV_16S, 1, 0);
+        cv.Sobel(tmp, gy, cv.CV_16S, 0, 1);
+        cv.addWeighted(gx, 0.5, gy, 0.5, 0, dst);
+        cv.convertScaleAbs(dst, dst);
+        cv.cvtColor(dst, dst, cv.COLOR_GRAY2RGBA);
+        break;
+      }
+
+      case "SCHARR": {
+        tmp = new cv.Mat();
+        const gx = new cv.Mat(); extras.push(gx);
+        const gy = new cv.Mat(); extras.push(gy);
+        cv.cvtColor(src, tmp, cv.COLOR_RGBA2GRAY);
+        cv.Scharr(tmp, gx, cv.CV_16S, 1, 0);
+        cv.Scharr(tmp, gy, cv.CV_16S, 0, 1);
+        cv.addWeighted(gx, 0.5, gy, 0.5, 0, dst);
+        cv.convertScaleAbs(dst, dst);
+        cv.cvtColor(dst, dst, cv.COLOR_GRAY2RGBA);
+        break;
+      }
+
+      case "LAPLACIAN":
+        tmp = new cv.Mat();
+        cv.cvtColor(src, tmp, cv.COLOR_RGBA2GRAY);
+        cv.Laplacian(tmp, dst, cv.CV_16S, 1);
+        cv.convertScaleAbs(dst, dst);
+        cv.cvtColor(dst, dst, cv.COLOR_GRAY2RGBA);
+        break;
+
+      case "PREWITT": {
+        tmp = new cv.Mat();
+        const kx = cv.matFromArray(3, 3, cv.CV_32F, [-1,0,1,-1,0,1,-1,0,1]); extras.push(kx);
+        const ky = cv.matFromArray(3, 3, cv.CV_32F, [-1,-1,-1,0,0,0,1,1,1]); extras.push(ky);
+        const gx = new cv.Mat(); extras.push(gx);
+        const gy = new cv.Mat(); extras.push(gy);
+        cv.cvtColor(src, tmp, cv.COLOR_RGBA2GRAY);
+        cv.filter2D(tmp, gx, cv.CV_16S, kx);
+        cv.filter2D(tmp, gy, cv.CV_16S, ky);
+        cv.addWeighted(gx, 0.5, gy, 0.5, 0, dst);
+        cv.convertScaleAbs(dst, dst);
+        cv.cvtColor(dst, dst, cv.COLOR_GRAY2RGBA);
+        break;
+      }
+
+      case "ROBERTS": {
+        tmp = new cv.Mat();
+        const kx = cv.matFromArray(2, 2, cv.CV_32F, [1,0,0,-1]); extras.push(kx);
+        const ky = cv.matFromArray(2, 2, cv.CV_32F, [0,1,-1,0]); extras.push(ky);
+        const gx = new cv.Mat(); extras.push(gx);
+        const gy = new cv.Mat(); extras.push(gy);
+        cv.cvtColor(src, tmp, cv.COLOR_RGBA2GRAY);
+        cv.filter2D(tmp, gx, cv.CV_16S, kx);
+        cv.filter2D(tmp, gy, cv.CV_16S, ky);
+        cv.addWeighted(gx, 0.5, gy, 0.5, 0, dst);
+        cv.convertScaleAbs(dst, dst);
+        cv.cvtColor(dst, dst, cv.COLOR_GRAY2RGBA);
+        break;
+      }
+
+      case "DILATE": {
+        const k = cv.Mat.ones(5, 5, cv.CV_8U); extras.push(k);
+        cv.dilate(src, dst, k);
+        break;
+      }
+      case "ERODE": {
+        const k = cv.Mat.ones(5, 5, cv.CV_8U); extras.push(k);
+        cv.erode(src, dst, k);
+        break;
+      }
+      case "OPEN": {
+        const k = cv.Mat.ones(5, 5, cv.CV_8U); extras.push(k);
+        cv.morphologyEx(src, dst, cv.MORPH_OPEN, k);
+        break;
+      }
+      case "CLOSE": {
+        const k = cv.Mat.ones(5, 5, cv.CV_8U); extras.push(k);
+        cv.morphologyEx(src, dst, cv.MORPH_CLOSE, k);
+        break;
+      }
+      case "GRADIENT": {
+        const k = cv.Mat.ones(5, 5, cv.CV_8U); extras.push(k);
+        cv.morphologyEx(src, dst, cv.MORPH_GRADIENT, k);
+        break;
+      }
+      case "TOP_HAT": {
+        const k = cv.Mat.ones(9, 9, cv.CV_8U); extras.push(k);
+        cv.morphologyEx(src, dst, cv.MORPH_TOPHAT, k);
+        break;
+      }
+      case "BLACK_HAT": {
+        const k = cv.Mat.ones(9, 9, cv.CV_8U); extras.push(k);
+        cv.morphologyEx(src, dst, cv.MORPH_BLACKHAT, k);
+        break;
+      }
+
+      default:
+        src.copyTo(dst);
+    }
+
+    ctx.putImageData(
+      new ImageData(new Uint8ClampedArray(dst.data), dst.cols, dst.rows),
+      0, 0
+    );
+  } catch (err) {
+    console.error("CV filter error:", err);
+  } finally {
+    src?.delete();
+    dst?.delete();
+    tmp?.delete();
+    extras.forEach((m) => m.delete());
+  }
+}
+
+// ── Marker detection ─────────────────────────────────────────────────────────
+function applyMarkers(filterId) {
+  const w = canvas.width, h = canvas.height;
+
+  if (filterId === "QR_CODE") {
+    // jsQR is loaded as a plain script; it sets window.jsQR
+    if (typeof jsQR === "undefined") return;
+    const imageData = ctx.getImageData(0, 0, w, h);
+    const code = jsQR(imageData.data, w, h);
+    if (code) {
+      const loc = code.location;
+      ctx.beginPath();
+      ctx.moveTo(loc.topLeftCorner.x,     loc.topLeftCorner.y);
+      ctx.lineTo(loc.topRightCorner.x,    loc.topRightCorner.y);
+      ctx.lineTo(loc.bottomRightCorner.x, loc.bottomRightCorner.y);
+      ctx.lineTo(loc.bottomLeftCorner.x,  loc.bottomLeftCorner.y);
+      ctx.closePath();
+      ctx.strokeStyle = "#00e676";
+      ctx.lineWidth   = 3;
+      ctx.stroke();
+
+      const cx   = (loc.topLeftCorner.x + loc.bottomRightCorner.x) / 2;
+      const cy   = loc.topLeftCorner.y - 12;
+      const label = code.data.slice(0, 50);
+      ctx.font = "bold 14px Arial";
+      const tw = ctx.measureText(label).width;
+      ctx.fillStyle = "rgba(0,230,118,.85)";
+      ctx.fillRect(cx - tw / 2 - 6, cy - 18, tw + 12, 22);
+      ctx.fillStyle = "#000";
+      ctx.fillText(label, cx - tw / 2, cy - 2);
+
+      setInfo("QR: " + code.data);
+    } else {
+      setInfo(null);
+    }
+
+  } else if (filterId === "ARUCO" && cvReady) {
+    // ArUco via opencv.js — try newer cv.aruco namespace
+    let src = null, gray = null;
+    try {
+      const imageData = ctx.getImageData(0, 0, w, h);
+      src  = cv.matFromImageData(imageData);
+      gray = new cv.Mat();
+      cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+
+      if (typeof cv.aruco !== "undefined") {
+        const dict    = new cv.aruco_Dictionary(cv.aruco.DICT_4X4_250);
+        const corners = new cv.MatVector();
+        const ids     = new cv.Mat();
+        const params  = new cv.aruco_DetectorParameters();
+        cv.aruco.detectMarkers(gray, dict, corners, ids, params);
+        cv.aruco.drawDetectedMarkers(src, corners, ids);
+        ctx.putImageData(
+          new ImageData(new Uint8ClampedArray(src.data), src.cols, src.rows),
+          0, 0
+        );
+        const count = ids.rows;
+        setInfo(count > 0 ? `ArUco: wykryto ${count} marker(ów)` : null);
+        corners.delete(); ids.delete(); params.delete(); dict.delete();
+      } else {
+        setInfo("ArUco: niedostępne w tej wersji opencv.js");
+      }
+    } catch (err) {
+      console.error("ArUco error:", err);
+    } finally {
+      src?.delete();
+      gray?.delete();
+    }
+  }
+}
+
+// ── MediaPipe ─────────────────────────────────────────────────────────────────
+function applyMediaPipe(filterId, rafTs) {
+  if (!mpReady) {
+    setInfo("MediaPipe ładuje się…");
+    return;
+  }
+
+  const w = canvas.width, h = canvas.height;
+
+  if (filterId === "HOLISTIC_FACE" || filterId === "IRIS") {
+    const res = faceLandmarker.detectForVideo(video, rafTs);
+    if (res.faceLandmarks?.length) {
+      for (const lm of res.faceLandmarks) {
+        filterId === "IRIS" ? drawIris(lm, w, h) : drawFaceMesh(lm, w, h);
+      }
+      setInfo(`Twarz: wykryto ${res.faceLandmarks.length}`);
+    } else {
+      setInfo(null);
+    }
+
+  } else if (filterId === "HOLISTIC_HANDS") {
+    const res = handLandmarker.detectForVideo(video, rafTs);
+    if (res.landmarks?.length) {
+      res.landmarks.forEach((hand, i) => {
+        const side  = res.handedness[i]?.[0]?.displayName ?? "";
+        const color = side === "Left" ? "#ff5252" : "#69f0ae";
+        drawHandLandmarks(hand, w, h, color);
+      });
+      setInfo(`Ręce: ${res.landmarks.length}`);
+    } else {
+      setInfo(null);
+    }
+
+  } else if (filterId === "HOLISTIC_BODY") {
+    const res = poseLandmarker.detectForVideo(video, rafTs);
+    if (res.landmarks?.length) {
+      for (const pose of res.landmarks) drawPoseLandmarks(pose, w, h);
+      setInfo("Poza: wykryto");
+    } else {
+      setInfo(null);
+    }
+  }
+}
+
+// ── Face mesh dots ────────────────────────────────────────────────────────────
+function drawFaceMesh(lm, w, h) {
+  ctx.fillStyle = "rgba(0,255,200,.55)";
+  for (const { x, y } of lm) {
+    ctx.beginPath();
+    ctx.arc(x * w, y * h, 1.2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+// ── Iris circles (landmark indices 468-477) ───────────────────────────────────
+const IRIS_LEFT_CENTER  = 468;
+const IRIS_LEFT_EDGE_A  = 469;
+const IRIS_LEFT_EDGE_B  = 471;
+const IRIS_RIGHT_CENTER = 473;
+const IRIS_RIGHT_EDGE_A = 474;
+const IRIS_RIGHT_EDGE_B = 476;
+
+function drawIris(lm, w, h) {
+  // Dim face mesh
+  ctx.fillStyle = "rgba(100,200,255,.25)";
+  for (let i = 0; i < Math.min(lm.length, 468); i++) {
+    ctx.beginPath();
+    ctx.arc(lm[i].x * w, lm[i].y * h, 1, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  if (lm.length < 478) return;
+
+  ctx.strokeStyle = "#00e5ff";
+  ctx.lineWidth   = 2;
+
+  for (const [ci, ai, bi] of [
+    [IRIS_LEFT_CENTER,  IRIS_LEFT_EDGE_A,  IRIS_LEFT_EDGE_B],
+    [IRIS_RIGHT_CENTER, IRIS_RIGHT_EDGE_A, IRIS_RIGHT_EDGE_B],
+  ]) {
+    const r = Math.hypot(
+      (lm[ai].x - lm[bi].x) * w,
+      (lm[ai].y - lm[bi].y) * h
+    ) / 2;
+    ctx.beginPath();
+    ctx.arc(lm[ci].x * w, lm[ci].y * h, r, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  // Iris landmark dots
+  ctx.fillStyle = "#00e5ff";
+  for (let i = 468; i < 478; i++) {
+    ctx.beginPath();
+    ctx.arc(lm[i].x * w, lm[i].y * h, 3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+// ── Hand skeleton ─────────────────────────────────────────────────────────────
+const HAND_CONNECTIONS = [
+  [0,1],[1,2],[2,3],[3,4],
+  [0,5],[5,6],[6,7],[7,8],
+  [0,9],[9,10],[10,11],[11,12],
+  [0,13],[13,14],[14,15],[15,16],
+  [0,17],[17,18],[18,19],[19,20],
+  [5,9],[9,13],[13,17],
+];
+
+function drawHandLandmarks(lm, w, h, color) {
+  ctx.strokeStyle = color;
+  ctx.lineWidth   = 2;
+  for (const [a, b] of HAND_CONNECTIONS) {
+    ctx.beginPath();
+    ctx.moveTo(lm[a].x * w, lm[a].y * h);
+    ctx.lineTo(lm[b].x * w, lm[b].y * h);
+    ctx.stroke();
+  }
+  ctx.fillStyle = color;
+  for (const { x, y } of lm) {
+    ctx.beginPath();
+    ctx.arc(x * w, y * h, 4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+// ── Pose skeleton (33 landmarks) ─────────────────────────────────────────────
+const POSE_CONNECTIONS = [
+  [0,1],[1,2],[2,3],[3,7],
+  [0,4],[4,5],[5,6],[6,8],
+  [9,10],
+  [11,12],[11,13],[13,15],[15,17],[15,19],[15,21],[17,19],
+  [12,14],[14,16],[16,18],[16,20],[16,22],[18,20],
+  [11,23],[12,24],[23,24],
+  [23,25],[24,26],[25,27],[26,28],
+  [27,29],[28,30],[29,31],[30,32],[27,31],[28,32],
+];
+
+function drawPoseLandmarks(lm, w, h) {
+  ctx.strokeStyle = "#ffeb3b";
+  ctx.lineWidth   = 2;
+  for (const [a, b] of POSE_CONNECTIONS) {
+    if (a >= lm.length || b >= lm.length) continue;
+    if ((lm[a].visibility ?? 1) < 0.5 || (lm[b].visibility ?? 1) < 0.5) continue;
+    ctx.beginPath();
+    ctx.moveTo(lm[a].x * w, lm[a].y * h);
+    ctx.lineTo(lm[b].x * w, lm[b].y * h);
+    ctx.stroke();
+  }
+  ctx.fillStyle = "#ff9800";
+  for (const { x, y, visibility } of lm) {
+    if ((visibility ?? 1) < 0.5) continue;
+    ctx.beginPath();
+    ctx.arc(x * w, y * h, 5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+// ── Geometry: HoughLinesP + vanishing-point estimation ───────────────────────
+const BUCKET_COLORS = ["#ff5252", "#69f0ae", "#40c4ff", "#ffab40"];
+const NUM_BUCKETS   = 4;
+
+function applyGeometry(filterId) {
+  if (filterId !== "VANISHING_POINTS") return;
+  const w = canvas.width, h = canvas.height;
+  let src = null, gray = null, edges = null;
+  try {
+    src   = cv.matFromImageData(ctx.getImageData(0, 0, w, h));
+    gray  = new cv.Mat();
+    edges = new cv.Mat();
+    cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+    cv.Canny(gray, edges, 50, 150);
+
+    const lines = new cv.Mat();
+    cv.HoughLinesP(edges, lines, 1, Math.PI / 180, 50, 50, 10);
+
+    // Cluster by angle into NUM_BUCKETS directional groups
+    const buckets = Array.from({ length: NUM_BUCKETS }, () => []);
+    for (let i = 0; i < lines.rows; i++) {
+      const x1 = lines.data32S[i * 4];
+      const y1 = lines.data32S[i * 4 + 1];
+      const x2 = lines.data32S[i * 4 + 2];
+      const y2 = lines.data32S[i * 4 + 3];
+      const angle  = ((Math.atan2(y2 - y1, x2 - x1) * 180) / Math.PI + 180) % 180;
+      const bucket = Math.floor((angle / 180) * NUM_BUCKETS) % NUM_BUCKETS;
+      buckets[bucket].push({ x1, y1, x2, y2 });
+    }
+
+    // Draw lines coloured by cluster
+    for (let b = 0; b < NUM_BUCKETS; b++) {
+      ctx.strokeStyle = BUCKET_COLORS[b];
+      ctx.lineWidth   = 1.5;
+      for (const { x1, y1, x2, y2 } of buckets[b]) {
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.stroke();
+      }
+    }
+
+    // Estimate one vanishing point per non-trivial cluster
+    const vps = [];
+    for (let b = 0; b < NUM_BUCKETS; b++) {
+      const bl = buckets[b];
+      if (bl.length < 2) continue;
+      const vp = lineIntersection(bl[0], bl[Math.floor(bl.length / 2)]);
+      if (vp) vps.push({ ...vp, color: BUCKET_COLORS[b] });
+    }
+
+    // Draw vanishing-point markers
+    for (const { x, y, color } of vps) {
+      ctx.strokeStyle = color;
+      ctx.lineWidth   = 2;
+      ctx.beginPath();
+      ctx.arc(x, y, 12, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(x, y, 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    setInfo(lines.rows > 0
+      ? `Linie: ${lines.rows} | VP: ${vps.length}`
+      : null);
+
+    lines.delete();
+  } catch (err) {
+    console.error("Geometry error:", err);
+  } finally {
+    src?.delete();
+    gray?.delete();
+    edges?.delete();
+  }
+}
+
+/** Compute the intersection of two line segments (extended to infinite lines). */
+function lineIntersection(l1, l2) {
+  const dx1 = l1.x2 - l1.x1, dy1 = l1.y2 - l1.y1;
+  const dx2 = l2.x2 - l2.x1, dy2 = l2.y2 - l2.y1;
+  const denom = dx1 * dy2 - dy1 * dx2;
+  if (Math.abs(denom) < 1e-6) return null; // parallel
+  const t = ((l2.x1 - l1.x1) * dy2 - (l2.y1 - l1.y1) * dx2) / denom;
+  return { x: l1.x1 + t * dx1, y: l1.y1 + t * dy1 };
+}
+</script>
+</body>
+</html>

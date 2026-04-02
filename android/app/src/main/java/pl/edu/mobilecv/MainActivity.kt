@@ -8,6 +8,7 @@ import android.graphics.Bitmap
 import android.graphics.Matrix
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.provider.MediaStore
 import android.util.Log
 import android.view.View
@@ -31,17 +32,19 @@ import androidx.camera.video.Recording
 import androidx.camera.video.VideoCapture
 import androidx.camera.video.VideoRecordEvent
 import androidx.core.content.ContextCompat
+import androidx.core.content.edit
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.core.view.children
 import com.google.android.material.chip.Chip
 import com.google.android.material.tabs.TabLayout
 import org.opencv.android.OpenCVLoader
 import pl.edu.mobilecv.databinding.ActivityMainBinding
+import java.io.File
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
-import androidx.core.content.edit
 
 /**
  * Main (and only) activity of the MobileCV application.
@@ -77,6 +80,7 @@ class MainActivity : AppCompatActivity() {
 
     @Volatile private var mediaPipeDownloadInProgress = false
     @Volatile private var currentFilter = OpenCvFilter.ORIGINAL
+    @Volatile private var currentMode: AnalysisMode = AnalysisMode.entries.first()
     @Volatile private var isActiveVisionEnabled = false
     @Volatile private var isActiveVisionVisualizationEnabled = false
 
@@ -142,6 +146,7 @@ class MainActivity : AppCompatActivity() {
         setupCalibrationFab()
         setupRobotConnectionFab()
         setupResolutionFab()
+        setupSavePointCloudFab()
         requestPermissionsOrStart()
     }
 
@@ -226,12 +231,11 @@ class MainActivity : AppCompatActivity() {
         binding.switchActiveVision.setOnCheckedChangeListener { _, isChecked ->
             isActiveVisionEnabled = isChecked
             imageProcessor.isActiveVisionEnabled = isChecked
-            binding.switchActiveVisionVisualization.isEnabled = isChecked
+            updateContextualControls()
         }
     }
 
     private fun setupActiveVisionVisualizationToggle() {
-        binding.switchActiveVisionVisualization.isEnabled = isActiveVisionEnabled
         binding.switchActiveVisionVisualization.setOnCheckedChangeListener { _, isChecked ->
             isActiveVisionVisualizationEnabled = isChecked
             imageProcessor.isActiveVisionVisualizationEnabled = isChecked
@@ -239,20 +243,40 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateFilterChips(mode: AnalysisMode) {
+        currentMode = mode
         binding.chipGroupFilters.removeAllViews()
-        currentFilter = mode.filters.firstOrNull() ?: return
+        val firstFilter = mode.filters.firstOrNull() ?: run { updateContextualControls(); return }
+        currentFilter = firstFilter
         binding.textViewCurrentFilter.text = currentFilter.displayName
 
         mode.filters.forEach { filter ->
             val chip = Chip(this).apply {
                 text = filter.displayName; isCheckable = true; isChecked = (filter == currentFilter)
-                setOnCheckedChangeListener { _, checked -> if (checked) { currentFilter = filter; binding.textViewCurrentFilter.text = filter.displayName } }
+                setOnClickListener {
+                    if (isChecked) {
+                        currentFilter = filter
+                        binding.textViewCurrentFilter.text = filter.displayName
+                        binding.chipGroupFilters.children.filterIsInstance<Chip>().forEach { c ->
+                            if (c !== this) c.isChecked = false
+                        }
+                    } else {
+                        val defaultFilter = mode.filters.first()
+                        currentFilter = defaultFilter
+                        binding.textViewCurrentFilter.text = defaultFilter.displayName
+                        if (defaultFilter != filter) {
+                            (binding.chipGroupFilters.getChildAt(0) as? Chip)?.isChecked = true
+                        } else {
+                            isChecked = true
+                        }
+                    }
+                    updateContextualControls()
+                }
             }
             binding.chipGroupFilters.addView(chip)
         }
 
         binding.layoutKernelSize.visibility = if (mode == AnalysisMode.MORPHOLOGY) View.VISIBLE else View.GONE
-        
+
         val isOdometry = mode == AnalysisMode.ODOMETRY
         binding.layoutVoMaxFeatures.visibility = if (isOdometry) View.VISIBLE else View.GONE
         binding.layoutVoMinParallax.visibility = if (isOdometry) View.VISIBLE else View.GONE
@@ -262,6 +286,17 @@ class MainActivity : AppCompatActivity() {
         binding.fabRobotConnection.visibility = if (mode == AnalysisMode.CALIBRATION) View.GONE else View.VISIBLE
 
         if (mode == AnalysisMode.POSE && !ModelDownloadManager.areAllModelsReady(this)) startMediaPipeModelDownload()
+
+        updateContextualControls()
+    }
+
+    private fun updateContextualControls() {
+        val isFiltersMode = currentMode == AnalysisMode.FILTERS
+        binding.switchActiveVision.visibility = if (isFiltersMode) View.VISIBLE else View.GONE
+        binding.switchActiveVisionVisualization.visibility =
+            if (isFiltersMode && isActiveVisionEnabled) View.VISIBLE else View.GONE
+        binding.fabSavePointCloud.visibility =
+            if (currentFilter == OpenCvFilter.POINT_CLOUD) View.VISIBLE else View.GONE
     }
 
     private fun startMediaPipeModelDownload() {
@@ -290,6 +325,7 @@ class MainActivity : AppCompatActivity() {
     private fun setupCalibrationFab() = binding.fabCalibrationMenu.setOnClickListener { openCalibrationMenu() }
     private fun setupRobotConnectionFab() = binding.fabRobotConnection.setOnClickListener { openRobotConnectionMenu() }
     private fun setupResolutionFab() = binding.fabResolution.setOnClickListener { openResolutionMenu() }
+    private fun setupSavePointCloudFab() = binding.fabSavePointCloud.setOnClickListener { savePointCloud() }
 
     private fun openRobotConnectionMenu() {
         RobotConnectionSheet().apply {
@@ -325,6 +361,45 @@ class MainActivity : AppCompatActivity() {
             onCalibrate = { val res = cameraCalibrator.calibrate(); runOnUiThread { Toast.makeText(this@MainActivity, if (res != null) R.string.calibration_success else R.string.calibration_failed, Toast.LENGTH_SHORT).show() }; res }
             onReset = { cameraCalibrator.reset() }
         }.show(supportFragmentManager, CalibrationBottomSheet.TAG)
+    }
+
+    private fun savePointCloud() {
+        val cloud = imageProcessor.lastPointCloud
+        if (cloud == null || cloud.points.isEmpty()) {
+            Toast.makeText(this, getString(R.string.point_cloud_empty), Toast.LENGTH_SHORT).show()
+            return
+        }
+        try {
+            val csv = buildString {
+                appendLine("x,y")
+                appendLine("# Pseudo-3D point cloud (screen projections). mean_parallax=${cloud.meanParallax}")
+                cloud.points.forEach { p -> appendLine("${p.x},${p.y}") }
+            }
+            val filename = "pointcloud_${System.currentTimeMillis()}.csv"
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val values = ContentValues().apply {
+                    put(MediaStore.MediaColumns.DISPLAY_NAME, filename)
+                    put(MediaStore.MediaColumns.MIME_TYPE, "text/csv")
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, "Download/MobileCV")
+                }
+                val uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                if (uri != null) {
+                    contentResolver.openOutputStream(uri)?.use { it.write(csv.toByteArray()) }
+                    Toast.makeText(this, getString(R.string.point_cloud_saved, "Download/MobileCV/$filename"), Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(this, R.string.point_cloud_save_error, Toast.LENGTH_SHORT).show()
+                }
+            } else {
+                @Suppress("DEPRECATION")
+                val dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                dir.mkdirs()
+                File(dir, filename).writeText(csv)
+                Toast.makeText(this, getString(R.string.point_cloud_saved, "${dir.absolutePath}/$filename"), Toast.LENGTH_SHORT).show()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to save point cloud", e)
+            Toast.makeText(this, R.string.point_cloud_save_error, Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun requestPermissionsOrStart() { if (requiredPermissions().all { ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED }) startCamera() else permissionsLauncher.launch(requiredPermissions()) }

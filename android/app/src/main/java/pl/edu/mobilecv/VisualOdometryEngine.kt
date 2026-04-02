@@ -50,6 +50,9 @@ class VisualOdometryEngine {
     var minParallax = 2.0
     var isMeshEnabled = false
 
+    var lastPointCloud: PointCloudState? = null
+        private set
+
     fun updateOdometry(src: Mat): OdometryState? {
         val gray = Mat()
         Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
@@ -63,6 +66,7 @@ class VisualOdometryEngine {
         Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
         val (_, cloud) = processFrameInternal(gray)
         gray.release()
+        lastPointCloud = cloud
         return cloud
     }
 
@@ -223,5 +227,6 @@ class VisualOdometryEngine {
         prevPts.release()
         prevGray = Mat()
         prevPts = MatOfPoint2f()
+        lastPointCloud = null
     }
 }

@@ -112,4 +112,10 @@
     <string name="mode_desc_odometry">Odometria wizualna i rekonstrukcja chmury punktów 3D</string>
     <string name="mode_desc_geometry">Detekcja płaszczyzn i punkty zbieżności perspektywy</string>
     <string name="mode_desc_calibration">Kalibracja kamery wzorcem szachownicy</string>
+
+    <!-- Point cloud save -->
+    <string name="save_point_cloud_description">Zapisz chmurę punktów do pliku CSV</string>
+    <string name="point_cloud_saved">Chmura punktów zapisana: %1$s</string>
+    <string name="point_cloud_empty">Brak danych chmury punktów do zapisu</string>
+    <string name="point_cloud_save_error">Błąd zapisu chmury punktów</string>
 </resources>

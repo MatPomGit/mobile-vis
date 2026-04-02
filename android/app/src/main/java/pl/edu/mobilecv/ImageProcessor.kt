@@ -41,6 +41,9 @@ class ImageProcessor {
     var isActiveVisionEnabled: Boolean = false
     var isActiveVisionVisualizationEnabled: Boolean = false
 
+    val lastPointCloud: VisualOdometryEngine.PointCloudState?
+        get() = visualOdometryEngine.lastPointCloud
+
     @Volatile
     var morphKernelSize: Int = 4
 
@@ -189,7 +192,9 @@ class ImageProcessor {
 
     private fun applyAprilTagDetection(src: Mat): Mat {
         val res = src.clone(); val corners = ArrayList<Mat>(); val ids = Mat()
-        aprilTagDetector.detectMarkers(src, corners, ids)
+        val gray = Mat(); Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
+        aprilTagDetector.detectMarkers(gray, corners, ids)
+        gray.release()
         if (ids.rows() > 0) {
             Objdetect.drawDetectedMarkers(res, corners, ids, Scalar(0.0, 255.0, 0.0))
             onMarkersDetected?.invoke(corners.indices.map { i ->
@@ -203,7 +208,9 @@ class ImageProcessor {
 
     private fun applyArucoDetection(src: Mat): Mat {
         val res = src.clone(); val corners = ArrayList<Mat>(); val ids = Mat()
-        arucoDetector.detectMarkers(src, corners, ids)
+        val gray = Mat(); Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
+        arucoDetector.detectMarkers(gray, corners, ids)
+        gray.release()
         if (ids.rows() > 0) {
             Objdetect.drawDetectedMarkers(res, corners, ids, Scalar(255.0, 255.0, 0.0))
             onMarkersDetected?.invoke(corners.indices.map { i ->
@@ -227,11 +234,14 @@ class ImageProcessor {
     private fun applyQrCodeDetection(src: Mat): Mat {
         val res = src.clone(); val points = Mat(); val text = qrCodeDetector.detectAndDecode(src, points)
         if (text.isNotEmpty() && !points.empty()) {
-            val ptsMat = MatOfPoint(); points.convertTo(ptsMat, CvType.CV_32S)
-            Imgproc.drawContours(res, listOf(ptsMat), 0, Scalar(255.0, 0.0, 255.0), 3)
-            val corners = listOf(Pair(points.get(0,0)[0].toFloat(), points.get(0,0)[1].toFloat()), Pair(points.get(1,0)[0].toFloat(), points.get(1,0)[1].toFloat()), Pair(points.get(2,0)[0].toFloat(), points.get(2,0)[1].toFloat()), Pair(points.get(3,0)[0].toFloat(), points.get(3,0)[1].toFloat()))
+            val pts = (0..3).map { i -> points.get(0, i).let { c -> Point(c[0], c[1]) } }
+            val p0 = pts[0]; val p1 = pts[1]; val p2 = pts[2]; val p3 = pts[3]
+            val color = Scalar(255.0, 0.0, 255.0)
+            Imgproc.line(res, p0, p1, color, 3); Imgproc.line(res, p1, p2, color, 3)
+            Imgproc.line(res, p2, p3, color, 3); Imgproc.line(res, p3, p0, color, 3)
+            Imgproc.putText(res, text, Point(p0.x, maxOf(20.0, p0.y - 10)), Imgproc.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
+            val corners = pts.map { Pair(it.x.toFloat(), it.y.toFloat()) }
             onMarkersDetected?.invoke(listOf(MarkerDetection.QrCode(text, corners)))
-            ptsMat.release()
         }
         points.release(); return res
     }

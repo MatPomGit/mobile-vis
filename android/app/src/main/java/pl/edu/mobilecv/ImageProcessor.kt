@@ -18,6 +18,7 @@ import org.opencv.objdetect.DetectorParameters
 import org.opencv.objdetect.Dictionary
 import org.opencv.objdetect.Objdetect
 import org.opencv.objdetect.QRCodeDetector
+import androidx.core.graphics.createBitmap
 
 /**
  * Applies OpenCV image-processing filters to Android [Bitmap] frames.
@@ -102,7 +103,7 @@ class ImageProcessor {
             else -> baseFrame.clone()
         }
 
-        val result = Bitmap.createBitmap(processed.cols(), processed.rows(), Bitmap.Config.ARGB_8888)
+        val result = createBitmap(processed.cols(), processed.rows())
         Utils.matToBitmap(processed, result)
         src.release(); baseFrame.release(); processed.release()
         return result

@@ -9,6 +9,7 @@ import android.view.View
 import android.view.ViewGroup
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import pl.edu.mobilecv.databinding.BottomSheetCalibrationBinding
+import androidx.core.graphics.toColorInt
 
 /**
  * Bottom-sheet menu for chessboard camera calibration.
@@ -82,7 +83,7 @@ class CalibrationBottomSheet : BottomSheetDialogFragment() {
 
         // Detection indicator (green = found, grey = not found)
         b.viewDetectionIndicator.setBackgroundColor(
-            if (cornersDetected) Color.parseColor("#4CAF50") else Color.parseColor("#9E9E9E")
+            if (cornersDetected) "#4CAF50".toColorInt() else "#9E9E9E".toColorInt()
         )
         b.tvDetectionStatus.setText(
             if (cornersDetected) R.string.calibration_status_found

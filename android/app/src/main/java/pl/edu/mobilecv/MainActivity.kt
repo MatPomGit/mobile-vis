@@ -43,6 +43,7 @@ import pl.edu.mobilecv.databinding.ActivityMainBinding
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import androidx.core.content.edit
 
 /**
  * Main (and only) activity of the MobileCV application.
@@ -280,7 +281,10 @@ class MainActivity : AppCompatActivity() {
     private fun openRobotConnectionMenu() {
         RobotConnectionSheet().apply {
             currentState = rosBridgeClient.state; lastHost = this@MainActivity.lastRobotHost; lastPort = this@MainActivity.lastRobotPort
-            onConnect = { h, p -> this@MainActivity.lastRobotHost = h; this@MainActivity.lastRobotPort = p; getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit().putString(PREF_ROBOT_HOST, h).putInt(PREF_ROBOT_PORT, p).apply(); rosBridgeClient.connect(h, p) }
+            onConnect = { h, p -> this@MainActivity.lastRobotHost = h; this@MainActivity.lastRobotPort = p; getSharedPreferences(
+                PREFS_NAME,
+                MODE_PRIVATE
+            ).edit { putString(PREF_ROBOT_HOST, h).putInt(PREF_ROBOT_PORT, p)}; rosBridgeClient.connect(h, p) }
             onDisconnect = { rosBridgeClient.disconnect() }
         }.show(supportFragmentManager, RobotConnectionSheet.TAG)
     }
@@ -288,7 +292,12 @@ class MainActivity : AppCompatActivity() {
     private fun openResolutionMenu() {
         ResolutionBottomSheet().apply {
             currentResolution = this@MainActivity.currentResolution
-            onResolutionSelected = { r -> this@MainActivity.currentResolution = r; getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit().putString(PREF_CAMERA_RESOLUTION, r.name).apply(); startCamera() }
+            onResolutionSelected = { r -> this@MainActivity.currentResolution = r; getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit {
+                putString(
+                    PREF_CAMERA_RESOLUTION,
+                    r.name
+                )
+            }; startCamera() }
         }.show(supportFragmentManager, ResolutionBottomSheet.TAG)
     }
 

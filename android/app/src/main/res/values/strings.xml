@@ -1,4 +1,4 @@
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <!--
         Strings are in Polish because the target audience is Polish-speaking users.
         To add other locales, create res/values-<lang>/strings.xml (e.g. values-en/).
@@ -8,7 +8,7 @@
     <string name="opencv_init_error">Błąd inicjalizacji OpenCV. Niektóre filtry mogą nie działać.</string>
     <string name="camera_preview_description">Podgląd kamery z nałożonym filtrem OpenCV</string>
     <string name="switch_camera_description">Przełącz kamerę przednią / tylną</string>
-    <string name="filter_label_original">Original</string>
+    <string name="filter_label_original" tools:keep="@string/filter_label_original">Original</string>
 
     <!-- Capture button -->
     <string name="capture_button_description">Zrób zdjęcie / nagraj film</string>
@@ -17,7 +17,7 @@
     <string name="photo_error">Błąd zapisu zdjęcia</string>
     <string name="video_saved">Film zapisany</string>
     <string name="video_error">Błąd nagrywania</string>
-    <string name="long_press_hint">Przytrzymaj, aby nagrywać wideo</string>
+    <string name="long_press_hint" tools:keep="@string/long_press_hint">Przytrzymaj, aby nagrywać wideo</string>
     <string name="recording_indicator_description">Nagrywanie wideo w toku</string>
 
     <!-- Calibration bottom sheet -->
@@ -32,8 +32,8 @@
     <string name="calibration_reset">Resetuj</string>
     <string name="calibration_results_title">Wyniki kalibracji</string>
     <string name="calibration_frame_collected">Klatka zebrana (%1$d/%2$d)</string>
-    <string name="calibration_board_not_visible">Szachownica nie jest widoczna</string>
-    <string name="calibration_not_enough_frames">Potrzeba min. %1$d klatek (zebrano %2$d)</string>
+    <string name="calibration_board_not_visible" tools:keep="@string/calibration_board_not_visible">Szachownica nie jest widoczna</string>
+    <string name="calibration_not_enough_frames" tools:keep="@string/calibration_not_enough_frames">Potrzeba min. %1$d klatek (zebrano %2$d)</string>
     <string name="calibration_success">Kalibracja zakończona sukcesem</string>
     <string name="calibration_failed">Kalibracja nie powiodła się</string>
 
@@ -41,9 +41,9 @@
     <string name="calibration_menu_description">Otwórz menu kalibracji</string>
 
     <!-- Calibration overlay labels (used by ImageProcessor for on-frame overlays) -->
-    <string name="calibration_overlay_frames_suffix">klatek</string>
-    <string name="calibration_overlay_board_not_found">Brak szachownicy</string>
-    <string name="calibration_overlay_no_calibration">Brak kalibracji</string>
+    <string name="calibration_overlay_frames_suffix" tools:keep="@string/calibration_overlay_frames_suffix">klatek</string>
+    <string name="calibration_overlay_board_not_found" tools:keep="@string/calibration_overlay_board_not_found">Brak szachownicy</string>
+    <string name="calibration_overlay_no_calibration" tools:keep="@string/calibration_overlay_no_calibration">Brak kalibracji</string>
 
     <!-- Robot / ROS2 connection -->
     <string name="robot_connection_description">Połącz z robotem (ROSBridge)</string>
@@ -56,9 +56,9 @@
     <string name="robot_status_connecting">Status: Łączenie…</string>
     <string name="robot_status_connected">Status: Połączony</string>
     <string name="robot_status_error">Status: Błąd połączenia</string>
-    <string name="robot_toast_connected">Połączono z robotem</string>
-    <string name="robot_toast_disconnected">Rozłączono od robota</string>
-    <string name="robot_toast_error">Błąd połączenia z robotem</string>
+    <string name="robot_toast_connected" tools:keep="@string/robot_toast_connected">Połączono z robotem</string>
+    <string name="robot_toast_disconnected" tools:keep="@string/robot_toast_disconnected">Rozłączono od robota</string>
+    <string name="robot_toast_error" tools:keep="@string/robot_toast_error">Błąd połączenia z robotem</string>
     <string name="robot_host_empty_error">Adres IP nie może być pusty</string>
     <string name="robot_port_invalid_error">Port musi być liczbą od 1 do 65535</string>
 
@@ -67,10 +67,10 @@
     <string name="resolution_title">Rozdzielczość kamery</string>
     <string name="resolution_description">Niższa rozdzielczość zwiększa płynność analizy w czasie rzeczywistym.</string>
     <string name="resolution_btn_apply">Zastosuj</string>
-    <string name="resolution_applied">Rozdzielczość zmieniona na %1$s</string>
+    <string name="resolution_applied" tools:keep="@string/resolution_applied">Rozdzielczość zmieniona na %1$s</string>
     <string name="active_vision_toggle">Active Vision</string>
-    <string name="active_vision_enabled">Tryb Active Vision włączony</string>
-    <string name="active_vision_disabled">Tryb Active Vision wyłączony</string>
+    <string name="active_vision_enabled" tools:keep="@string/active_vision_enabled">Tryb Active Vision włączony</string>
+    <string name="active_vision_disabled" tools:keep="@string/active_vision_disabled">Tryb Active Vision wyłączony</string>
     <string name="diagnostics_active_vision">Active Vision: %1$b</string>
 
     <string name="morphology_kernel_size_label">Jądro:</string>
@@ -87,17 +87,17 @@
     <!-- MediaPipe Holistic & Iris -->
     <string name="mediapipe_models_downloading">Pobieranie modeli MediaPipe w tle…</string>
     <string name="mediapipe_models_ready">Modele MediaPipe gotowe</string>
-    <string name="mediapipe_models_download_failed">Nie udało się pobrać modeli MediaPipe. Sprawdź połączenie z internetem.</string>
+    <string name="mediapipe_models_download_failed" tools:keep="@string/mediapipe_models_download_failed">Nie udało się pobrać modeli MediaPipe. Sprawdź połączenie z internetem.</string>
     <string name="mediapipe_model_missing_pose">Model pozy niedostępny – pobieranie…</string>
     <string name="mediapipe_model_missing_hands">Model rąk niedostępny – pobieranie…</string>
     <string name="mediapipe_model_missing_face">Model twarzy niedostępny – pobieranie…</string>
-    <string name="vo_overlay_tracks">Ścieżki VO</string>
-    <string name="vo_overlay_point_cloud">Chmura</string>
+    <string name="vo_overlay_tracks" tools:keep="@string/vo_overlay_tracks">Ścieżki VO</string>
+    <string name="vo_overlay_point_cloud" tools:keep="@string/vo_overlay_point_cloud">Chmura</string>
 
     <!-- Visual Odometry parameters -->
     <string name="vo_max_features_label">Max cech:</string>
     <string name="vo_min_parallax_label">Próg paralaksy:</string>
-    <string name="vo_depth_gain_label">Wzmocnienie głębi:</string>
+    <string name="vo_depth_gain_label" tools:keep="@string/vo_depth_gain_label">Wzmocnienie głębi:</string>
     <string name="vo_mesh_toggle">Pokaż siatkę (Mesh)</string>
 
     <!-- Main menu -->

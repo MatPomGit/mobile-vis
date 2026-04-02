@@ -50,6 +50,41 @@
         tools:text="FPS: 30.0&#10;Rozdzielczość: 640×480&#10;Czas: 12 ms&#10;Filtr: Original&#10;Kamera: tylna" />
 
     <!--
+        Recording indicator: shown in the top-right corner only while video is
+        being captured. Contains a red dot and an elapsed-time counter.
+    -->
+    <LinearLayout
+        android:id="@+id/layoutRecordingIndicator"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|end"
+        android:layout_margin="8dp"
+        android:background="#80000000"
+        android:contentDescription="@string/recording_indicator_description"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:padding="6dp"
+        android:visibility="gone">
+
+        <View
+            android:id="@+id/viewRecordingDot"
+            android:layout_width="10dp"
+            android:layout_height="10dp"
+            android:background="@drawable/bg_recording_dot" />
+
+        <TextView
+            android:id="@+id/textViewRecordingTimer"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="6dp"
+            android:fontFamily="monospace"
+            android:textColor="@android:color/white"
+            android:textSize="14sp"
+            tools:text="00:00" />
+
+    </LinearLayout>
+
+    <!--
         Bottom control bar (semi-transparent dark background)
     -->
     <LinearLayout

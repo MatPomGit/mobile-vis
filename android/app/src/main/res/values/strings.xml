@@ -18,6 +18,7 @@
     <string name="video_saved">Film zapisany</string>
     <string name="video_error">Błąd nagrywania</string>
     <string name="long_press_hint">Przytrzymaj, aby nagrywać wideo</string>
+    <string name="recording_indicator_description">Nagrywanie wideo w toku</string>
 
     <!-- Calibration bottom sheet -->
     <string name="calibration_title">Kalibracja kamery</string>

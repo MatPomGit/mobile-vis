@@ -48,9 +48,27 @@ jobs:
 
       # 4. Budowanie APK
       # Gradle automatycznie użyje Chaquopy, aby pobrać OpenCV i MediaPipe dla Androida
+      # Debug builds use the default Android debug keystore – no signing secrets needed.
       - name: Build Debug APK
         run: ./gradlew assembleDebug --stacktrace
         working-directory: ./android
+
+      # --- Release signing (optional – uncomment and configure secrets when needed) ---
+      # To enable release builds, add these secrets in GitHub → Settings → Secrets:
+      #   KEYSTORE_BASE64       – base64-encoded keystore file
+      #   ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD
+      #
+      # - name: Decode keystore
+      #   run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android/app/release.jks
+      #
+      # - name: Build Release APK
+      #   env:
+      #     ANDROID_KEYSTORE_PATH: ${{ github.workspace }}/android/app/release.jks
+      #     ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      #     ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      #     ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      #   run: ./gradlew assembleRelease --stacktrace
+      #   working-directory: ./android
 
       # 5. Przesłanie APK
       - name: Upload APK

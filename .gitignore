@@ -71,3 +71,7 @@ app/debug/
 *.aab
 *.apk
 *.aab
+
+# Android – keystore files decoded during CI (must not be committed)
+android/app/*.jks
+android/app/*.keystore

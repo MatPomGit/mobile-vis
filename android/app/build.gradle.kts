@@ -4,11 +4,40 @@ plugins {
 
 android {
     signingConfigs {
-        getByName("debug") {
-            keyPassword = "123456"
-            keyAlias = "key0"
-            storeFile = file("C:\\Users\\matpo\\keystore")
-            storePassword = "123456"
+        create("release") {
+            val keystorePath: String? =
+                findProperty("ANDROID_KEYSTORE_PATH") as String?
+                    ?: System.getenv("ANDROID_KEYSTORE_PATH")
+            val keystorePassword: String? =
+                findProperty("ANDROID_KEYSTORE_PASSWORD") as String?
+                    ?: System.getenv("ANDROID_KEYSTORE_PASSWORD")
+            val keyAlias: String? =
+                findProperty("ANDROID_KEY_ALIAS") as String?
+                    ?: System.getenv("ANDROID_KEY_ALIAS")
+            val keyPassword: String? =
+                findProperty("ANDROID_KEY_PASSWORD") as String?
+                    ?: System.getenv("ANDROID_KEY_PASSWORD")
+
+            if (!keystorePath.isNullOrBlank()) {
+                val keystoreFile = file(keystorePath)
+                if (!keystoreFile.exists()) {
+                    throw GradleException(
+                        "Android release signing: keystore file not found at '$keystorePath'. " +
+                            "Set ANDROID_KEYSTORE_PATH (or the Gradle property) to a valid path."
+                    )
+                }
+                if (keystorePassword.isNullOrBlank() || keyAlias.isNullOrBlank() || keyPassword.isNullOrBlank()) {
+                    throw GradleException(
+                        "Android release signing: ANDROID_KEYSTORE_PATH is set but one or more " +
+                            "required credentials are missing " +
+                            "(ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD)."
+                    )
+                }
+                storeFile = keystoreFile
+                storePassword = keystorePassword
+                this.keyAlias = keyAlias
+                this.keyPassword = keyPassword
+            }
         }
     }
     namespace = "pl.edu.mobilecv"
@@ -24,6 +53,7 @@ android {
 
     buildTypes {
         release {
+            signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),

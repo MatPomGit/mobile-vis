@@ -36,6 +36,7 @@ import androidx.core.content.edit
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.core.view.children
 import com.google.android.material.chip.Chip
 import com.google.android.material.tabs.TabLayout
 import org.opencv.android.OpenCVLoader
@@ -255,9 +256,8 @@ class MainActivity : AppCompatActivity() {
                     if (isChecked) {
                         currentFilter = filter
                         binding.textViewCurrentFilter.text = filter.displayName
-                        for (i in 0 until binding.chipGroupFilters.childCount) {
-                            val c = binding.chipGroupFilters.getChildAt(i) as? Chip
-                            if (c !== this) c?.isChecked = false
+                        binding.chipGroupFilters.children.filterIsInstance<Chip>().forEach { c ->
+                            if (c !== this) c.isChecked = false
                         }
                     } else {
                         val defaultFilter = mode.filters.first()
@@ -372,6 +372,7 @@ class MainActivity : AppCompatActivity() {
         try {
             val csv = buildString {
                 appendLine("x,y")
+                appendLine("# Pseudo-3D point cloud (screen projections). mean_parallax=${cloud.meanParallax}")
                 cloud.points.forEach { p -> appendLine("${p.x},${p.y}") }
             }
             val filename = "pointcloud_${System.currentTimeMillis()}.csv"
@@ -389,9 +390,11 @@ class MainActivity : AppCompatActivity() {
                     Toast.makeText(this, R.string.point_cloud_save_error, Toast.LENGTH_SHORT).show()
                 }
             } else {
-                val dir = getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS) ?: filesDir
+                @Suppress("DEPRECATION")
+                val dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                dir.mkdirs()
                 File(dir, filename).writeText(csv)
-                Toast.makeText(this, getString(R.string.point_cloud_saved, filename), Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, getString(R.string.point_cloud_saved, "${dir.absolutePath}/$filename"), Toast.LENGTH_SHORT).show()
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to save point cloud", e)

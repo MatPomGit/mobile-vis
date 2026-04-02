@@ -234,15 +234,13 @@ class ImageProcessor {
     private fun applyQrCodeDetection(src: Mat): Mat {
         val res = src.clone(); val points = Mat(); val text = qrCodeDetector.detectAndDecode(src, points)
         if (text.isNotEmpty() && !points.empty()) {
-            val p0 = Point(points.get(0, 0)[0], points.get(0, 0)[1])
-            val p1 = Point(points.get(0, 1)[0], points.get(0, 1)[1])
-            val p2 = Point(points.get(0, 2)[0], points.get(0, 2)[1])
-            val p3 = Point(points.get(0, 3)[0], points.get(0, 3)[1])
+            val pts = (0..3).map { i -> points.get(0, i).let { c -> Point(c[0], c[1]) } }
+            val p0 = pts[0]; val p1 = pts[1]; val p2 = pts[2]; val p3 = pts[3]
             val color = Scalar(255.0, 0.0, 255.0)
             Imgproc.line(res, p0, p1, color, 3); Imgproc.line(res, p1, p2, color, 3)
             Imgproc.line(res, p2, p3, color, 3); Imgproc.line(res, p3, p0, color, 3)
             Imgproc.putText(res, text, Point(p0.x, maxOf(20.0, p0.y - 10)), Imgproc.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
-            val corners = listOf(Pair(p0.x.toFloat(), p0.y.toFloat()), Pair(p1.x.toFloat(), p1.y.toFloat()), Pair(p2.x.toFloat(), p2.y.toFloat()), Pair(p3.x.toFloat(), p3.y.toFloat()))
+            val corners = pts.map { Pair(it.x.toFloat(), it.y.toFloat()) }
             onMarkersDetected?.invoke(listOf(MarkerDetection.QrCode(text, corners)))
         }
         points.release(); return res

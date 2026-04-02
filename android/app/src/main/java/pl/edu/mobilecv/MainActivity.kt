@@ -2,7 +2,9 @@ package pl.edu.mobilecv
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.app.AlertDialog
 import android.content.ContentValues
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Matrix
@@ -147,6 +149,7 @@ class MainActivity : AppCompatActivity() {
         setupRobotConnectionFab()
         setupResolutionFab()
         setupSavePointCloudFab()
+        setupBackToMenuButton()
         requestPermissionsOrStart()
     }
 
@@ -325,7 +328,97 @@ class MainActivity : AppCompatActivity() {
     private fun setupCalibrationFab() = binding.fabCalibrationMenu.setOnClickListener { openCalibrationMenu() }
     private fun setupRobotConnectionFab() = binding.fabRobotConnection.setOnClickListener { openRobotConnectionMenu() }
     private fun setupResolutionFab() = binding.fabResolution.setOnClickListener { openResolutionMenu() }
-    private fun setupSavePointCloudFab() = binding.fabSavePointCloud.setOnClickListener { savePointCloud() }
+    private fun setupSavePointCloudFab() = binding.fabSavePointCloud.setOnClickListener { showSavePointCloudDialog() }
+
+    private fun setupBackToMenuButton() {
+        binding.fabBackToMenu.setOnClickListener {
+            startActivity(Intent(this, MenuActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            })
+            finish()
+        }
+    }
+
+    private fun showSavePointCloudDialog() {
+        val cloud = imageProcessor.lastPointCloud
+        if (cloud == null || cloud.points.isEmpty()) {
+            Toast.makeText(this, getString(R.string.point_cloud_empty), Toast.LENGTH_SHORT).show()
+            return
+        }
+        val formats = arrayOf(
+            getString(R.string.point_cloud_format_csv),
+            getString(R.string.point_cloud_format_ply),
+        )
+        AlertDialog.Builder(this)
+            .setTitle(getString(R.string.point_cloud_format_title))
+            .setItems(formats) { _, which ->
+                when (which) {
+                    0 -> savePointCloud(cloud, usePly = false)
+                    1 -> savePointCloud(cloud, usePly = true)
+                }
+            }
+            .show()
+    }
+
+    private fun savePointCloud(cloud: VisualOdometryEngine.PointCloudState, usePly: Boolean) {
+        try {
+            val timestamp = System.currentTimeMillis()
+            if (usePly) {
+                val content = buildString {
+                    appendLine("ply")
+                    appendLine("format ascii 1.0")
+                    appendLine("comment MobileCV pseudo-3D point cloud")
+                    appendLine("comment mean_parallax=${cloud.meanParallax}")
+                    appendLine("element vertex ${cloud.points.size}")
+                    appendLine("property float x")
+                    appendLine("property float y")
+                    appendLine("property float z")
+                    appendLine("end_header")
+                    cloud.points.forEach { p ->
+                        val z = (cloud.meanParallax - p.y) * 0.1
+                        appendLine("${p.x} ${p.y} ${"%.4f".format(z)}")
+                    }
+                }
+                writeToDownloads("pointcloud_$timestamp.ply", "application/octet-stream", content)
+            } else {
+                val content = buildString {
+                    appendLine("x,y,z")
+                    appendLine("# Pseudo-3D point cloud (screen projections). mean_parallax=${cloud.meanParallax}")
+                    cloud.points.forEach { p ->
+                        val z = (cloud.meanParallax - p.y) * 0.1
+                        appendLine("${p.x},${p.y},${"%.4f".format(z)}")
+                    }
+                }
+                writeToDownloads("pointcloud_$timestamp.csv", "text/csv", content)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to save point cloud", e)
+            Toast.makeText(this, R.string.point_cloud_save_error, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun writeToDownloads(filename: String, mimeType: String, content: String) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val values = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, filename)
+                put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
+                put(MediaStore.MediaColumns.RELATIVE_PATH, "Download/MobileCV")
+            }
+            val uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+            if (uri != null) {
+                contentResolver.openOutputStream(uri)?.use { it.write(content.toByteArray()) }
+                Toast.makeText(this, getString(R.string.point_cloud_saved, "Download/MobileCV/$filename"), Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this, R.string.point_cloud_save_error, Toast.LENGTH_SHORT).show()
+            }
+        } else {
+            @Suppress("DEPRECATION")
+            val dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            val subDir = File(dir, "MobileCV").also { it.mkdirs() }
+            File(subDir, filename).writeText(content)
+            Toast.makeText(this, getString(R.string.point_cloud_saved, "${subDir.absolutePath}/$filename"), Toast.LENGTH_SHORT).show()
+        }
+    }
 
     private fun openRobotConnectionMenu() {
         RobotConnectionSheet().apply {
@@ -361,45 +454,6 @@ class MainActivity : AppCompatActivity() {
             onCalibrate = { val res = cameraCalibrator.calibrate(); runOnUiThread { Toast.makeText(this@MainActivity, if (res != null) R.string.calibration_success else R.string.calibration_failed, Toast.LENGTH_SHORT).show() }; res }
             onReset = { cameraCalibrator.reset() }
         }.show(supportFragmentManager, CalibrationBottomSheet.TAG)
-    }
-
-    private fun savePointCloud() {
-        val cloud = imageProcessor.lastPointCloud
-        if (cloud == null || cloud.points.isEmpty()) {
-            Toast.makeText(this, getString(R.string.point_cloud_empty), Toast.LENGTH_SHORT).show()
-            return
-        }
-        try {
-            val csv = buildString {
-                appendLine("x,y")
-                appendLine("# Pseudo-3D point cloud (screen projections). mean_parallax=${cloud.meanParallax}")
-                cloud.points.forEach { p -> appendLine("${p.x},${p.y}") }
-            }
-            val filename = "pointcloud_${System.currentTimeMillis()}.csv"
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                val values = ContentValues().apply {
-                    put(MediaStore.MediaColumns.DISPLAY_NAME, filename)
-                    put(MediaStore.MediaColumns.MIME_TYPE, "text/csv")
-                    put(MediaStore.MediaColumns.RELATIVE_PATH, "Download/MobileCV")
-                }
-                val uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
-                if (uri != null) {
-                    contentResolver.openOutputStream(uri)?.use { it.write(csv.toByteArray()) }
-                    Toast.makeText(this, getString(R.string.point_cloud_saved, "Download/MobileCV/$filename"), Toast.LENGTH_SHORT).show()
-                } else {
-                    Toast.makeText(this, R.string.point_cloud_save_error, Toast.LENGTH_SHORT).show()
-                }
-            } else {
-                @Suppress("DEPRECATION")
-                val dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-                dir.mkdirs()
-                File(dir, filename).writeText(csv)
-                Toast.makeText(this, getString(R.string.point_cloud_saved, "${dir.absolutePath}/$filename"), Toast.LENGTH_SHORT).show()
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to save point cloud", e)
-            Toast.makeText(this, R.string.point_cloud_save_error, Toast.LENGTH_SHORT).show()
-        }
     }
 
     private fun requestPermissionsOrStart() { if (requiredPermissions().all { ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED }) startCamera() else permissionsLauncher.launch(requiredPermissions()) }

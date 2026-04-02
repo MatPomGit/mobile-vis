@@ -308,7 +308,9 @@ class ImageProcessor {
     private fun applyVisualOdometry(src: Mat): Mat {
         val res = src.clone(); val state = visualOdometryEngine.updateOdometry(src) ?: return res
         Imgproc.putText(res, "$labelOdometryTracks: ${state.tracksCount} (inliers: ${state.inliersCount})", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.7, Scalar(0.0, 255.0, 0.0), 2)
-        Imgproc.putText(res, "Move: %.2f | Rot: %.1f deg".format(state.translationNorm, state.rotationDeg), Point(30.0, 90.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.7, Scalar(0.0, 255.0, 0.0), 2)
+        Imgproc.putText(res, "Ruch: %.2f | Obrót: %.1f°".format(state.translationNorm, state.rotationDeg), Point(30.0, 90.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.7, Scalar(0.0, 255.0, 0.0), 2)
+        Imgproc.putText(res, "Max cech: ${visualOdometryEngine.maxFeatures} (im więcej → dokładniej, wolniej)", Point(30.0, 130.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.55, Scalar(200.0, 200.0, 255.0), 2)
+        Imgproc.putText(res, "Próg paralaksy: %.1f px (min ruch do detekcji)".format(visualOdometryEngine.minParallax), Point(30.0, 160.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.55, Scalar(200.0, 200.0, 255.0), 2)
         val cx = res.cols()/2; val cy = res.rows()/2
         Imgproc.line(res, Point(cx-30.0, cy.toDouble()), Point(cx+30.0, cy.toDouble()), Scalar(255.0, 255.0, 255.0), 2)
         Imgproc.line(res, Point(cx.toDouble(), cy-30.0), Point(cx.toDouble(), cy+30.0), Scalar(255.0, 255.0, 255.0), 2)
@@ -317,7 +319,9 @@ class ImageProcessor {
 
     private fun applyPointCloud(src: Mat): Mat {
         val res = Mat.zeros(src.size(), src.type()); val state = visualOdometryEngine.updatePointCloud(src) ?: return res
-        Imgproc.putText(res, "$labelPointCloud: ${state.points.size} (parallax: %.1f)".format(state.meanParallax), Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.7, Scalar(255.0, 255.0, 255.0), 2)
+        Imgproc.putText(res, "$labelPointCloud: ${state.points.size} pkt | paralaksa: %.1f px".format(state.meanParallax), Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.7, Scalar(255.0, 255.0, 255.0), 2)
+        Imgproc.putText(res, "Max cech: ${visualOdometryEngine.maxFeatures} | Próg: %.1f px".format(visualOdometryEngine.minParallax), Point(30.0, 85.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.55, Scalar(200.0, 200.0, 255.0), 2)
+        Imgproc.putText(res, "Kolor = głębokość (jasny=blisko, ciemny=dalej)", Point(30.0, 115.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.5, Scalar(180.0, 180.0, 180.0), 1)
         if (isVoMeshEnabled) {
             for (e in state.edges) Imgproc.line(res, e.first, e.second, Scalar(100.0, 100.0, 100.0), 1)
         }
@@ -340,56 +344,78 @@ class ImageProcessor {
     private fun applyPlaneDetection(src: Mat): Mat {
         val res = src.clone()
         val gray = Mat(); val blurred = Mat(); val edges = Mat()
-        Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
-        Imgproc.GaussianBlur(gray, blurred, Size(5.0, 5.0), 0.0)
-        Imgproc.Canny(blurred, edges, 50.0, 150.0)
+        try {
+            Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
+            Imgproc.GaussianBlur(gray, blurred, Size(5.0, 5.0), 0.0)
+            Imgproc.Canny(blurred, edges, 50.0, 150.0)
 
-        val lines = Mat()
-        Imgproc.HoughLinesP(edges, lines, 1.0, Math.PI / 180.0, 50, 30.0, 10.0)
+            val lines = Mat()
+            Imgproc.HoughLinesP(edges, lines, 1.0, Math.PI / 180.0, 40, 20.0, 8.0)
 
-        // Cluster lines by angle into at most 4 direction bins
-        val clusters = ArrayList<ArrayList<IntArray>>()
-        val clusterAngles = ArrayList<Double>()
-        for (i in 0 until lines.rows()) {
-            val seg = lines.get(i, 0)
-            val x1 = seg[0].toInt(); val y1 = seg[1].toInt()
-            val x2 = seg[2].toInt(); val y2 = seg[3].toInt()
-            val angle = Math.toDegrees(atan2((y2 - y1).toDouble(), (x2 - x1).toDouble())).let { if (it < 0) it + 180.0 else it } % 180.0
-            var assigned = false
-            for (k in clusterAngles.indices) {
-                var diff = abs(angle - clusterAngles[k]); diff = minOf(diff, 180.0 - diff)
-                if (diff <= 5.0) { clusters[k].add(intArrayOf(x1, y1, x2, y2)); assigned = true; break }
+            // Cluster lines by angle into at most 4 direction bins
+            val clusters = ArrayList<ArrayList<IntArray>>()
+            val clusterAngles = ArrayList<Double>()
+            for (i in 0 until lines.rows()) {
+                val seg = lines.get(i, 0) ?: continue
+                if (seg.size < 4) continue
+                val x1 = seg[0].toInt(); val y1 = seg[1].toInt()
+                val x2 = seg[2].toInt(); val y2 = seg[3].toInt()
+                val angle = Math.toDegrees(atan2((y2 - y1).toDouble(), (x2 - x1).toDouble())).let { if (it < 0) it + 180.0 else it } % 180.0
+                var assigned = false
+                for (k in clusterAngles.indices) {
+                    var diff = abs(angle - clusterAngles[k]); diff = minOf(diff, 180.0 - diff)
+                    if (diff <= 8.0) { clusters[k].add(intArrayOf(x1, y1, x2, y2)); assigned = true; break }
+                }
+                if (!assigned) { clusters.add(arrayListOf(intArrayOf(x1, y1, x2, y2))); clusterAngles.add(angle) }
             }
-            if (!assigned) { clusters.add(arrayListOf(intArrayOf(x1, y1, x2, y2))); clusterAngles.add(angle) }
-        }
 
-        // Build vanishing points from the two largest clusters
-        val planeColors = arrayOf(Scalar(0.0, 255.0, 0.0), Scalar(0.0, 0.0, 255.0), Scalar(0.0, 165.0, 255.0))
-        val sortedClusters = clusters.sortedByDescending { it.size }.take(MAX_LINE_DIRECTION_CLUSTERS)
-        var planeIdx = 0
-        for (i in sortedClusters.indices) {
-            for (j in i + 1 until sortedClusters.size) {
-                if (planeIdx >= 3) break
-                val c1 = sortedClusters[i]; val c2 = sortedClusters[j]
-                if (c1.size + c2.size < 5) continue
-                val color = planeColors[planeIdx % planeColors.size]
-                // Draw inlier lines as the plane visualisation
-                for (seg in c1) Imgproc.line(res, Point(seg[0].toDouble(), seg[1].toDouble()), Point(seg[2].toDouble(), seg[3].toDouble()), color, 2)
-                for (seg in c2) Imgproc.line(res, Point(seg[0].toDouble(), seg[1].toDouble()), Point(seg[2].toDouble(), seg[3].toDouble()), color, 2)
-                // Estimate vanishing point for cluster 1 via the least squares
-                val vp = _computeVanishingPoint(c1)
+            // Build vanishing points from the two largest clusters
+            val planeColors = arrayOf(Scalar(0.0, 255.0, 0.0), Scalar(0.0, 0.0, 255.0), Scalar(0.0, 165.0, 255.0))
+            val sortedClusters = clusters.sortedByDescending { it.size }.take(MAX_LINE_DIRECTION_CLUSTERS)
+            var planeIdx = 0
+
+            // Draw single dominant cluster when only one direction group is present
+            if (sortedClusters.size == 1 && sortedClusters[0].size >= 3) {
+                val c = sortedClusters[0]
+                val color = planeColors[0]
+                for (seg in c) Imgproc.line(res, Point(seg[0].toDouble(), seg[1].toDouble()), Point(seg[2].toDouble(), seg[3].toDouble()), color, 2)
+                val vp = _computeVanishingPoint(c)
                 if (vp != null) {
                     Imgproc.circle(res, vp, 8, color, -1)
-                    val label = "P${planeIdx + 1}"
-                    Imgproc.putText(res, label, Point(vp.x + 10, vp.y), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+                    Imgproc.putText(res, "P1", Point(vp.x + 10, vp.y), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
                 }
-                planeIdx++
+                planeIdx = 1
+            } else {
+                for (i in sortedClusters.indices) {
+                    for (j in i + 1 until sortedClusters.size) {
+                        if (planeIdx >= 3) break
+                        val c1 = sortedClusters[i]; val c2 = sortedClusters[j]
+                        if (c1.size + c2.size < 4) continue
+                        val color = planeColors[planeIdx % planeColors.size]
+                        for (seg in c1) Imgproc.line(res, Point(seg[0].toDouble(), seg[1].toDouble()), Point(seg[2].toDouble(), seg[3].toDouble()), color, 2)
+                        for (seg in c2) Imgproc.line(res, Point(seg[0].toDouble(), seg[1].toDouble()), Point(seg[2].toDouble(), seg[3].toDouble()), color, 2)
+                        val vp1 = _computeVanishingPoint(c1)
+                        val vp2 = _computeVanishingPoint(c2)
+                        for ((vpIdx, vp) in listOfNotNull(vp1, vp2).withIndex()) {
+                            Imgproc.circle(res, vp, 8, color, -1)
+                            Imgproc.putText(res, "P${planeIdx + 1}.VP${vpIdx + 1}", Point(vp.x + 10, vp.y), Imgproc.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+                        }
+                        planeIdx++
+                    }
+                }
             }
+
+            if (planeIdx == 0) {
+                Imgproc.putText(res, "Brak płaszczyzn (linie: ${lines.rows()})", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.7, Scalar(200.0, 200.0, 200.0), 2)
+            } else {
+                Imgproc.putText(res, "Płaszczyzny: $planeIdx | Linie: ${lines.rows()}", Point(30.0, 30.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255.0, 255.0, 255.0), 2)
+            }
+            lines.release()
+        } catch (e: Exception) {
+            Imgproc.putText(res, "Błąd detekcji: ${e.message?.take(30)}", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255.0, 100.0, 100.0), 2)
+        } finally {
+            gray.release(); blurred.release(); edges.release()
         }
-        if (planeIdx == 0) {
-            Imgproc.putText(res, "Brak płaszczyzn", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.8, Scalar(200.0, 200.0, 200.0), 2)
-        }
-        gray.release(); blurred.release(); edges.release(); lines.release()
         return res
     }
 
@@ -402,45 +428,57 @@ class ImageProcessor {
     private fun applyVanishingPoints(src: Mat): Mat {
         val res = src.clone()
         val gray = Mat(); val blurred = Mat(); val edges = Mat()
-        Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
-        Imgproc.GaussianBlur(gray, blurred, Size(5.0, 5.0), 0.0)
-        Imgproc.Canny(blurred, edges, 50.0, 150.0)
+        try {
+            Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
+            Imgproc.GaussianBlur(gray, blurred, Size(5.0, 5.0), 0.0)
+            Imgproc.Canny(blurred, edges, 50.0, 150.0)
 
-        val lines = Mat()
-        Imgproc.HoughLinesP(edges, lines, 1.0, Math.PI / 180.0, 50, 30.0, 10.0)
+            val lines = Mat()
+            Imgproc.HoughLinesP(edges, lines, 1.0, Math.PI / 180.0, 40, 20.0, 8.0)
 
-        val clusters = ArrayList<ArrayList<IntArray>>()
-        val clusterAngles = ArrayList<Double>()
-        for (i in 0 until lines.rows()) {
-            val seg = lines.get(i, 0)
-            val x1 = seg[0].toInt(); val y1 = seg[1].toInt()
-            val x2 = seg[2].toInt(); val y2 = seg[3].toInt()
-            val angle = Math.toDegrees(atan2((y2 - y1).toDouble(), (x2 - x1).toDouble())).let { if (it < 0) it + 180.0 else it } % 180.0
-            var assigned = false
-            for (k in clusterAngles.indices) {
-                var diff = abs(angle - clusterAngles[k]); diff = minOf(diff, 180.0 - diff)
-                if (diff <= 5.0) { clusters[k].add(intArrayOf(x1, y1, x2, y2)); assigned = true; break }
+            val clusters = ArrayList<ArrayList<IntArray>>()
+            val clusterAngles = ArrayList<Double>()
+            for (i in 0 until lines.rows()) {
+                val seg = lines.get(i, 0) ?: continue
+                if (seg.size < 4) continue
+                val x1 = seg[0].toInt(); val y1 = seg[1].toInt()
+                val x2 = seg[2].toInt(); val y2 = seg[3].toInt()
+                val angle = Math.toDegrees(atan2((y2 - y1).toDouble(), (x2 - x1).toDouble())).let { if (it < 0) it + 180.0 else it } % 180.0
+                var assigned = false
+                for (k in clusterAngles.indices) {
+                    var diff = abs(angle - clusterAngles[k]); diff = minOf(diff, 180.0 - diff)
+                    if (diff <= 8.0) { clusters[k].add(intArrayOf(x1, y1, x2, y2)); assigned = true; break }
+                }
+                if (!assigned) { clusters.add(arrayListOf(intArrayOf(x1, y1, x2, y2))); clusterAngles.add(angle) }
             }
-            if (!assigned) { clusters.add(arrayListOf(intArrayOf(x1, y1, x2, y2))); clusterAngles.add(angle) }
-        }
 
-        val vpColors = arrayOf(Scalar(0.0, 255.0, 0.0), Scalar(0.0, 0.0, 255.0), Scalar(0.0, 165.0, 255.0), Scalar(255.0, 255.0, 0.0))
-        for ((idx, cluster) in clusters.sortedByDescending { it.size }.take(MAX_LINE_DIRECTION_CLUSTERS).withIndex()) {
-            if (cluster.size < 2) continue
-            val color = vpColors[idx % vpColors.size]
-            for (seg in cluster) {
-                Imgproc.line(res, Point(seg[0].toDouble(), seg[1].toDouble()), Point(seg[2].toDouble(), seg[3].toDouble()), color, 1)
+            val vpColors = arrayOf(Scalar(0.0, 255.0, 0.0), Scalar(0.0, 0.0, 255.0), Scalar(0.0, 165.0, 255.0), Scalar(255.0, 255.0, 0.0))
+            var foundVP = false
+            for ((idx, cluster) in clusters.sortedByDescending { it.size }.take(MAX_LINE_DIRECTION_CLUSTERS).withIndex()) {
+                if (cluster.size < 2) continue
+                val color = vpColors[idx % vpColors.size]
+                for (seg in cluster) {
+                    Imgproc.line(res, Point(seg[0].toDouble(), seg[1].toDouble()), Point(seg[2].toDouble(), seg[3].toDouble()), color, 1)
+                }
+                val vp = _computeVanishingPoint(cluster)
+                if (vp != null) {
+                    Imgproc.circle(res, vp, 10, color, -1)
+                    Imgproc.putText(res, "VP${idx + 1}", Point(vp.x + 12, vp.y + 5), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+                    foundVP = true
+                }
             }
-            val vp = _computeVanishingPoint(cluster)
-            if (vp != null) {
-                Imgproc.circle(res, vp, 10, color, -1)
-                Imgproc.putText(res, "VP${idx + 1}", Point(vp.x + 12, vp.y + 5), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+
+            when {
+                lines.rows() == 0 -> Imgproc.putText(res, "Brak linii w scenie", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.8, Scalar(200.0, 200.0, 200.0), 2)
+                !foundVP -> Imgproc.putText(res, "Brak punktów zbieżności (linie: ${lines.rows()})", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(200.0, 200.0, 200.0), 2)
+                else -> Imgproc.putText(res, "Linie: ${lines.rows()} | Grupy: ${clusters.size}", Point(30.0, 30.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255.0, 255.0, 255.0), 2)
             }
+            lines.release()
+        } catch (e: Exception) {
+            Imgproc.putText(res, "Błąd VP: ${e.message?.take(30)}", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255.0, 100.0, 100.0), 2)
+        } finally {
+            gray.release(); blurred.release(); edges.release()
         }
-        if (lines.rows() == 0) {
-            Imgproc.putText(res, "Brak linii", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.8, Scalar(200.0, 200.0, 200.0), 2)
-        }
-        gray.release(); blurred.release(); edges.release(); lines.release()
         return res
     }
 

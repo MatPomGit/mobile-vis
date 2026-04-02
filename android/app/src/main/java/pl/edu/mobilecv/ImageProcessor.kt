@@ -1,6 +1,7 @@
 package pl.edu.mobilecv
 
 import android.graphics.Bitmap
+import android.util.Log
 import org.opencv.android.Utils
 import org.opencv.calib3d.Calib3d
 import org.opencv.core.Core
@@ -15,6 +16,7 @@ import org.opencv.core.Scalar
 import org.opencv.core.Size
 import org.opencv.core.TermCriteria
 import org.opencv.imgproc.Imgproc
+import org.opencv.imgproc.CLAHE as OpencvClahe
 import org.opencv.objdetect.ArucoDetector
 import org.opencv.objdetect.DetectorParameters
 import org.opencv.objdetect.Dictionary
@@ -78,6 +80,11 @@ class ImageProcessor {
         it.maxFeatures = voMaxFeatures
         it.minParallax = voMinParallax
         it.isMeshEnabled = isVoMeshEnabled
+    }
+
+    /** Cached 3×3 rectangular kernel for edge dilation in plane detection. */
+    private val dilationKernel3x3 by lazy {
+        Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(3.0, 3.0))
     }
 
     private val aprilTagDetector by lazy { ArucoDetector(Objdetect.getPredefinedDictionary(Objdetect.DICT_APRILTAG_36h11)) }
@@ -363,11 +370,12 @@ class ImageProcessor {
     private fun applyPlaneDetection(src: Mat): Mat {
         val res = src.clone()
         val gray = Mat(); val clahe = Mat(); val blurred = Mat(); val edges = Mat()
+        var claheObj: OpencvClahe? = null
         try {
             Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
 
             // CLAHE – contrast-limited adaptive histogram equalization for even-lighting robustness
-            val claheObj = Imgproc.createCLAHE(2.0, Size(8.0, 8.0))
+            claheObj = Imgproc.createCLAHE(2.0, Size(8.0, 8.0))
             claheObj.apply(gray, clahe)
 
             Imgproc.GaussianBlur(clahe, blurred, Size(5.0, 5.0), 0.0)
@@ -380,9 +388,7 @@ class ImageProcessor {
             Imgproc.Canny(blurred, edges, lower, upper)
 
             // Dilate edges to bridge small gaps between line segments
-            val dilKernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(3.0, 3.0))
-            Imgproc.dilate(edges, edges, dilKernel)
-            dilKernel.release()
+            Imgproc.dilate(edges, edges, dilationKernel3x3)
 
             val lines = Mat()
             Imgproc.HoughLinesP(edges, lines, 1.0, Math.PI / 180.0, 30, 15.0, 5.0)
@@ -399,7 +405,7 @@ class ImageProcessor {
                 var assigned = false
                 for (k in clusterAngles.indices) {
                     var diff = abs(angle - clusterAngles[k]); diff = minOf(diff, 180.0 - diff)
-                    if (diff <= 10.0) {
+                    if (diff <= CLUSTER_ANGLE_THRESHOLD_DEG) {
                         clusters[k].add(doubleArrayOf(x1, y1, x2, y2, length))
                         // Update cluster mean angle (length-weighted)
                         clusterAngles[k] = _weightedAngleMean(clusters[k])
@@ -428,7 +434,7 @@ class ImageProcessor {
                     if (c1.size + c2.size < 4) continue
                     val color = planeColors[planeIdx % planeColors.size]
                     val planeLineCount = c1.size + c2.size
-                    val confidence = if (totalLines > 0) (planeLineCount * 100 / totalLines).coerceAtMost(100) else 0
+                    val confidence = if (totalLines > 0) ((planeLineCount * 100.0 / totalLines).toInt()).coerceAtMost(100) else 0
 
                     // Draw inlier lines with thickness ∝ confidence
                     val thickness = if (confidence >= 50) 2 else 1
@@ -470,7 +476,7 @@ class ImageProcessor {
             if (planeIdx == 0 && sortedClusters.isNotEmpty() && sortedClusters[0].size >= 3) {
                 val c = sortedClusters[0]
                 val color = planeColors[0]
-                val confidence = if (totalLines > 0) (c.size * 100 / totalLines).coerceAtMost(100) else 0
+                val confidence = if (totalLines > 0) ((c.size * 100.0 / totalLines).toInt()).coerceAtMost(100) else 0
                 for (seg in c) Imgproc.line(res, Point(seg[0], seg[1]), Point(seg[2], seg[3]), color, 2)
                 val allPoints = c.flatMap { listOf(Point(it[0], it[1]), Point(it[2], it[3])) }
                 _drawPlaneOverlay(res, allPoints, color)
@@ -491,6 +497,7 @@ class ImageProcessor {
         } catch (e: Exception) {
             Imgproc.putText(res, "$labelGeometryError: ${e.message?.take(30)}", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255.0, 100.0, 100.0), 2)
         } finally {
+            claheObj?.release()
             gray.release(); clahe.release(); blurred.release(); edges.release()
         }
         return res
@@ -518,7 +525,9 @@ class ImageProcessor {
             Imgproc.fillConvexPoly(overlay, hullMat, Scalar(color.`val`[0], color.`val`[1], color.`val`[2], 255.0))
             Core.addWeighted(dst, 0.75, overlay, 0.25, 0.0, dst)
             overlay.release(); hullMat.release(); contourMat.release()
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            Log.w(TAG, "Plane overlay rendering failed: ${e.message}")
+        }
     }
 
     /**
@@ -551,6 +560,7 @@ class ImageProcessor {
      * Each segment element is [x1, y1, x2, y2, length].
      */
     private fun _weightedAngleMean(cluster: List<DoubleArray>): Double {
+        if (cluster.isEmpty()) return 0.0
         var sumSin = 0.0; var sumCos = 0.0
         for (seg in cluster) {
             val angle = Math.toDegrees(atan2(seg[3] - seg[1], seg[2] - seg[0])).let { if (it < 0) it + 180.0 else it } % 180.0
@@ -738,9 +748,12 @@ class ImageProcessor {
     }
 
     private companion object {
+        private const val TAG = "ImageProcessor"
         private const val CROSSHAIR_GAP = 30
         private const val MAX_QR_TEXT_DISPLAY_LENGTH = 20
         /** Maximum number of line-direction clusters used for plane and VP detection. */
         private const val MAX_LINE_DIRECTION_CLUSTERS = 4
+        /** Angle tolerance (degrees) for assigning a line segment to a direction cluster. */
+        private const val CLUSTER_ANGLE_THRESHOLD_DEG = 10.0
     }
 }

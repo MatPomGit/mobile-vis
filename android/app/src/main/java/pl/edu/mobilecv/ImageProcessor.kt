@@ -535,7 +535,6 @@ class ImageProcessor {
         } catch (e: Exception) {
             Imgproc.putText(res, "$labelGeometryError: ${e.message?.take(30)}", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255.0, 100.0, 100.0), 2)
         } finally {
-            claheObj?.release()
             gray.release(); clahe.release(); blurred.release(); edges.release()
         }
         return res

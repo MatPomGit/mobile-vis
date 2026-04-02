@@ -130,6 +130,7 @@ class MainActivity : AppCompatActivity() {
 
         initOpenCv()
         setupAnalysisTabs()
+        applyInitialModeFromIntent()
         setupSliders()
         setupActiveVisionToggle()
         setupMeshToggle()
@@ -204,6 +205,17 @@ class MainActivity : AppCompatActivity() {
             override fun onTabReselected(tab: TabLayout.Tab) {}
         })
         updateFilterChips(AnalysisMode.entries.first())
+    }
+
+    /**
+     * Reads the [MenuActivity.EXTRA_MODE] extra from the launching intent and
+     * selects the corresponding tab, overriding the default first-tab selection.
+     */
+    private fun applyInitialModeFromIntent() {
+        val modeName = intent.getStringExtra(MenuActivity.EXTRA_MODE) ?: return
+        val index = AnalysisMode.entries.indexOfFirst { it.name == modeName }
+        if (index >= 0) binding.tabLayoutModes.getTabAt(index)?.select()
+        else Log.w(TAG, "Unknown analysis mode received from intent: $modeName")
     }
 
     private fun setupActiveVisionToggle() {

@@ -99,4 +99,15 @@
     <string name="vo_min_parallax_label">Próg paralaksy:</string>
     <string name="vo_depth_gain_label">Wzmocnienie głębi:</string>
     <string name="vo_mesh_toggle">Pokaż siatkę (Mesh)</string>
+
+    <!-- Main menu -->
+    <string name="menu_subtitle">Wybierz tryb analizy obrazu</string>
+    <string name="mode_desc_filters">Konwersja kolorów, rozmycie Gaussowskie, progowanie</string>
+    <string name="mode_desc_edges">Detekcja krawędzi: Canny, Sobel, Laplacian</string>
+    <string name="mode_desc_morphology">Dylatacja, erozja, otwarcie, zamknięcie i inne</string>
+    <string name="mode_desc_markers">Detekcja znaczników: AprilTag, ArUco, QR, CCTag</string>
+    <string name="mode_desc_pose">Śledzenie ciała, rąk i twarzy (MediaPipe)</string>
+    <string name="mode_desc_odometry">Odometria wizualna i rekonstrukcja chmury punktów 3D</string>
+    <string name="mode_desc_geometry">Detekcja płaszczyzn i punkty zbieżności perspektywy</string>
+    <string name="mode_desc_calibration">Kalibracja kamery wzorcem szachownicy</string>
 </resources>

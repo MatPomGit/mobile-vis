@@ -111,7 +111,6 @@ jobs:
       - name: Resolve Android dependencies and verify key libraries
         run: |
           ./gradlew :app:dependencies \
-            --configuration releaseRuntimeClasspath \
             --no-daemon \
             | tee /tmp/deps.txt
 

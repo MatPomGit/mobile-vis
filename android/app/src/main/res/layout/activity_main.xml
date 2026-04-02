@@ -289,6 +289,16 @@
             app:thumbTint="@color/active_vision_thumb"
             app:trackTint="@color/active_vision_track" />
 
+        <com.google.android.material.switchmaterial.SwitchMaterial
+            android:id="@+id/switchActiveVisionVisualization"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginTop="2dp"
+            android:enabled="false"
+            android:text="@string/active_vision_visualization_toggle"
+            android:textColor="@android:color/white" />
+
         <!-- ============================================================ -->
         <!-- Analysis-mode tab bar (relocated from the top of the screen  -->
         <!-- to the bottom for easier one-handed thumb access)            -->

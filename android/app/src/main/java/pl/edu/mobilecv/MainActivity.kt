@@ -78,6 +78,7 @@ class MainActivity : AppCompatActivity() {
     @Volatile private var mediaPipeDownloadInProgress = false
     @Volatile private var currentFilter = OpenCvFilter.ORIGINAL
     @Volatile private var isActiveVisionEnabled = false
+    @Volatile private var isActiveVisionVisualizationEnabled = false
 
     // Calibration
     val cameraCalibrator = CameraCalibrator()
@@ -134,6 +135,7 @@ class MainActivity : AppCompatActivity() {
         applyInitialModeFromIntent()
         setupSliders()
         setupActiveVisionToggle()
+        setupActiveVisionVisualizationToggle()
         setupMeshToggle()
         setupCameraSwitchButton()
         setupCaptureButton()
@@ -222,7 +224,17 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupActiveVisionToggle() {
         binding.switchActiveVision.setOnCheckedChangeListener { _, isChecked ->
-            isActiveVisionEnabled = isChecked; imageProcessor.isActiveVisionEnabled = isChecked
+            isActiveVisionEnabled = isChecked
+            imageProcessor.isActiveVisionEnabled = isChecked
+            binding.switchActiveVisionVisualization.isEnabled = isChecked
+        }
+    }
+
+    private fun setupActiveVisionVisualizationToggle() {
+        binding.switchActiveVisionVisualization.isEnabled = isActiveVisionEnabled
+        binding.switchActiveVisionVisualization.setOnCheckedChangeListener { _, isChecked ->
+            isActiveVisionVisualizationEnabled = isChecked
+            imageProcessor.isActiveVisionVisualizationEnabled = isChecked
         }
     }
 
@@ -359,7 +371,16 @@ class MainActivity : AppCompatActivity() {
             if (uiUpdatePending.compareAndSet(false, true)) {
                 runOnUiThread {
                     pendingRecycleBitmap?.recycle(); pendingRecycleBitmap = lastProcessedBitmap; binding.imageViewPreview.setImageBitmap(processed); lastProcessedBitmap = processed; uiUpdatePending.set(false)
-                    updateDiagnosticsOverlay(fpsCounter.fps, frameWidth, frameHeight, time, currentFilter, lensFacing == CameraSelector.LENS_FACING_FRONT, isActiveVisionEnabled)
+                    updateDiagnosticsOverlay(
+                        fpsCounter.fps,
+                        frameWidth,
+                        frameHeight,
+                        time,
+                        currentFilter,
+                        lensFacing == CameraSelector.LENS_FACING_FRONT,
+                        isActiveVisionEnabled,
+                        isActiveVisionVisualizationEnabled,
+                    )
                 }
             } else {
                 processed.recycle()
@@ -375,9 +396,26 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun updateDiagnosticsOverlay(fps: Double, w: Int, h: Int, t: Long, f: OpenCvFilter, front: Boolean, av: Boolean) {
+    private fun updateDiagnosticsOverlay(
+        fps: Double,
+        w: Int,
+        h: Int,
+        t: Long,
+        f: OpenCvFilter,
+        front: Boolean,
+        av: Boolean,
+        avVisualization: Boolean,
+    ) {
         val label = getString(if (front) R.string.diagnostics_camera_front else R.string.diagnostics_camera_back)
-        binding.textViewDiagnostics.text = buildString { appendLine(getString(R.string.diagnostics_fps, fps)); appendLine(getString(R.string.diagnostics_resolution, w, h)); appendLine(getString(R.string.diagnostics_processing_time, t)); appendLine(getString(R.string.diagnostics_filter, f.displayName)); appendLine(getString(R.string.diagnostics_active_vision, av)); append(label) }
+        binding.textViewDiagnostics.text = buildString {
+            appendLine(getString(R.string.diagnostics_fps, fps))
+            appendLine(getString(R.string.diagnostics_resolution, w, h))
+            appendLine(getString(R.string.diagnostics_processing_time, t))
+            appendLine(getString(R.string.diagnostics_filter, f.displayName))
+            appendLine(getString(R.string.diagnostics_active_vision, av))
+            appendLine(getString(R.string.diagnostics_active_vision_visualization, avVisualization))
+            append(label)
+        }
     }
 
     private fun orientBitmap(bitmap: Bitmap, rotation: Int, facing: Int): Bitmap {

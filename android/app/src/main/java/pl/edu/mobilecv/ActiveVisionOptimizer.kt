@@ -27,8 +27,11 @@ class ActiveVisionOptimizer {
 
     /**
      * Optimize the analysis area and return an RGBA frame with visual focus on ROI.
+     *
+     * @param visualizeWork If true, draws additional overlays that explain how the module
+     *   selected and stabilized the current ROI in real time.
      */
-    fun optimize(input: Mat): Mat {
+    fun optimize(input: Mat, visualizeWork: Boolean = false): Mat {
         val roi = smoothRoi(findMostInformativeRegion(input))
 
         val emphasized = Mat()
@@ -41,7 +44,18 @@ class ActiveVisionOptimizer {
         val destinationRegion = output.submat(roi)
         focusedRegion.copyTo(destinationRegion)
 
-        Imgproc.rectangle(output, roi, Scalar(255.0, 180.0, 0.0, 255.0), 3)
+        if (visualizeWork) {
+            Imgproc.rectangle(output, roi, Scalar(255.0, 180.0, 0.0, 255.0), 3)
+            Imgproc.putText(
+                output,
+                "Active Vision ROI",
+                org.opencv.core.Point(roi.x.toDouble(), max(25.0, (roi.y - 10).toDouble())),
+                Imgproc.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                Scalar(255.0, 180.0, 0.0, 255.0),
+                2,
+            )
+        }
 
         focusedRegion.release()
         destinationRegion.release()

@@ -69,9 +69,11 @@
     <string name="resolution_btn_apply">Zastosuj</string>
     <string name="resolution_applied" tools:keep="@string/resolution_applied">Rozdzielczość zmieniona na %1$s</string>
     <string name="active_vision_toggle">Active Vision</string>
+    <string name="active_vision_visualization_toggle">Wizualizacja Active Vision (na żywo)</string>
     <string name="active_vision_enabled" tools:keep="@string/active_vision_enabled">Tryb Active Vision włączony</string>
     <string name="active_vision_disabled" tools:keep="@string/active_vision_disabled">Tryb Active Vision wyłączony</string>
     <string name="diagnostics_active_vision">Active Vision: %1$b</string>
+    <string name="diagnostics_active_vision_visualization">Wizualizacja AV: %1$b</string>
 
     <string name="morphology_kernel_size_label">Jądro:</string>
     <string name="morphology_kernel_size_value">%1$d×%2$d</string>

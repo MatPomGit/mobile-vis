@@ -16,7 +16,12 @@ enum class AnalysisMode(val displayName: String, val filters: List<OpenCvFilter>
             OpenCvFilter.ORIGINAL,
             OpenCvFilter.GRAYSCALE,
             OpenCvFilter.GAUSSIAN_BLUR,
+            OpenCvFilter.MEDIAN_BLUR,
+            OpenCvFilter.BILATERAL_FILTER,
+            OpenCvFilter.BOX_FILTER,
             OpenCvFilter.THRESHOLD,
+            OpenCvFilter.ADAPTIVE_THRESHOLD,
+            OpenCvFilter.HISTOGRAM_EQUALIZATION,
         )
     ),
 
@@ -26,7 +31,10 @@ enum class AnalysisMode(val displayName: String, val filters: List<OpenCvFilter>
         listOf(
             OpenCvFilter.CANNY_EDGES,
             OpenCvFilter.SOBEL,
+            OpenCvFilter.SCHARR,
             OpenCvFilter.LAPLACIAN,
+            OpenCvFilter.PREWITT,
+            OpenCvFilter.ROBERTS,
         )
     ),
 

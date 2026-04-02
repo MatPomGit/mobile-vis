@@ -19,4 +19,5 @@
     <color name="robot_connected">#FF43A047</color>
     <color name="robot_disconnected" tools:keep="@color/robot_disconnected">#FF757575</color>
     <color name="robot_error">#FFE53935</color>
+    <color name="background_color">#292a3a</color>
 </resources>

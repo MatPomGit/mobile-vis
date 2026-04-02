@@ -113,6 +113,30 @@ enum class OpenCvFilter(val displayName: String) {
      * visualizes them with converging-line bundles and point markers.
      */
     VANISHING_POINTS("Punkty zbieżności"),
+
+    /** Median blur filter. */
+    MEDIAN_BLUR("Median Blur"),
+
+    /** Bilateral filter. */
+    BILATERAL_FILTER("Bilateral Filter"),
+
+    /** Box blur filter. */
+    BOX_FILTER("Box Filter"),
+
+    /** Adaptive thresholding. */
+    ADAPTIVE_THRESHOLD("Adaptive Threshold"),
+
+    /** Histogram equalization. */
+    HISTOGRAM_EQUALIZATION("Histogram Equalization"),
+
+    /** Scharr operator for edge detection. */
+    SCHARR("Scharr Edges"),
+
+    /** Prewitt operator (simulated via custom kernel). */
+    PREWITT("Prewitt Edges"),
+
+    /** Roberts cross operator (simulated via custom kernel). */
+    ROBERTS("Roberts Edges"),
 }
 
 /**

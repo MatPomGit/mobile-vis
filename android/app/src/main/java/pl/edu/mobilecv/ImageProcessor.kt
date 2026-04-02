@@ -103,6 +103,14 @@ class ImageProcessor {
             OpenCvFilter.POINT_CLOUD -> applyPointCloud(src)
             OpenCvFilter.PLANE_DETECTION -> applyPlaneDetection(src)
             OpenCvFilter.VANISHING_POINTS -> applyVanishingPoints(src)
+            OpenCvFilter.MEDIAN_BLUR -> applyMedianBlur(src)
+            OpenCvFilter.BILATERAL_FILTER -> applyBilateralFilter(src)
+            OpenCvFilter.BOX_FILTER -> applyBoxFilter(src)
+            OpenCvFilter.ADAPTIVE_THRESHOLD -> applyAdaptiveThreshold(src)
+            OpenCvFilter.HISTOGRAM_EQUALIZATION -> applyHistogramEqualization(src)
+            OpenCvFilter.SCHARR -> applyScharr(src)
+            OpenCvFilter.PREWITT -> applyPrewitt(src)
+            OpenCvFilter.ROBERTS -> applyRoberts(src)
             else -> baseFrame.clone()
         }
 
@@ -444,6 +452,93 @@ class ImageProcessor {
         val vx = (a22 * b1 - a12 * b2) / det
         val vy = (a11 * b2 - a12 * b1) / det
         return Point(vx, vy)
+    }
+
+    private fun applyMedianBlur(src: Mat): Mat {
+        val res = Mat()
+        Imgproc.medianBlur(src, res, 5)
+        return res
+    }
+
+    private fun applyBilateralFilter(src: Mat): Mat {
+        val res = Mat()
+        val rgb = Mat()
+        Imgproc.cvtColor(src, rgb, Imgproc.COLOR_RGBA2RGB)
+        Imgproc.bilateralFilter(rgb, res, 9, 75.0, 75.0)
+        val out = Mat()
+        Imgproc.cvtColor(res, out, Imgproc.COLOR_RGB2RGBA)
+        rgb.release(); res.release(); return out
+    }
+
+    private fun applyBoxFilter(src: Mat): Mat {
+        val res = Mat()
+        Imgproc.boxFilter(src, res, -1, Size(5.0, 5.0))
+        return res
+    }
+
+    private fun applyAdaptiveThreshold(src: Mat): Mat {
+        val gray = Mat(); val thresh = Mat(); val res = Mat()
+        Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
+        Imgproc.adaptiveThreshold(gray, thresh, 255.0, Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C, Imgproc.THRESH_BINARY, 11, 2.0)
+        Imgproc.cvtColor(thresh, res, Imgproc.COLOR_GRAY2RGBA)
+        gray.release(); thresh.release(); return res
+    }
+
+    private fun applyHistogramEqualization(src: Mat): Mat {
+        val gray = Mat(); val equ = Mat(); val res = Mat()
+        Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
+        Imgproc.equalizeHist(gray, equ)
+        Imgproc.cvtColor(equ, res, Imgproc.COLOR_GRAY2RGBA)
+        gray.release(); equ.release(); return res
+    }
+
+    private fun applyScharr(src: Mat): Mat {
+        val gray = Mat(); val sx = Mat(); val sy = Mat(); val ax = Mat(); val ay = Mat(); val c = Mat(); val res = Mat()
+        Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
+        Imgproc.Scharr(gray, sx, CvType.CV_16S, 1, 0)
+        Imgproc.Scharr(gray, sy, CvType.CV_16S, 0, 1)
+        Core.convertScaleAbs(sx, ax); Core.convertScaleAbs(sy, ay)
+        Core.addWeighted(ax, 0.5, ay, 0.5, 0.0, c)
+        Imgproc.cvtColor(c, res, Imgproc.COLOR_GRAY2RGBA)
+        gray.release(); sx.release(); sy.release(); ax.release(); ay.release(); c.release(); return res
+    }
+
+    private fun applyPrewitt(src: Mat): Mat {
+        val gray = Mat(); val res = Mat()
+        Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
+        val kernelX = Mat(3, 3, CvType.CV_32F)
+        kernelX.put(0, 0, -1.0, 0.0, 1.0, -1.0, 0.0, 1.0, -1.0, 0.0, 1.0)
+        val kernelY = Mat(3, 3, CvType.CV_32F)
+        kernelY.put(0, 0, -1.0, -1.0, -1.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0)
+        val gradX = Mat(); val gradY = Mat()
+        Imgproc.filter2D(gray, gradX, -1, kernelX)
+        Imgproc.filter2D(gray, gradY, -1, kernelY)
+        val absX = Mat(); val absY = Mat()
+        Core.convertScaleAbs(gradX, absX); Core.convertScaleAbs(gradY, absY)
+        val combined = Mat()
+        Core.addWeighted(absX, 0.5, absY, 0.5, 0.0, combined)
+        Imgproc.cvtColor(combined, res, Imgproc.COLOR_GRAY2RGBA)
+        gray.release(); kernelX.release(); kernelY.release(); gradX.release(); gradY.release(); absX.release(); absY.release(); combined.release()
+        return res
+    }
+
+    private fun applyRoberts(src: Mat): Mat {
+        val gray = Mat(); val res = Mat()
+        Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
+        val kernelX = Mat(2, 2, CvType.CV_32F)
+        kernelX.put(0, 0, 1.0, 0.0, 0.0, -1.0)
+        val kernelY = Mat(2, 2, CvType.CV_32F)
+        kernelY.put(0, 0, 0.0, 1.0, -1.0, 0.0)
+        val gradX = Mat(); val gradY = Mat()
+        Imgproc.filter2D(gray, gradX, -1, kernelX)
+        Imgproc.filter2D(gray, gradY, -1, kernelY)
+        val absX = Mat(); val absY = Mat()
+        Core.convertScaleAbs(gradX, absX); Core.convertScaleAbs(gradY, absY)
+        val combined = Mat()
+        Core.addWeighted(absX, 0.5, absY, 0.5, 0.0, combined)
+        Imgproc.cvtColor(combined, res, Imgproc.COLOR_GRAY2RGBA)
+        gray.release(); kernelX.release(); kernelY.release(); gradX.release(); gradY.release(); absX.release(); absY.release(); combined.release()
+        return res
     }
 
     private companion object {

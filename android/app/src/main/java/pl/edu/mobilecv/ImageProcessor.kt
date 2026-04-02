@@ -19,6 +19,9 @@ import org.opencv.objdetect.Dictionary
 import org.opencv.objdetect.Objdetect
 import org.opencv.objdetect.QRCodeDetector
 import androidx.core.graphics.createBitmap
+import kotlin.math.abs
+import kotlin.math.atan2
+import kotlin.math.sqrt
 
 /**
  * Applies OpenCV image-processing filters to Android [Bitmap] frames.
@@ -241,10 +244,11 @@ class ImageProcessor {
             used[i] = true; val outer = sorted[i]; var count = 1
             for (j in i + 1 until sorted.size) {
                 if (used[j]) continue
-                val inner = sorted[j]; val d = Math.sqrt((outer.first.x-inner.first.x)*(outer.first.x-inner.first.x) + (outer.first.y-inner.first.y)*(outer.first.y-inner.first.y))
+                val inner = sorted[j]; val d =
+                    sqrt((outer.first.x - inner.first.x) * (outer.first.x - inner.first.x) + (outer.first.y - inner.first.y) * (outer.first.y - inner.first.y))
                 if (d < outer.second * 0.25) { count++; used[j] = true }
             }
-            if (count >= 2 && count <= 5) tags.add(Pair(outer.first, count))
+            if (count in 2..5) tags.add(Pair(outer.first, count))
         }
         for (t in tags) {
             Imgproc.circle(res, t.first, 10, Scalar(0.0, 255.0, 255.0), -1)
@@ -258,7 +262,7 @@ class ImageProcessor {
         val corners = MatOfPoint2f(); val pattern = Size(9.0, 6.0); val found = Calib3d.findChessboardCorners(gray, pattern, corners)
         if (found) {
             Imgproc.cornerSubPix(gray, corners, Size(11.0, 11.0), Size(-1.0, -1.0), TermCriteria(TermCriteria.EPS + TermCriteria.COUNT, 30, 0.1))
-            Calib3d.drawChessboardCorners(res, pattern, corners, found)
+            Calib3d.drawChessboardCorners(res, pattern, corners, true)
             Imgproc.putText(res, "Board Detected", Point(30.0, 40.0), Imgproc.FONT_HERSHEY_SIMPLEX, 1.0, Scalar(0.0, 255.0, 0.0), 2)
         } else Imgproc.putText(res, labelBoardNotFound, Point(30.0, 40.0), Imgproc.FONT_HERSHEY_SIMPLEX, 1.0, Scalar(255.0, 0.0, 0.0), 2)
         calibrator?.storeDetectedCorners(
@@ -271,7 +275,7 @@ class ImageProcessor {
 
     private fun applyUndistort(src: Mat): Mat {
         val r = calibrator?.calibrationResult; val m = r?.cameraMatrix; val d = r?.distCoeffs
-        if (m == null || d == null) {
+        if (m == null) {
             val out = src.clone(); Imgproc.putText(out, labelNoCalibration, Point(30.0, 60.0), Imgproc.FONT_HERSHEY_SIMPLEX, 1.2, Scalar(255.0, 0.0, 0.0), 3)
             return out
         }
@@ -327,10 +331,10 @@ class ImageProcessor {
             val seg = lines.get(i, 0)
             val x1 = seg[0].toInt(); val y1 = seg[1].toInt()
             val x2 = seg[2].toInt(); val y2 = seg[3].toInt()
-            val angle = Math.toDegrees(Math.atan2((y2 - y1).toDouble(), (x2 - x1).toDouble())).let { if (it < 0) it + 180.0 else it } % 180.0
+            val angle = Math.toDegrees(atan2((y2 - y1).toDouble(), (x2 - x1).toDouble())).let { if (it < 0) it + 180.0 else it } % 180.0
             var assigned = false
             for (k in clusterAngles.indices) {
-                var diff = Math.abs(angle - clusterAngles[k]); diff = minOf(diff, 180.0 - diff)
+                var diff = abs(angle - clusterAngles[k]); diff = minOf(diff, 180.0 - diff)
                 if (diff <= 5.0) { clusters[k].add(intArrayOf(x1, y1, x2, y2)); assigned = true; break }
             }
             if (!assigned) { clusters.add(arrayListOf(intArrayOf(x1, y1, x2, y2))); clusterAngles.add(angle) }
@@ -349,7 +353,7 @@ class ImageProcessor {
                 // Draw inlier lines as the plane visualisation
                 for (seg in c1) Imgproc.line(res, Point(seg[0].toDouble(), seg[1].toDouble()), Point(seg[2].toDouble(), seg[3].toDouble()), color, 2)
                 for (seg in c2) Imgproc.line(res, Point(seg[0].toDouble(), seg[1].toDouble()), Point(seg[2].toDouble(), seg[3].toDouble()), color, 2)
-                // Estimate vanishing point for cluster 1 via least squares
+                // Estimate vanishing point for cluster 1 via the least squares
                 val vp = _computeVanishingPoint(c1)
                 if (vp != null) {
                     Imgproc.circle(res, vp, 8, color, -1)
@@ -388,10 +392,10 @@ class ImageProcessor {
             val seg = lines.get(i, 0)
             val x1 = seg[0].toInt(); val y1 = seg[1].toInt()
             val x2 = seg[2].toInt(); val y2 = seg[3].toInt()
-            val angle = Math.toDegrees(Math.atan2((y2 - y1).toDouble(), (x2 - x1).toDouble())).let { if (it < 0) it + 180.0 else it } % 180.0
+            val angle = Math.toDegrees(atan2((y2 - y1).toDouble(), (x2 - x1).toDouble())).let { if (it < 0) it + 180.0 else it } % 180.0
             var assigned = false
             for (k in clusterAngles.indices) {
-                var diff = Math.abs(angle - clusterAngles[k]); diff = minOf(diff, 180.0 - diff)
+                var diff = abs(angle - clusterAngles[k]); diff = minOf(diff, 180.0 - diff)
                 if (diff <= 5.0) { clusters[k].add(intArrayOf(x1, y1, x2, y2)); assigned = true; break }
             }
             if (!assigned) { clusters.add(arrayListOf(intArrayOf(x1, y1, x2, y2))); clusterAngles.add(angle) }
@@ -436,7 +440,7 @@ class ImageProcessor {
             b1 += dy * c; b2 -= dx * c
         }
         val det = a11 * a22 - a12 * a12
-        if (Math.abs(det) < 1e-10) return null
+        if (abs(det) < 1e-10) return null
         val vx = (a22 * b1 - a12 * b2) / det
         val vy = (a11 * b2 - a12 * b1) / det
         return Point(vx, vy)

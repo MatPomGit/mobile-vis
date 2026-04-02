@@ -1,6 +1,5 @@
 package pl.edu.mobilecv
 
-import kotlin.math.abs
 import kotlin.math.min
 import org.opencv.calib3d.Calib3d
 import org.opencv.core.CvType
@@ -15,6 +14,8 @@ import org.opencv.core.Rect
 import org.opencv.imgproc.Imgproc
 import org.opencv.imgproc.Subdiv2D
 import org.opencv.video.Video
+import kotlin.math.acos
+import kotlin.math.sqrt
 
 /**
  * Tracks sparse visual odometry signals and creates a lightweight pseudo point cloud.
@@ -156,7 +157,7 @@ class VisualOdometryEngine {
         
         // Simple rotation angle from matrix trace
         val trace = r.get(0,0)[0] + r.get(1,1)[0] + r.get(2,2)[0]
-        val rotDeg = Math.toDegrees(Math.acos(min(1.0, maxOf(-1.0, (trace - 1.0) / 2.0))))
+        val rotDeg = Math.toDegrees(acos(min(1.0, maxOf(-1.0, (trace - 1.0) / 2.0))))
 
         val state = OdometryState(prev.rows(), inlierCount, transNorm, rotDeg)
 
@@ -171,7 +172,7 @@ class VisualOdometryEngine {
             val nextPt = nextArr[i]
             val dx = nextPt.x - prevPt.x
             val dy = nextPt.y - prevPt.y
-            val dist = Math.sqrt(dx * dx + dy * dy)
+            val dist = sqrt(dx * dx + dy * dy)
             parallaxSum += dist
             validCount++
 
@@ -191,11 +192,11 @@ class VisualOdometryEngine {
                     if (p.x > maxX) maxX = p.x; if (p.y > maxY) maxY = p.y
                 }
                 val rect = Rect((minX - 1).toInt(), (minY - 1).toInt(), (maxX - minX + 2).toInt(), (maxY - minY + 2).toInt())
-                val subdiv = Subdiv2D(rect)
-                for (p in cloudPoints) subdiv.insert(p)
+                val subdivide = Subdiv2D(rect)
+                for (p in cloudPoints) subdivide.insert(p)
                 
                 val edgeList = MatOfFloat4()
-                subdiv.getEdgeList(edgeList)
+                subdivide.getEdgeList(edgeList)
                 val edges = edgeList.toArray()
                 for (i in 0 until edges.size step 4) {
                     val p1 = Point(edges[i].toDouble(), edges[i+1].toDouble())
@@ -206,7 +207,7 @@ class VisualOdometryEngine {
                     }
                 }
                 edgeList.release()
-            } catch (e: Exception) {}
+            } catch (_: Exception) {}
         }
 
         essential.release()

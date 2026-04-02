@@ -11,7 +11,6 @@ import android.os.Bundle
 import android.provider.MediaStore
 import android.util.Log
 import android.view.View
-import android.widget.ImageView
 import android.widget.SeekBar
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -36,7 +35,6 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.google.android.material.chip.Chip
-import com.google.android.material.floatingactionbutton.FloatingActionButton
 import com.google.android.material.tabs.TabLayout
 import org.opencv.android.OpenCVLoader
 import pl.edu.mobilecv.databinding.ActivityMainBinding
@@ -74,7 +72,7 @@ class MainActivity : AppCompatActivity() {
     private var recordingTimerRunnable: Runnable? = null
 
     // OpenCV + MediaPipe
-    private val imageProcessor = ImageProcessor()
+    private val imageProcessor by lazy { ImageProcessor() }
     private val mediaPipeProcessor: MediaPipeProcessor by lazy { MediaPipeProcessor(this) }
 
     @Volatile private var mediaPipeDownloadInProgress = false
@@ -110,6 +108,9 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        // Initialize OpenCV first before any components that might use it are created.
+        initOpenCv()
+
         analysisExecutor = Executors.newSingleThreadExecutor()
 
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
@@ -129,7 +130,6 @@ class MainActivity : AppCompatActivity() {
             if (!isDestroyed && !isFinishing) runOnUiThread { onRosBridgeStateChanged(state) }
         }
 
-        initOpenCv()
         setupAnalysisTabs()
         applyInitialModeFromIntent()
         setupSliders()
@@ -158,6 +158,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun initOpenCv() { if (!OpenCVLoader.initLocal()) Toast.makeText(this, getString(R.string.opencv_init_error), Toast.LENGTH_LONG).show() }
 
+    @SuppressLint("SetTextI18n")
     private fun setupSliders() {
         // Morphology
         binding.seekBarKernelSize.progress = imageProcessor.morphKernelSize - 1
@@ -324,7 +325,7 @@ class MainActivity : AppCompatActivity() {
     private fun startCamera() {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
         cameraProviderFuture.addListener({
-            cameraProvider = try { cameraProviderFuture.get() } catch (e: Exception) { null }
+            cameraProvider = try { cameraProviderFuture.get() } catch (_: Exception) { null }
             bindUseCases()
         }, ContextCompat.getMainExecutor(this))
     }
@@ -341,19 +342,37 @@ class MainActivity : AppCompatActivity() {
 
     private fun processFrame(imageProxy: ImageProxy) {
         try {
-            val oriented = orientBitmap(imageProxy.toBitmap(), imageProxy.imageInfo.rotationDegrees, lensFacing)
+            val bitmap = imageProxy.toBitmap()
+            val oriented = orientBitmap(bitmap, imageProxy.imageInfo.rotationDegrees, lensFacing)
+            
+            // Fix memory leak: recycle original bitmap if a new oriented one was created.
+            if (oriented !== bitmap) {
+                bitmap.recycle()
+            }
+
             val start = System.nanoTime()
             val processed = imageProcessor.processFrame(oriented, currentFilter)
             val time = (System.nanoTime() - start) / 1_000_000L
+            
             frameWidth = processed.width; frameHeight = processed.height; fpsCounter.onFrame()
+            
             if (uiUpdatePending.compareAndSet(false, true)) {
                 runOnUiThread {
                     pendingRecycleBitmap?.recycle(); pendingRecycleBitmap = lastProcessedBitmap; binding.imageViewPreview.setImageBitmap(processed); lastProcessedBitmap = processed; uiUpdatePending.set(false)
                     updateDiagnosticsOverlay(fpsCounter.fps, frameWidth, frameHeight, time, currentFilter, lensFacing == CameraSelector.LENS_FACING_FRONT, isActiveVisionEnabled)
                 }
-            } else processed.recycle()
+            } else {
+                processed.recycle()
+            }
+            
+            // Recycle the oriented bitmap as it's no longer needed (processed is a copy).
             oriented.recycle()
-        } catch (e: Exception) { Log.e(TAG, "Process error", e) } finally { imageProxy.close() }
+            
+        } catch (e: Exception) { 
+            Log.e(TAG, "Process error", e) 
+        } finally { 
+            imageProxy.close() 
+        }
     }
 
     private fun updateDiagnosticsOverlay(fps: Double, w: Int, h: Int, t: Long, f: OpenCvFilter, front: Boolean, av: Boolean) {

@@ -48,12 +48,12 @@ class MediaPipeProcessor(private val context: Context) {
         // Drawing constants
         // ------------------------------------------------------------------
 
-        private val POSE_COLOR = Color.GREEN
-        private val LEFT_HAND_COLOR = Color.YELLOW
-        private val RIGHT_HAND_COLOR = Color.CYAN
-        private val FACE_COLOR = Color.WHITE
-        private val IRIS_COLOR_LEFT = Color.RED
-        private val IRIS_COLOR_RIGHT = Color.BLUE
+        private const val POSE_COLOR = Color.GREEN
+        private const val LEFT_HAND_COLOR = Color.YELLOW
+        private const val RIGHT_HAND_COLOR = Color.CYAN
+        private const val FACE_COLOR = Color.WHITE
+        private const val IRIS_COLOR_LEFT = Color.RED
+        private const val IRIS_COLOR_RIGHT = Color.BLUE
 
         private const val LANDMARK_RADIUS = 4f
         private const val LINE_WIDTH = 3f
@@ -144,10 +144,10 @@ class MediaPipeProcessor(private val context: Context) {
     }
 
     private fun applyPoseLandmarker(bitmap: Bitmap): Bitmap {
-        val detector = poseLandmarker
-        if (detector == null) {
-            return overlayMissingModel(bitmap, context.getString(R.string.mediapipe_model_missing_pose))
-        }
+        val detector = poseLandmarker ?: return overlayMissingModel(
+            bitmap,
+            context.getString(R.string.mediapipe_model_missing_pose)
+        )
 
         val mpImage = BitmapImageBuilder(ensureArgb8888(bitmap)).build()
         val result: PoseLandmarkerResult = detector.detect(mpImage)
@@ -164,10 +164,10 @@ class MediaPipeProcessor(private val context: Context) {
     }
 
     private fun applyHandLandmarker(bitmap: Bitmap): Bitmap {
-        val detector = handLandmarker
-        if (detector == null) {
-            return overlayMissingModel(bitmap, context.getString(R.string.mediapipe_model_missing_hands))
-        }
+        val detector = handLandmarker ?: return overlayMissingModel(
+            bitmap,
+            context.getString(R.string.mediapipe_model_missing_hands)
+        )
 
         val mpImage = BitmapImageBuilder(ensureArgb8888(bitmap)).build()
         val result: HandLandmarkerResult = detector.detect(mpImage)

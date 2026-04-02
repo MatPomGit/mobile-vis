@@ -155,8 +155,8 @@ class CameraCalibrator(
                 )
                 Imgproc.cornerSubPix(
                     gray, corners,
-                    org.opencv.core.Size(11.0, 11.0),
-                    org.opencv.core.Size(-1.0, -1.0),
+                    Size(11.0, 11.0),
+                    Size(-1.0, -1.0),
                     criteria,
                 )
                 corners.copyTo(lastCornersMat)

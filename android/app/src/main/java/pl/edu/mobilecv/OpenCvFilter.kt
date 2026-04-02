@@ -110,7 +110,7 @@ enum class OpenCvFilter(val displayName: String) {
 
     /**
      * Detects vanishing points from groups of parallel line segments and
-     * visualises them with converging-line bundles and point markers.
+     * visualizes them with converging-line bundles and point markers.
      */
     VANISHING_POINTS("Punkty zbieżności"),
 }

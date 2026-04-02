@@ -3,15 +3,23 @@ plugins {
 }
 
 android {
+    signingConfigs {
+        getByName("debug") {
+            keyPassword = "123456"
+            keyAlias = "key0"
+            storeFile = file("C:\\Users\\matpo\\keystore")
+            storePassword = "123456"
+        }
+    }
     namespace = "pl.edu.mobilecv"
     compileSdk = 36
 
     defaultConfig {
         applicationId = "pl.edu.mobilecv"
         minSdk = 24
-        targetSdk = 35
-        versionCode = 6
-        versionName = "1.6"
+        targetSdk = 36
+        versionName = rootProject.extra["app_version_code"].toString()
+        versionCode = (rootProject.extra["app_version_code"] as Number).toInt()
     }
 
     buildTypes {
@@ -31,6 +39,13 @@ android {
 
     buildFeatures {
         viewBinding = true
+    }
+    buildToolsVersion = "36.0.0"
+    flavorDimensions += listOf("wymiar_A")
+    productFlavors {
+        create("flavor_A1") {
+            dimension = "wymiar_A"
+        }
     }
 }
 

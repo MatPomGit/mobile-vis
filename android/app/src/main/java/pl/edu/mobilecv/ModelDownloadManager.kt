@@ -132,11 +132,11 @@ object ModelDownloadManager {
                     Log.e(TAG, "HTTP ${response.code} downloading $filename")
                     return false
                 }
-                response.body?.byteStream()?.use { input ->
+                response.body.byteStream().use { input ->
                     tempFile.outputStream().use { output ->
                         input.copyTo(output)
                     }
-                } ?: return false
+                }
             }
             tempFile.renameTo(dest)
             Log.i(TAG, "Downloaded $filename (${dest.length()} bytes)")

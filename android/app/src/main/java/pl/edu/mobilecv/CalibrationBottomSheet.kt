@@ -1,6 +1,5 @@
 package pl.edu.mobilecv
 
-import android.graphics.Color
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -12,17 +11,14 @@ import pl.edu.mobilecv.databinding.BottomSheetCalibrationBinding
 import androidx.core.graphics.toColorInt
 
 /**
- * Bottom-sheet menu for chessboard camera calibration.
+ * Menu (bottom-sheet) do kalibracji kamery za pomocą szachownicy.
  *
- * Provides real-time feedback (chessboard detection, frame count) and
- * exposes three user actions via lambdas wired by [MainActivity]:
+ * Zapewnia informację zwrotną w czasie rzeczywistym (wykrycie szachownicy, liczba klatek)
+ * i udostępnia trzy akcje użytkownika poprzez lambdy podpięte przez [MainActivity]:
  *
- * - [onCollectFrame]  – save the current set of detected corners.
- * - [onCalibrate]     – compute calibration from collected frames.
- * - [onReset]         – clear all collected frames and calibration data.
- *
- * The [updateStatus] method should be called periodically to refresh the
- * detection indicator and frame counter while the sheet is open.
+ * - [onCollectFrame]  – zapisanie bieżącego zestawu wykrytych narożników.
+ * - [onCalibrate]     – obliczenie parametrów kalibracji z zebranych klatek.
+ * - [onReset]         – wyczyszczenie wszystkich zebranych klatek i danych kalibracji.
  */
 class CalibrationBottomSheet : BottomSheetDialogFragment() {
 
@@ -31,14 +27,10 @@ class CalibrationBottomSheet : BottomSheetDialogFragment() {
 
     private val handler = Handler(Looper.getMainLooper())
 
-    // Callbacks wired by the host activity.
+    // Callbacki ustawiane przez aktywność hostującą.
     var onCollectFrame: (() -> Boolean)? = null
     var onCalibrate: (() -> CameraCalibrator.CalibrationData?)? = null
     var onReset: (() -> Unit)? = null
-
-    // ------------------------------------------------------------------
-    // Lifecycle
-    // ------------------------------------------------------------------
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -61,18 +53,8 @@ class CalibrationBottomSheet : BottomSheetDialogFragment() {
         super.onDestroyView()
     }
 
-    // ------------------------------------------------------------------
-    // Public API
-    // ------------------------------------------------------------------
-
     /**
-     * Refresh the UI to reflect the current calibration state.
-     *
-     * Must be called on the main thread.
-     *
-     * @param cornersDetected Whether the chessboard is currently visible.
-     * @param frameCount      Number of collected frames.
-     * @param calibrationData Non-null when calibration has been computed.
+     * Odświeża interfejs użytkownika, aby odzwierciedlić bieżący stan kalibracji.
      */
     fun updateStatus(
         cornersDetected: Boolean,
@@ -81,7 +63,7 @@ class CalibrationBottomSheet : BottomSheetDialogFragment() {
     ) {
         val b = _binding ?: return
 
-        // Detection indicator (green = found, grey = not found)
+        // Wskaźnik wykrywania (zielony = znaleziono, szary = szukanie)
         b.viewDetectionIndicator.setBackgroundColor(
             if (cornersDetected) "#4CAF50".toColorInt() else "#9E9E9E".toColorInt()
         )
@@ -90,17 +72,17 @@ class CalibrationBottomSheet : BottomSheetDialogFragment() {
             else R.string.calibration_status_searching
         )
 
-        // Frame progress
+        // Postęp zbierania klatek
         val max = CameraCalibrator.MIN_FRAMES
         b.progressFrames.max = max
         b.progressFrames.progress = frameCount.coerceAtMost(max)
         b.tvFrameCount.text = getString(R.string.calibration_frames_count, frameCount, max)
 
-        // Button states
+        // Stany przycisków
         b.btnCollectFrame.isEnabled = cornersDetected
         b.btnComputeCalibration.isEnabled = frameCount >= max
 
-        // Results section
+        // Sekcja wyników
         if (calibrationData != null) {
             b.layoutCalibrationResults.visibility = View.VISIBLE
             b.tvCalibrationResults.text = calibrationData.summary()
@@ -108,10 +90,6 @@ class CalibrationBottomSheet : BottomSheetDialogFragment() {
             b.layoutCalibrationResults.visibility = View.GONE
         }
     }
-
-    // ------------------------------------------------------------------
-    // Private helpers
-    // ------------------------------------------------------------------
 
     private fun setupButtons() {
         binding.btnCollectFrame.setOnClickListener {
@@ -139,16 +117,13 @@ class CalibrationBottomSheet : BottomSheetDialogFragment() {
         }
     }
 
-    /**
-     * Poll the calibrator state every [REFRESH_INTERVAL_MS] milliseconds
-     * while the sheet is visible.  Stopped in [onDestroyView].
-     */
     private fun scheduleStatusRefresh() {
         handler.postDelayed(object : Runnable {
             override fun run() {
-                if (_binding == null) return
-                val activity = requireActivity() as? MainActivity ?: return
-                val cal = activity.cameraCalibrator
+                val b = _binding ?: return
+                // Bezpieczny dostęp do aktywności - unikanie requireActivity(), które rzuca wyjątek po odpięciu
+                val act = activity as? MainActivity ?: return
+                val cal = act.cameraCalibrator
                 updateStatus(
                     cornersDetected = cal.lastCornersDetected,
                     frameCount = cal.frameCount,
@@ -162,7 +137,7 @@ class CalibrationBottomSheet : BottomSheetDialogFragment() {
     companion object {
         const val TAG = "CalibrationBottomSheet"
 
-        /** UI refresh interval in milliseconds. */
+        /** Interwał odświeżania UI w milisekundach. */
         private const val REFRESH_INTERVAL_MS = 250L
     }
 }

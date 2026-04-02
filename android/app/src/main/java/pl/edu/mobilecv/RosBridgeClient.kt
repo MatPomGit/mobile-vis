@@ -242,28 +242,28 @@ class RosBridgeClient {
     // -------------------------------------------------------------------------
 
     private inner class RosBridgeWebSocketListener : WebSocketListener() {
-        override fun onOpen(ws: WebSocket, response: Response) {
+        override fun onOpen(webSocket: WebSocket, response: Response) {
             Log.i(TAG, "WebSocket opened")
             advertise()
             updateState(State.CONNECTED)
         }
 
-        override fun onFailure(ws: WebSocket, t: Throwable, response: Response?) {
+        override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
             Log.e(TAG, "WebSocket failure", t)
-            webSocket = null
+            this@RosBridgeClient.webSocket = null
             updateState(State.ERROR)
         }
 
-        override fun onClosing(ws: WebSocket, code: Int, reason: String) {
+        override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
             Log.i(TAG, "WebSocket closing: $code $reason")
-            ws.close(1000, null)
-            webSocket = null
+            webSocket.close(1000, null)
+            this@RosBridgeClient.webSocket = null
             updateState(State.DISCONNECTED)
         }
 
-        override fun onClosed(ws: WebSocket, code: Int, reason: String) {
+        override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
             Log.i(TAG, "WebSocket closed: $code $reason")
-            webSocket = null
+            this@RosBridgeClient.webSocket = null
             updateState(State.DISCONNECTED)
         }
     }

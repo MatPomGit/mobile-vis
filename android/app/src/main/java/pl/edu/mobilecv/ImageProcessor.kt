@@ -66,8 +66,20 @@ class ImageProcessor {
         it.isMeshEnabled = isVoMeshEnabled
     }
 
-    private val aprilTagDetector by lazy { ArucoDetector(Objdetect.getPredefinedDictionary(Objdetect.DICT_APRILTAG_36h11)) }
-    private val arucoDetector by lazy { ArucoDetector(Objdetect.getPredefinedDictionary(Objdetect.DICT_4X4_50)) }
+    private val detectorParameters by lazy {
+        DetectorParameters().apply {
+            set_adaptiveThreshWinSizeMin(3)
+            set_adaptiveThreshWinSizeMax(23)
+            set_adaptiveThreshWinSizeStep(10)
+        }
+    }
+
+    private val aprilTagDetector by lazy { 
+        ArucoDetector(Objdetect.getPredefinedDictionary(Objdetect.DICT_APRILTAG_36h11), detectorParameters) 
+    }
+    private val arucoDetector by lazy { 
+        ArucoDetector(Objdetect.getPredefinedDictionary(Objdetect.DICT_4X4_50), detectorParameters) 
+    }
     private val qrCodeDetector by lazy { QRCodeDetector() }
 
     fun processFrame(bitmap: Bitmap, filter: OpenCvFilter): Bitmap {
@@ -88,37 +100,37 @@ class ImageProcessor {
 
         val processed: Mat = when (filter) {
             OpenCvFilter.ORIGINAL -> baseFrame.clone()
-            OpenCvFilter.GRAYSCALE -> applyGrayscale(src)
-            OpenCvFilter.CANNY_EDGES -> applyCanny(src)
-            OpenCvFilter.GAUSSIAN_BLUR -> applyGaussianBlur(src)
-            OpenCvFilter.THRESHOLD -> applyThreshold(src)
-            OpenCvFilter.SOBEL -> applySobel(src)
-            OpenCvFilter.LAPLACIAN -> applyLaplacian(src)
-            OpenCvFilter.DILATE -> applyDilate(src)
-            OpenCvFilter.ERODE -> applyErode(src)
-            OpenCvFilter.OPEN -> applyMorphEx(src, Imgproc.MORPH_OPEN)
-            OpenCvFilter.CLOSE -> applyMorphEx(src, Imgproc.MORPH_CLOSE)
-            OpenCvFilter.GRADIENT -> applyMorphEx(src, Imgproc.MORPH_GRADIENT)
-            OpenCvFilter.TOP_HAT -> applyMorphEx(src, Imgproc.MORPH_TOPHAT)
-            OpenCvFilter.BLACK_HAT -> applyMorphEx(src, Imgproc.MORPH_BLACKHAT)
-            OpenCvFilter.APRIL_TAGS -> applyAprilTagDetection(src)
-            OpenCvFilter.ARUCO -> applyArucoDetection(src)
-            OpenCvFilter.QR_CODE -> applyQrCodeDetection(src)
-            OpenCvFilter.CCTAG -> applyCCTagDetection(src)
-            OpenCvFilter.CHESSBOARD_CALIBRATION -> applyChessboardCalibration(src)
-            OpenCvFilter.UNDISTORT -> applyUndistort(src)
-            OpenCvFilter.VISUAL_ODOMETRY -> applyVisualOdometry(src)
-            OpenCvFilter.POINT_CLOUD -> applyPointCloud(src)
-            OpenCvFilter.PLANE_DETECTION -> applyPlaneDetection(src)
-            OpenCvFilter.VANISHING_POINTS -> applyVanishingPoints(src)
-            OpenCvFilter.MEDIAN_BLUR -> applyMedianBlur(src)
-            OpenCvFilter.BILATERAL_FILTER -> applyBilateralFilter(src)
-            OpenCvFilter.BOX_FILTER -> applyBoxFilter(src)
-            OpenCvFilter.ADAPTIVE_THRESHOLD -> applyAdaptiveThreshold(src)
-            OpenCvFilter.HISTOGRAM_EQUALIZATION -> applyHistogramEqualization(src)
-            OpenCvFilter.SCHARR -> applyScharr(src)
-            OpenCvFilter.PREWITT -> applyPrewitt(src)
-            OpenCvFilter.ROBERTS -> applyRoberts(src)
+            OpenCvFilter.GRAYSCALE -> applyGrayscale(baseFrame)
+            OpenCvFilter.CANNY_EDGES -> applyCanny(baseFrame)
+            OpenCvFilter.GAUSSIAN_BLUR -> applyGaussianBlur(baseFrame)
+            OpenCvFilter.THRESHOLD -> applyThreshold(baseFrame)
+            OpenCvFilter.SOBEL -> applySobel(baseFrame)
+            OpenCvFilter.LAPLACIAN -> applyLaplacian(baseFrame)
+            OpenCvFilter.DILATE -> applyDilate(baseFrame)
+            OpenCvFilter.ERODE -> applyErode(baseFrame)
+            OpenCvFilter.OPEN -> applyMorphEx(baseFrame, Imgproc.MORPH_OPEN)
+            OpenCvFilter.CLOSE -> applyMorphEx(baseFrame, Imgproc.MORPH_CLOSE)
+            OpenCvFilter.GRADIENT -> applyMorphEx(baseFrame, Imgproc.MORPH_GRADIENT)
+            OpenCvFilter.TOP_HAT -> applyMorphEx(baseFrame, Imgproc.MORPH_TOPHAT)
+            OpenCvFilter.BLACK_HAT -> applyMorphEx(baseFrame, Imgproc.MORPH_BLACKHAT)
+            OpenCvFilter.APRIL_TAGS -> applyAprilTagDetection(baseFrame)
+            OpenCvFilter.ARUCO -> applyArucoDetection(baseFrame)
+            OpenCvFilter.QR_CODE -> applyQrCodeDetection(baseFrame)
+            OpenCvFilter.CCTAG -> applyCCTagDetection(baseFrame)
+            OpenCvFilter.CHESSBOARD_CALIBRATION -> applyChessboardCalibration(baseFrame)
+            OpenCvFilter.UNDISTORT -> applyUndistort(baseFrame)
+            OpenCvFilter.VISUAL_ODOMETRY -> applyVisualOdometry(baseFrame)
+            OpenCvFilter.POINT_CLOUD -> applyPointCloud(baseFrame)
+            OpenCvFilter.PLANE_DETECTION -> applyPlaneDetection(baseFrame)
+            OpenCvFilter.VANISHING_POINTS -> applyVanishingPoints(baseFrame)
+            OpenCvFilter.MEDIAN_BLUR -> applyMedianBlur(baseFrame)
+            OpenCvFilter.BILATERAL_FILTER -> applyBilateralFilter(baseFrame)
+            OpenCvFilter.BOX_FILTER -> applyBoxFilter(baseFrame)
+            OpenCvFilter.ADAPTIVE_THRESHOLD -> applyAdaptiveThreshold(baseFrame)
+            OpenCvFilter.HISTOGRAM_EQUALIZATION -> applyHistogramEqualization(baseFrame)
+            OpenCvFilter.SCHARR -> applyScharr(baseFrame)
+            OpenCvFilter.PREWITT -> applyPrewitt(baseFrame)
+            OpenCvFilter.ROBERTS -> applyRoberts(baseFrame)
             else -> baseFrame.clone()
         }
 
@@ -196,10 +208,15 @@ class ImageProcessor {
         aprilTagDetector.detectMarkers(gray, corners, ids)
         gray.release()
         if (ids.rows() > 0) {
-            Objdetect.drawDetectedMarkers(res, corners, ids, Scalar(0.0, 255.0, 0.0))
+            Objdetect.drawDetectedMarkers(res, corners, ids, Scalar(0.0, 255.0, 0.0, 255.0))
             onMarkersDetected?.invoke(corners.indices.map { i ->
                 val c = corners[i]
-                val pts = listOf(Pair(c.get(0,0)[0].toFloat(), c.get(0,0)[1].toFloat()), Pair(c.get(0,1)[0].toFloat(), c.get(0,1)[1].toFloat()), Pair(c.get(0,2)[0].toFloat(), c.get(0,2)[1].toFloat()), Pair(c.get(0,3)[0].toFloat(), c.get(0,3)[1].toFloat()))
+                val pts = listOf(
+                    Pair(c.get(0,0)[0].toFloat(), c.get(0,0)[1].toFloat()),
+                    Pair(c.get(0,1)[0].toFloat(), c.get(0,1)[1].toFloat()),
+                    Pair(c.get(0,2)[0].toFloat(), c.get(0,2)[1].toFloat()),
+                    Pair(c.get(0,3)[0].toFloat(), c.get(0,3)[1].toFloat())
+                )
                 MarkerDetection.AprilTag(ids.get(i,0)[0].toInt(), pts)
             })
         }
@@ -212,7 +229,7 @@ class ImageProcessor {
         arucoDetector.detectMarkers(gray, corners, ids)
         gray.release()
         if (ids.rows() > 0) {
-            Objdetect.drawDetectedMarkers(res, corners, ids, Scalar(255.0, 255.0, 0.0))
+            Objdetect.drawDetectedMarkers(res, corners, ids, Scalar(255.0, 255.0, 0.0, 255.0))
             onMarkersDetected?.invoke(corners.indices.map { i ->
                 val c = corners[i]
                 val pts = ptsToList(c)
@@ -232,18 +249,27 @@ class ImageProcessor {
     }
 
     private fun applyQrCodeDetection(src: Mat): Mat {
-        val res = src.clone(); val points = Mat(); val text = qrCodeDetector.detectAndDecode(src, points)
-        if (text.isNotEmpty() && !points.empty()) {
-            val pts = (0..3).map { i -> points.get(0, i).let { c -> Point(c[0], c[1]) } }
-            val p0 = pts[0]; val p1 = pts[1]; val p2 = pts[2]; val p3 = pts[3]
-            val color = Scalar(255.0, 0.0, 255.0)
-            Imgproc.line(res, p0, p1, color, 3); Imgproc.line(res, p1, p2, color, 3)
-            Imgproc.line(res, p2, p3, color, 3); Imgproc.line(res, p3, p0, color, 3)
-            Imgproc.putText(res, text, Point(p0.x, maxOf(20.0, p0.y - 10)), Imgproc.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
-            val corners = pts.map { Pair(it.x.toFloat(), it.y.toFloat()) }
-            onMarkersDetected?.invoke(listOf(MarkerDetection.QrCode(text, corners)))
+        val res = src.clone()
+        val gray = Mat()
+        Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
+        val points = Mat()
+        val text = qrCodeDetector.detectAndDecode(gray, points)
+        if (!points.empty()) {
+            val pts = (0 until 4).map { i -> 
+                val data = points.get(0, i)
+                if (data != null) Point(data[0], data[1]) else Point(0.0, 0.0)
+            }
+            val color = Scalar(255.0, 0.0, 255.0, 255.0)
+            for (i in 0 until 4) {
+                Imgproc.line(res, pts[i], pts[(i + 1) % 4], color, 3)
+            }
+            if (text.isNotEmpty()) {
+                Imgproc.putText(res, text.take(MAX_QR_TEXT_DISPLAY_LENGTH), Point(pts[0].x, maxOf(20.0, pts[0].y - 10)), Imgproc.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
+                val corners = pts.map { Pair(it.x.toFloat(), it.y.toFloat()) }
+                onMarkersDetected?.invoke(listOf(MarkerDetection.QrCode(text, corners)))
+            }
         }
-        points.release(); return res
+        gray.release(); points.release(); return res
     }
 
     private fun applyCCTagDetection(src: Mat): Mat {
@@ -262,6 +288,7 @@ class ImageProcessor {
             candidates.add(Pair(center, radius[0].toDouble()))
         }
         val tags = ArrayList<Pair<Point, Int>>(); val sorted = candidates.sortedByDescending { it.second }; val used = BooleanArray(sorted.size)
+        val detections = ArrayList<MarkerDetection>()
         for (i in sorted.indices) {
             if (used[i]) continue
             used[i] = true; val outer = sorted[i]; var count = 1
@@ -271,12 +298,23 @@ class ImageProcessor {
                     sqrt((outer.first.x - inner.first.x) * (outer.first.x - inner.first.x) + (outer.first.y - inner.first.y) * (outer.first.y - inner.first.y))
                 if (d < outer.second * 0.25) { count++; used[j] = true }
             }
-            if (count in 2..5) tags.add(Pair(outer.first, count))
+            if (count in 2..5) {
+                tags.add(Pair(outer.first, count))
+                val r = outer.second.toFloat()
+                val corners = listOf(
+                    Pair(outer.first.x.toFloat() - r, outer.first.y.toFloat() - r),
+                    Pair(outer.first.x.toFloat() + r, outer.first.y.toFloat() - r),
+                    Pair(outer.first.x.toFloat() + r, outer.first.y.toFloat() + r),
+                    Pair(outer.first.x.toFloat() - r, outer.first.y.toFloat() + r)
+                )
+                detections.add(MarkerDetection.CCTag(count, Pair(outer.first.x.toFloat(), outer.first.y.toFloat()), r, corners))
+            }
         }
         for (t in tags) {
-            Imgproc.circle(res, t.first, 10, Scalar(0.0, 255.0, 255.0), -1)
-            Imgproc.putText(res, "CCTag (${t.second})", Point(t.first.x+15, t.first.y+5), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255.0, 255.0, 255.0), 2)
+            Imgproc.circle(res, t.first, 10, Scalar(0.0, 255.0, 255.0, 255.0), -1)
+            Imgproc.putText(res, "CCTag (${t.second})", Point(t.first.x+15, t.first.y+5), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255.0, 255.0, 255.0, 255.0), 2)
         }
+        if (detections.isNotEmpty()) onMarkersDetected?.invoke(detections)
         gray.release(); thresh.release(); hierarchy.release(); contours.forEach { it.release() }; return res
     }
 
@@ -286,20 +324,20 @@ class ImageProcessor {
         if (found) {
             Imgproc.cornerSubPix(gray, corners, Size(11.0, 11.0), Size(-1.0, -1.0), TermCriteria(TermCriteria.EPS + TermCriteria.COUNT, 30, 0.1))
             Calib3d.drawChessboardCorners(res, pattern, corners, true)
-            Imgproc.putText(res, "Board Detected", Point(30.0, 40.0), Imgproc.FONT_HERSHEY_SIMPLEX, 1.0, Scalar(0.0, 255.0, 0.0), 2)
-        } else Imgproc.putText(res, labelBoardNotFound, Point(30.0, 40.0), Imgproc.FONT_HERSHEY_SIMPLEX, 1.0, Scalar(255.0, 0.0, 0.0), 2)
+            Imgproc.putText(res, "Board Detected", Point(30.0, 40.0), Imgproc.FONT_HERSHEY_SIMPLEX, 1.0, Scalar(0.0, 255.0, 0.0, 255.0), 2)
+        } else Imgproc.putText(res, labelBoardNotFound, Point(30.0, 40.0), Imgproc.FONT_HERSHEY_SIMPLEX, 1.0, Scalar(255.0, 0.0, 0.0, 255.0), 2)
         calibrator?.storeDetectedCorners(
             if (found) corners else null,
             Size(src.cols().toDouble(), src.rows().toDouble()),
         )
-        Imgproc.putText(res, "${calibrator?.frameCount ?: 0} $labelFrameCountSuffix", Point(30.0, 80.0), Imgproc.FONT_HERSHEY_SIMPLEX, 1.0, Scalar(255.0, 255.0, 255.0), 2)
+        Imgproc.putText(res, "${calibrator?.frameCount ?: 0} $labelFrameCountSuffix", Point(30.0, 80.0), Imgproc.FONT_HERSHEY_SIMPLEX, 1.0, Scalar(255.0, 255.0, 255.0, 255.0), 2)
         gray.release(); corners.release(); return res
     }
 
     private fun applyUndistort(src: Mat): Mat {
         val r = calibrator?.calibrationResult; val m = r?.cameraMatrix; val d = r?.distCoeffs
         if (m == null) {
-            val out = src.clone(); Imgproc.putText(out, labelNoCalibration, Point(30.0, 60.0), Imgproc.FONT_HERSHEY_SIMPLEX, 1.2, Scalar(255.0, 0.0, 0.0), 3)
+            val out = src.clone(); Imgproc.putText(out, labelNoCalibration, Point(30.0, 60.0), Imgproc.FONT_HERSHEY_SIMPLEX, 1.2, Scalar(255.0, 0.0, 0.0, 255.0), 3)
             return out
         }
         val out = Mat(); Calib3d.undistort(src, out, m, d); return out
@@ -307,36 +345,27 @@ class ImageProcessor {
 
     private fun applyVisualOdometry(src: Mat): Mat {
         val res = src.clone(); val state = visualOdometryEngine.updateOdometry(src) ?: return res
-        Imgproc.putText(res, "$labelOdometryTracks: ${state.tracksCount} (inliers: ${state.inliersCount})", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.7, Scalar(0.0, 255.0, 0.0), 2)
-        Imgproc.putText(res, "Move: %.2f | Rot: %.1f deg".format(state.translationNorm, state.rotationDeg), Point(30.0, 90.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.7, Scalar(0.0, 255.0, 0.0), 2)
+        Imgproc.putText(res, "$labelOdometryTracks: ${state.tracksCount} (inliers: ${state.inliersCount})", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.7, Scalar(0.0, 255.0, 0.0, 255.0), 2)
+        Imgproc.putText(res, "Move: %.2f | Rot: %.1f deg".format(state.translationNorm, state.rotationDeg), Point(30.0, 90.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.7, Scalar(0.0, 255.0, 0.0, 255.0), 2)
         val cx = res.cols()/2; val cy = res.rows()/2
-        Imgproc.line(res, Point(cx-30.0, cy.toDouble()), Point(cx+30.0, cy.toDouble()), Scalar(255.0, 255.0, 255.0), 2)
-        Imgproc.line(res, Point(cx.toDouble(), cy-30.0), Point(cx.toDouble(), cy+30.0), Scalar(255.0, 255.0, 255.0), 2)
+        Imgproc.line(res, Point(cx-30.0, cy.toDouble()), Point(cx+30.0, cy.toDouble()), Scalar(255.0, 255.0, 255.0, 255.0), 2)
+        Imgproc.line(res, Point(cx.toDouble(), cy-30.0), Point(cx.toDouble(), cy+30.0), Scalar(255.0, 255.0, 255.0, 255.0), 2)
         return res
     }
 
     private fun applyPointCloud(src: Mat): Mat {
         val res = Mat.zeros(src.size(), src.type()); val state = visualOdometryEngine.updatePointCloud(src) ?: return res
-        Imgproc.putText(res, "$labelPointCloud: ${state.points.size} (parallax: %.1f)".format(state.meanParallax), Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.7, Scalar(255.0, 255.0, 255.0), 2)
+        Imgproc.putText(res, "$labelPointCloud: ${state.points.size} (parallax: %.1f)".format(state.meanParallax), Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.7, Scalar(255.0, 255.0, 255.0, 255.0), 2)
         if (isVoMeshEnabled) {
-            for (e in state.edges) Imgproc.line(res, e.first, e.second, Scalar(100.0, 100.0, 100.0), 1)
+            for (e in state.edges) Imgproc.line(res, e.first, e.second, Scalar(100.0, 100.0, 100.0, 255.0), 1)
         }
         for (p in state.points) {
             val b = 150.0 + 105.0 * (1.0 - p.y / src.rows())
-            Imgproc.circle(res, p, 2, Scalar(b, b, 255.0), -1)
+            Imgproc.circle(res, p, 2, Scalar(b, b, 255.0, 255.0), -1)
         }
         return res
     }
 
-    /**
-     * Detects planar surfaces by extracting line segments with HoughLinesP,
-     * clustering them by orientation, computing vanishing points, and deriving
-     * plane normals from pairs of vanishing points.
-     *
-     * Each detected plane is rendered as a semi-transparent colour overlay
-     * on the original frame, together with a normal-direction arrow and a
-     * confidence label.
-     */
     private fun applyPlaneDetection(src: Mat): Mat {
         val res = src.clone()
         val gray = Mat(); val blurred = Mat(); val edges = Mat()
@@ -347,7 +376,6 @@ class ImageProcessor {
         val lines = Mat()
         Imgproc.HoughLinesP(edges, lines, 1.0, Math.PI / 180.0, 50, 30.0, 10.0)
 
-        // Cluster lines by angle into at most 4 direction bins
         val clusters = ArrayList<ArrayList<IntArray>>()
         val clusterAngles = ArrayList<Double>()
         for (i in 0 until lines.rows()) {
@@ -363,8 +391,7 @@ class ImageProcessor {
             if (!assigned) { clusters.add(arrayListOf(intArrayOf(x1, y1, x2, y2))); clusterAngles.add(angle) }
         }
 
-        // Build vanishing points from the two largest clusters
-        val planeColors = arrayOf(Scalar(0.0, 255.0, 0.0), Scalar(0.0, 0.0, 255.0), Scalar(0.0, 165.0, 255.0))
+        val planeColors = arrayOf(Scalar(0.0, 255.0, 0.0, 255.0), Scalar(0.0, 0.0, 255.0, 255.0), Scalar(0.0, 165.0, 255.0, 255.0))
         val sortedClusters = clusters.sortedByDescending { it.size }.take(MAX_LINE_DIRECTION_CLUSTERS)
         var planeIdx = 0
         for (i in sortedClusters.indices) {
@@ -373,10 +400,8 @@ class ImageProcessor {
                 val c1 = sortedClusters[i]; val c2 = sortedClusters[j]
                 if (c1.size + c2.size < 5) continue
                 val color = planeColors[planeIdx % planeColors.size]
-                // Draw inlier lines as the plane visualisation
                 for (seg in c1) Imgproc.line(res, Point(seg[0].toDouble(), seg[1].toDouble()), Point(seg[2].toDouble(), seg[3].toDouble()), color, 2)
                 for (seg in c2) Imgproc.line(res, Point(seg[0].toDouble(), seg[1].toDouble()), Point(seg[2].toDouble(), seg[3].toDouble()), color, 2)
-                // Estimate vanishing point for cluster 1 via the least squares
                 val vp = _computeVanishingPoint(c1)
                 if (vp != null) {
                     Imgproc.circle(res, vp, 8, color, -1)
@@ -387,18 +412,12 @@ class ImageProcessor {
             }
         }
         if (planeIdx == 0) {
-            Imgproc.putText(res, "Brak płaszczyzn", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.8, Scalar(200.0, 200.0, 200.0), 2)
+            Imgproc.putText(res, "Brak płaszczyzn", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.8, Scalar(200.0, 200.0, 200.0, 255.0), 2)
         }
         gray.release(); blurred.release(); edges.release(); lines.release()
         return res
     }
 
-    /**
-     * Detects and visualises vanishing points from parallel line-segment groups.
-     *
-     * Draws each cluster of parallel lines in a distinct colour and marks the
-     * estimated vanishing point with a filled circle.
-     */
     private fun applyVanishingPoints(src: Mat): Mat {
         val res = src.clone()
         val gray = Mat(); val blurred = Mat(); val edges = Mat()
@@ -424,7 +443,7 @@ class ImageProcessor {
             if (!assigned) { clusters.add(arrayListOf(intArrayOf(x1, y1, x2, y2))); clusterAngles.add(angle) }
         }
 
-        val vpColors = arrayOf(Scalar(0.0, 255.0, 0.0), Scalar(0.0, 0.0, 255.0), Scalar(0.0, 165.0, 255.0), Scalar(255.0, 255.0, 0.0))
+        val vpColors = arrayOf(Scalar(0.0, 255.0, 0.0, 255.0), Scalar(0.0, 0.0, 255.0, 255.0), Scalar(0.0, 165.0, 255.0, 255.0), Scalar(255.0, 255.0, 0.0, 255.0))
         for ((idx, cluster) in clusters.sortedByDescending { it.size }.take(MAX_LINE_DIRECTION_CLUSTERS).withIndex()) {
             if (cluster.size < 2) continue
             val color = vpColors[idx % vpColors.size]
@@ -438,19 +457,12 @@ class ImageProcessor {
             }
         }
         if (lines.rows() == 0) {
-            Imgproc.putText(res, "Brak linii", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.8, Scalar(200.0, 200.0, 200.0), 2)
+            Imgproc.putText(res, "Brak linii", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.8, Scalar(200.0, 200.0, 200.0, 255.0), 2)
         }
         gray.release(); blurred.release(); edges.release(); lines.release()
         return res
     }
 
-    /**
-     * Estimates a vanishing point for a cluster of line segments using the
-     * least-squares intersection of their line equations.
-     *
-     * Returns ``null`` when the system is rank-deficient (parallel lines that
-     * truly do not converge within the image).
-     */
     private fun _computeVanishingPoint(cluster: List<IntArray>): Point? {
         if (cluster.size < 2) return null
         var a11 = 0.0; var a12 = 0.0; var a22 = 0.0; var b1 = 0.0; var b2 = 0.0

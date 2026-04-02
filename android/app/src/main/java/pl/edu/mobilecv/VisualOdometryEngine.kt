@@ -36,7 +36,6 @@ class VisualOdometryEngine {
     )
 
     companion object {
-        private const val MAX_CORNERS = 100
         private const val MIN_TRACK_COUNT = 10
         private const val PERSPECTIVE_FACTOR = 0.5
         private const val MAX_MESH_EDGE_DIST_SQ = 50000.0
@@ -45,6 +44,7 @@ class VisualOdometryEngine {
     private var prevGray = Mat()
     private var prevPts = MatOfPoint2f()
     private var calibrator: CameraCalibrator? = null
+    private var lastTracks = mutableListOf<List<Point>>()
 
     var maxFeatures = 50
     var minParallax = 2.0
@@ -52,6 +52,12 @@ class VisualOdometryEngine {
 
     var lastPointCloud: PointCloudState? = null
         private set
+
+    /**
+     * Returns the current tracked segments (start point in previous frame, end point in current frame).
+     */
+    val currentTracks: List<List<Point>>
+        get() = synchronized(this) { lastTracks }
 
     fun updateOdometry(src: Mat): OdometryState? {
         val gray = Mat()
@@ -66,11 +72,25 @@ class VisualOdometryEngine {
         Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
         val (_, cloud) = processFrameInternal(gray)
         gray.release()
-        lastPointCloud = cloud
         return cloud
     }
 
-    fun processFrame(gray: Mat, calib: CameraCalibrator?): Pair<OdometryState?, PointCloudState?> {
+    /**
+     * Process an RGBA frame and update internal state.
+     */
+    fun processFrameRgba(src: Mat, calib: CameraCalibrator? = null) {
+        val gray = Mat()
+        if (src.channels() > 1) {
+            Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
+        } else {
+            src.copyTo(gray)
+        }
+        this.calibrator = calib
+        processFrameInternal(gray)
+        gray.release()
+    }
+
+    fun processFrame(gray: Mat, calib: CameraCalibrator? = null): Pair<OdometryState?, PointCloudState?> {
         this.calibrator = calib
         return processFrameInternal(gray)
     }
@@ -109,13 +129,19 @@ class VisualOdometryEngine {
             gray.copyTo(prevGray)
             detectNewFeatures(gray)
             nextPts.release()
+            synchronized(this) { lastTracks.clear() }
             return null to null
+        }
+
+        synchronized(this) {
+            lastTracks = goodNextList.indices.map { i -> listOf(goodPrevList[i], goodNextList[i]) }.toMutableList()
         }
 
         val goodPrev = MatOfPoint2f(*goodPrevList.toTypedArray())
         val goodNext = MatOfPoint2f(*goodNextList.toTypedArray())
 
         val (state, points) = estimateMotionAndPoints(goodPrev, goodNext)
+        lastPointCloud = points
 
         gray.copyTo(prevGray)
         goodNext.copyTo(prevPts)
@@ -159,7 +185,6 @@ class VisualOdometryEngine {
 
         val transNorm = android.opengl.Matrix.length(t.get(0,0)[0].toFloat(), t.get(1,0)[0].toFloat(), t.get(2,0)[0].toFloat()).toDouble()
         
-        // Simple rotation angle from matrix trace
         val trace = r.get(0,0)[0] + r.get(1,1)[0] + r.get(2,2)[0]
         val rotDeg = Math.toDegrees(acos(min(1.0, maxOf(-1.0, (trace - 1.0) / 2.0))))
 
@@ -223,10 +248,13 @@ class VisualOdometryEngine {
     }
 
     fun reset() {
-        prevGray.release()
-        prevPts.release()
-        prevGray = Mat()
-        prevPts = MatOfPoint2f()
-        lastPointCloud = null
+        synchronized(this) {
+            prevGray.release()
+            prevPts.release()
+            prevGray = Mat()
+            prevPts = MatOfPoint2f()
+            lastPointCloud = null
+            lastTracks.clear()
+        }
     }
 }

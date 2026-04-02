@@ -1,45 +1,10 @@
 plugins {
     alias(libs.plugins.android.application)
 }
+val storePass by extra(123456)
+val keyAlias by extra("key0")
 
 android {
-    signingConfigs {
-        create("release") {
-            val keystorePath: String? =
-                findProperty("ANDROID_KEYSTORE_PATH") as String?
-                    ?: System.getenv("ANDROID_KEYSTORE_PATH")
-            val keystorePassword: String? =
-                findProperty("ANDROID_KEYSTORE_PASSWORD") as String?
-                    ?: System.getenv("ANDROID_KEYSTORE_PASSWORD")
-            val keyAlias: String? =
-                findProperty("ANDROID_KEY_ALIAS") as String?
-                    ?: System.getenv("ANDROID_KEY_ALIAS")
-            val keyPassword: String? =
-                findProperty("ANDROID_KEY_PASSWORD") as String?
-                    ?: System.getenv("ANDROID_KEY_PASSWORD")
-
-            if (!keystorePath.isNullOrBlank()) {
-                val keystoreFile = file(keystorePath)
-                if (!keystoreFile.exists()) {
-                    throw GradleException(
-                        "Android release signing: keystore file not found at '$keystorePath'. " +
-                            "Set ANDROID_KEYSTORE_PATH (or the Gradle property) to a valid path."
-                    )
-                }
-                if (keystorePassword.isNullOrBlank() || keyAlias.isNullOrBlank() || keyPassword.isNullOrBlank()) {
-                    throw GradleException(
-                        "Android release signing: ANDROID_KEYSTORE_PATH is set but one or more " +
-                            "required credentials are missing " +
-                            "(ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD)."
-                    )
-                }
-                storeFile = keystoreFile
-                storePassword = keystorePassword
-                this.keyAlias = keyAlias
-                this.keyPassword = keyPassword
-            }
-        }
-    }
     namespace = "pl.edu.mobilecv"
     compileSdk = 36
 
@@ -51,14 +16,28 @@ android {
         versionCode = (rootProject.extra["app_version_code"] as Number).toInt()
     }
 
+    signingConfigs {
+        create("release") {
+            // Replace with your actual keystore information
+            storeFile = file("C:\\Users\\matpo\\.android\\keystore.jks")
+            storePassword = "13456"
+            keyAlias = "key0"
+            keyPassword = "123456"
+        }
+    }
+
     buildTypes {
         release {
             signingConfig = signingConfigs.getByName("release")
+            // Disable minification for release
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
+        }
+        getByName("debug") {
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 
@@ -71,12 +50,6 @@ android {
         viewBinding = true
     }
     buildToolsVersion = "36.0.0"
-    flavorDimensions += listOf("wymiar_A")
-    productFlavors {
-        create("flavor_A1") {
-            dimension = "wymiar_A"
-        }
-    }
 }
 
 kotlin {

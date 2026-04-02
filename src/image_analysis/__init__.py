@@ -13,6 +13,12 @@ from importlib import import_module
 
 _EXPORTS: dict[str, tuple[str, str]] = {
     "AprilTagDetection": (".april_tags", "AprilTagDetection"),
+    "YoloDetection": (".yolo", "YoloDetection"),
+    "YoloDetector": (".yolo", "YoloDetector"),
+    "detect_yolo": (".yolo", "detect_yolo"),
+    "draw_yolo_detections": (".yolo", "draw_yolo_detections"),
+    "export_yolo_to_onnx": (".yolo", "export_yolo_to_onnx"),
+    "yolo_detector": (".yolo", "yolo_detector"),
     "PlaneDetection": (".planes", "PlaneDetection"),
     "VanishingPoint": (".planes", "VanishingPoint"),
     "CCTagDetection": (".cctag", "CCTagDetection"),

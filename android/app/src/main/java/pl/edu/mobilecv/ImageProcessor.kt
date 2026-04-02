@@ -36,6 +36,17 @@ class ImageProcessor {
     var labelNoCalibration: String = "Brak kalibracji"
     var labelOdometryTracks: String = "Ścieżki"
     var labelPointCloud: String = "Chmura"
+    var labelVoMaxFeaturesDesc: String = "Max features (more = accurate, slower)"
+    var labelVoMinParallaxDesc: String = "Min parallax [px] (motion threshold)"
+    var labelVoColorDepthDesc: String = "Color = depth (bright=near, dark=far)"
+    var labelNoPlanes: String = "Brak płaszczyzn"
+    var labelNoVanishingPoints: String = "Brak punktów zbieżności"
+    var labelNoLines: String = "Brak linii w scenie"
+    var labelPlanes: String = "Płaszczyzny"
+    var labelLines: String = "Linie"
+    var labelGroups: String = "Grupy"
+    var labelGeometryError: String = "Błąd geometrii"
+    var labelVpError: String = "Błąd VP"
 
     var onMarkersDetected: ((List<MarkerDetection>) -> Unit)? = null
     var isActiveVisionEnabled: Boolean = false
@@ -308,9 +319,9 @@ class ImageProcessor {
     private fun applyVisualOdometry(src: Mat): Mat {
         val res = src.clone(); val state = visualOdometryEngine.updateOdometry(src) ?: return res
         Imgproc.putText(res, "$labelOdometryTracks: ${state.tracksCount} (inliers: ${state.inliersCount})", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.7, Scalar(0.0, 255.0, 0.0), 2)
-        Imgproc.putText(res, "Ruch: %.2f | Obrót: %.1f°".format(state.translationNorm, state.rotationDeg), Point(30.0, 90.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.7, Scalar(0.0, 255.0, 0.0), 2)
-        Imgproc.putText(res, "Max cech: ${visualOdometryEngine.maxFeatures} (im więcej → dokładniej, wolniej)", Point(30.0, 130.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.55, Scalar(200.0, 200.0, 255.0), 2)
-        Imgproc.putText(res, "Próg paralaksy: %.1f px (min ruch do detekcji)".format(visualOdometryEngine.minParallax), Point(30.0, 160.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.55, Scalar(200.0, 200.0, 255.0), 2)
+        Imgproc.putText(res, "Move: %.2f | Rot: %.1f deg".format(state.translationNorm, state.rotationDeg), Point(30.0, 90.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.7, Scalar(0.0, 255.0, 0.0), 2)
+        Imgproc.putText(res, "Max features: ${visualOdometryEngine.maxFeatures} — $labelVoMaxFeaturesDesc", Point(30.0, 130.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.5, Scalar(200.0, 200.0, 255.0), 2)
+        Imgproc.putText(res, "Min parallax: %.1f px — $labelVoMinParallaxDesc".format(visualOdometryEngine.minParallax), Point(30.0, 158.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.5, Scalar(200.0, 200.0, 255.0), 2)
         val cx = res.cols()/2; val cy = res.rows()/2
         Imgproc.line(res, Point(cx-30.0, cy.toDouble()), Point(cx+30.0, cy.toDouble()), Scalar(255.0, 255.0, 255.0), 2)
         Imgproc.line(res, Point(cx.toDouble(), cy-30.0), Point(cx.toDouble(), cy+30.0), Scalar(255.0, 255.0, 255.0), 2)
@@ -319,9 +330,9 @@ class ImageProcessor {
 
     private fun applyPointCloud(src: Mat): Mat {
         val res = Mat.zeros(src.size(), src.type()); val state = visualOdometryEngine.updatePointCloud(src) ?: return res
-        Imgproc.putText(res, "$labelPointCloud: ${state.points.size} pkt | paralaksa: %.1f px".format(state.meanParallax), Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.7, Scalar(255.0, 255.0, 255.0), 2)
-        Imgproc.putText(res, "Max cech: ${visualOdometryEngine.maxFeatures} | Próg: %.1f px".format(visualOdometryEngine.minParallax), Point(30.0, 85.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.55, Scalar(200.0, 200.0, 255.0), 2)
-        Imgproc.putText(res, "Kolor = głębokość (jasny=blisko, ciemny=dalej)", Point(30.0, 115.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.5, Scalar(180.0, 180.0, 180.0), 1)
+        Imgproc.putText(res, "$labelPointCloud: ${state.points.size} pts | parallax: %.1f px".format(state.meanParallax), Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.7, Scalar(255.0, 255.0, 255.0), 2)
+        Imgproc.putText(res, "Max features: ${visualOdometryEngine.maxFeatures} | Min parallax: %.1f px".format(visualOdometryEngine.minParallax), Point(30.0, 85.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.5, Scalar(200.0, 200.0, 255.0), 2)
+        Imgproc.putText(res, labelVoColorDepthDesc, Point(30.0, 115.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.5, Scalar(180.0, 180.0, 180.0), 1)
         if (isVoMeshEnabled) {
             for (e in state.edges) Imgproc.line(res, e.first, e.second, Scalar(100.0, 100.0, 100.0), 1)
         }
@@ -356,7 +367,7 @@ class ImageProcessor {
             val clusters = ArrayList<ArrayList<IntArray>>()
             val clusterAngles = ArrayList<Double>()
             for (i in 0 until lines.rows()) {
-                val seg = lines.get(i, 0) ?: continue
+                val seg = lines.get(i, 0).takeIf { it.isNotEmpty() } ?: continue
                 if (seg.size < 4) continue
                 val x1 = seg[0].toInt(); val y1 = seg[1].toInt()
                 val x2 = seg[2].toInt(); val y2 = seg[3].toInt()
@@ -406,13 +417,13 @@ class ImageProcessor {
             }
 
             if (planeIdx == 0) {
-                Imgproc.putText(res, "Brak płaszczyzn (linie: ${lines.rows()})", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.7, Scalar(200.0, 200.0, 200.0), 2)
+                Imgproc.putText(res, "$labelNoPlanes (lines: ${lines.rows()})", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.7, Scalar(200.0, 200.0, 200.0), 2)
             } else {
-                Imgproc.putText(res, "Płaszczyzny: $planeIdx | Linie: ${lines.rows()}", Point(30.0, 30.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255.0, 255.0, 255.0), 2)
+                Imgproc.putText(res, "$labelPlanes: $planeIdx | $labelLines: ${lines.rows()}", Point(30.0, 30.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255.0, 255.0, 255.0), 2)
             }
             lines.release()
         } catch (e: Exception) {
-            Imgproc.putText(res, "Błąd detekcji: ${e.message?.take(30)}", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255.0, 100.0, 100.0), 2)
+            Imgproc.putText(res, "$labelGeometryError: ${e.message?.take(30)}", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255.0, 100.0, 100.0), 2)
         } finally {
             gray.release(); blurred.release(); edges.release()
         }
@@ -439,7 +450,7 @@ class ImageProcessor {
             val clusters = ArrayList<ArrayList<IntArray>>()
             val clusterAngles = ArrayList<Double>()
             for (i in 0 until lines.rows()) {
-                val seg = lines.get(i, 0) ?: continue
+                val seg = lines.get(i, 0).takeIf { it.isNotEmpty() } ?: continue
                 if (seg.size < 4) continue
                 val x1 = seg[0].toInt(); val y1 = seg[1].toInt()
                 val x2 = seg[2].toInt(); val y2 = seg[3].toInt()
@@ -469,13 +480,13 @@ class ImageProcessor {
             }
 
             when {
-                lines.rows() == 0 -> Imgproc.putText(res, "Brak linii w scenie", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.8, Scalar(200.0, 200.0, 200.0), 2)
-                !foundVP -> Imgproc.putText(res, "Brak punktów zbieżności (linie: ${lines.rows()})", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(200.0, 200.0, 200.0), 2)
-                else -> Imgproc.putText(res, "Linie: ${lines.rows()} | Grupy: ${clusters.size}", Point(30.0, 30.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255.0, 255.0, 255.0), 2)
+                lines.rows() == 0 -> Imgproc.putText(res, labelNoLines, Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.8, Scalar(200.0, 200.0, 200.0), 2)
+                !foundVP -> Imgproc.putText(res, "$labelNoVanishingPoints ($labelLines: ${lines.rows()})", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(200.0, 200.0, 200.0), 2)
+                else -> Imgproc.putText(res, "$labelLines: ${lines.rows()} | $labelGroups: ${clusters.size}", Point(30.0, 30.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255.0, 255.0, 255.0), 2)
             }
             lines.release()
         } catch (e: Exception) {
-            Imgproc.putText(res, "Błąd VP: ${e.message?.take(30)}", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255.0, 100.0, 100.0), 2)
+            Imgproc.putText(res, "$labelVpError: ${e.message?.take(30)}", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255.0, 100.0, 100.0), 2)
         } finally {
             gray.release(); blurred.release(); edges.release()
         }

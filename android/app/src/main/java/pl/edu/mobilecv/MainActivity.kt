@@ -127,6 +127,22 @@ class MainActivity : AppCompatActivity() {
 
         imageProcessor.calibrator = cameraCalibrator
         imageProcessor.onMarkersDetected = { rosBridgeClient.publishMarkers(it) }
+        imageProcessor.labelFrameCountSuffix = getString(R.string.calibration_overlay_frames_suffix)
+        imageProcessor.labelBoardNotFound = getString(R.string.calibration_overlay_board_not_found)
+        imageProcessor.labelNoCalibration = getString(R.string.calibration_overlay_no_calibration)
+        imageProcessor.labelOdometryTracks = getString(R.string.vo_overlay_tracks)
+        imageProcessor.labelPointCloud = getString(R.string.vo_overlay_point_cloud)
+        imageProcessor.labelVoMaxFeaturesDesc = getString(R.string.overlay_vo_max_features_desc)
+        imageProcessor.labelVoMinParallaxDesc = getString(R.string.overlay_vo_min_parallax_desc)
+        imageProcessor.labelVoColorDepthDesc = getString(R.string.overlay_vo_color_depth_desc)
+        imageProcessor.labelNoPlanes = getString(R.string.overlay_no_planes)
+        imageProcessor.labelNoVanishingPoints = getString(R.string.overlay_no_vp)
+        imageProcessor.labelNoLines = getString(R.string.overlay_no_lines)
+        imageProcessor.labelPlanes = getString(R.string.overlay_planes)
+        imageProcessor.labelLines = getString(R.string.overlay_lines)
+        imageProcessor.labelGroups = getString(R.string.overlay_groups)
+        imageProcessor.labelGeometryError = getString(R.string.overlay_geometry_error)
+        imageProcessor.labelVpError = getString(R.string.overlay_vp_error)
 
         analysisExecutor.execute {
             mediaPipeProcessor.initialize()
@@ -375,8 +391,7 @@ class MainActivity : AppCompatActivity() {
                     appendLine("property float z")
                     appendLine("end_header")
                     cloud.points.forEach { p ->
-                        val z = (cloud.meanParallax - p.y) * 0.1
-                        appendLine("${p.x} ${p.y} ${"%.4f".format(z)}")
+                        appendLine("${p.x} ${p.y} ${"%.4f".format(pseudoZ(p.y, cloud.meanParallax))}")
                     }
                 }
                 writeToDownloads("pointcloud_$timestamp.ply", "application/octet-stream", content)
@@ -385,8 +400,7 @@ class MainActivity : AppCompatActivity() {
                     appendLine("x,y,z")
                     appendLine("# Pseudo-3D point cloud (screen projections). mean_parallax=${cloud.meanParallax}")
                     cloud.points.forEach { p ->
-                        val z = (cloud.meanParallax - p.y) * 0.1
-                        appendLine("${p.x},${p.y},${"%.4f".format(z)}")
+                        appendLine("${p.x},${p.y},${"%.4f".format(pseudoZ(p.y, cloud.meanParallax))}")
                     }
                 }
                 writeToDownloads("pointcloud_$timestamp.csv", "text/csv", content)
@@ -396,6 +410,9 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, R.string.point_cloud_save_error, Toast.LENGTH_SHORT).show()
         }
     }
+
+    /** Estimates a pseudo-depth z value from screen y position and mean parallax. */
+    private fun pseudoZ(y: Double, meanParallax: Double): Double = (meanParallax - y) * 0.1
 
     private fun writeToDownloads(filename: String, mimeType: String, content: String) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {

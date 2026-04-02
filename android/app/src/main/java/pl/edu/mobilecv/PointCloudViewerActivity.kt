@@ -47,6 +47,8 @@ class PointCloudViewerActivity : AppCompatActivity() {
         btnBack = findViewById(R.id.btnBackFromViewer)
 
         btnLoad.setOnClickListener {
+            // Use "*/*" to support both .csv (text/csv) and .ply (application/octet-stream)
+            // as some file managers don't map .ply to a specific MIME type.
             filePicker.launch("*/*")
         }
 
@@ -80,10 +82,14 @@ class PointCloudViewerActivity : AppCompatActivity() {
                         }
                     }
                 } else {
-                    // CSV format: x,y[,z] per line; skip comment lines
+                    // CSV format: x,y[,z] per line; skip header and comment lines
                     for (line in reader.lineSequence()) {
-                        if (line.startsWith("#") || line.startsWith("x")) continue
-                        val parts = line.trim().split(",")
+                        val trimmed = line.trim()
+                        if (trimmed.startsWith("#") || trimmed.isEmpty()) continue
+                        // Skip header line (x,y or x,y,z)
+                        if (trimmed.equals("x,y", ignoreCase = true) ||
+                            trimmed.equals("x,y,z", ignoreCase = true)) continue
+                        val parts = trimmed.split(",")
                         if (parts.size >= 2) {
                             val x = parts[0].toFloatOrNull() ?: continue
                             val y = parts[1].toFloatOrNull() ?: continue

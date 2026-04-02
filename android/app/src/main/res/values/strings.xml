@@ -139,4 +139,17 @@
     <!-- Odometry parameter descriptions (for slider hints) -->
     <string name="vo_max_features_hint">Liczba śledzonych punktów charakterystycznych. Więcej = dokładniej, wolniej.</string>
     <string name="vo_min_parallax_hint">Minimalny ruch [px] punktu między klatkami, wymagany do rekonstrukcji głębi.</string>
+
+    <!-- ImageProcessor overlay label strings -->
+    <string name="overlay_vo_max_features_desc" tools:keep="@string/overlay_vo_max_features_desc">więcej = dokładniej, wolniej</string>
+    <string name="overlay_vo_min_parallax_desc" tools:keep="@string/overlay_vo_min_parallax_desc">próg ruchu do detekcji</string>
+    <string name="overlay_vo_color_depth_desc" tools:keep="@string/overlay_vo_color_depth_desc">Kolor = głębokość (jasny=blisko, ciemny=dalej)</string>
+    <string name="overlay_no_planes" tools:keep="@string/overlay_no_planes">Brak płaszczyzn</string>
+    <string name="overlay_no_vp" tools:keep="@string/overlay_no_vp">Brak punktów zbieżności</string>
+    <string name="overlay_no_lines" tools:keep="@string/overlay_no_lines">Brak linii w scenie</string>
+    <string name="overlay_planes" tools:keep="@string/overlay_planes">Płaszczyzny</string>
+    <string name="overlay_lines" tools:keep="@string/overlay_lines">Linie</string>
+    <string name="overlay_groups" tools:keep="@string/overlay_groups">Grupy</string>
+    <string name="overlay_geometry_error" tools:keep="@string/overlay_geometry_error">Błąd geometrii</string>
+    <string name="overlay_vp_error" tools:keep="@string/overlay_vp_error">Błąd VP</string>
 </resources>

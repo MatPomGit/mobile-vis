@@ -71,4 +71,31 @@ sealed class MarkerDetection {
         override val corners: List<Pair<Float, Float>>,
         override val timestampMs: Long = System.currentTimeMillis(),
     ) : MarkerDetection()
+
+    /**
+     * YOLO object detection result.
+     *
+     * Produced by [YoloProcessor] for YOLO_DETECT, YOLO_SEGMENT and
+     * YOLO_POSE filters.  The [corners] field contains the four corners of
+     * the bounding box (top-left, top-right, bottom-right, bottom-left).
+     *
+     * @param label      Predicted class name from the COCO vocabulary.
+     * @param classId    Numeric class index (0-based) in the COCO vocabulary.
+     * @param confidence Detection confidence in ``[0.0, 1.0]``.
+     * @param bbox       Bounding box as ``(x1, y1, x2, y2)`` pixel coordinates.
+     * @param corners    Four corner pixel coordinates derived from [bbox].
+     */
+    data class YoloObject(
+        val label: String,
+        val classId: Int,
+        val confidence: Float,
+        val bbox: android.graphics.RectF,
+        override val corners: List<Pair<Float, Float>> = listOf(
+            Pair(bbox.left, bbox.top),
+            Pair(bbox.right, bbox.top),
+            Pair(bbox.right, bbox.bottom),
+            Pair(bbox.left, bbox.bottom),
+        ),
+        override val timestampMs: Long = System.currentTimeMillis(),
+    ) : MarkerDetection()
 }

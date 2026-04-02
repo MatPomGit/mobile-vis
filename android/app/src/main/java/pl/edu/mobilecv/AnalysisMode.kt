@@ -110,4 +110,19 @@ enum class AnalysisMode(val displayName: String, val filters: List<OpenCvFilter>
             OpenCvFilter.UNDISTORT,
         )
     ),
+
+    /**
+     * Real-time object detection, instance segmentation and pose estimation
+     * powered by YOLOv8-nano models running on the OpenCV DNN backend.
+     *
+     * Models are downloaded on demand the first time this tab is selected.
+     */
+    YOLO(
+        "YOLO",
+        listOf(
+            OpenCvFilter.YOLO_DETECT,
+            OpenCvFilter.YOLO_SEGMENT,
+            OpenCvFilter.YOLO_POSE,
+        )
+    ),
 }

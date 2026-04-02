@@ -79,8 +79,10 @@ class MainActivity : AppCompatActivity() {
     // OpenCV + MediaPipe
     private val imageProcessor by lazy { ImageProcessor() }
     private val mediaPipeProcessor: MediaPipeProcessor by lazy { MediaPipeProcessor(this) }
+    private val yoloProcessor: YoloProcessor by lazy { YoloProcessor(this) }
 
     @Volatile private var mediaPipeDownloadInProgress = false
+    @Volatile private var yoloDownloadInProgress = false
     @Volatile private var currentFilter = OpenCvFilter.ORIGINAL
     @Volatile private var currentMode: AnalysisMode = AnalysisMode.entries.first()
     @Volatile private var isActiveVisionEnabled = false
@@ -147,6 +149,8 @@ class MainActivity : AppCompatActivity() {
         analysisExecutor.execute {
             mediaPipeProcessor.initialize()
             imageProcessor.mediaPipeProcessor = mediaPipeProcessor
+            yoloProcessor.initialize()
+            imageProcessor.yoloProcessor = yoloProcessor
         }
 
         rosBridgeClient.onStateChanged = { state ->
@@ -176,7 +180,7 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
         activeRecording?.stop()
         stopRecordingTimer()
-        analysisExecutor.execute { mediaPipeProcessor.close() }
+        analysisExecutor.execute { mediaPipeProcessor.close(); yoloProcessor.close() }
         analysisExecutor.shutdown()
         pendingRecycleBitmap?.recycle(); lastProcessedBitmap?.recycle()
         rosBridgeClient.shutdown()
@@ -305,6 +309,7 @@ class MainActivity : AppCompatActivity() {
         binding.fabRobotConnection.visibility = if (mode == AnalysisMode.CALIBRATION) View.GONE else View.VISIBLE
 
         if (mode == AnalysisMode.POSE && !ModelDownloadManager.areAllModelsReady(this)) startMediaPipeModelDownload()
+        if (mode == AnalysisMode.YOLO && !ModelDownloadManager.areYoloModelsReady(this)) startYoloModelDownload()
 
         updateContextualControls()
     }
@@ -329,6 +334,23 @@ class MainActivity : AppCompatActivity() {
                     runOnUiThread { Toast.makeText(this, getString(R.string.mediapipe_models_ready), Toast.LENGTH_SHORT).show() }
                 }
             } finally { mediaPipeDownloadInProgress = false }
+        }
+    }
+
+    private fun startYoloModelDownload() {
+        if (yoloDownloadInProgress) return
+        yoloDownloadInProgress = true
+        Toast.makeText(this, getString(R.string.yolo_models_downloading), Toast.LENGTH_LONG).show()
+        analysisExecutor.execute {
+            try {
+                if (ModelDownloadManager.downloadMissingYoloModels(this)) {
+                    yoloProcessor.close(); yoloProcessor.initialize()
+                    imageProcessor.yoloProcessor = yoloProcessor
+                    runOnUiThread {
+                        Toast.makeText(this, getString(R.string.yolo_models_ready), Toast.LENGTH_SHORT).show()
+                    }
+                }
+            } finally { yoloDownloadInProgress = false }
         }
     }
 

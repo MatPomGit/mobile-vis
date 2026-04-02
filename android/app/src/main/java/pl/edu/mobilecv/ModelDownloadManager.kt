@@ -48,6 +48,25 @@ object ModelDownloadManager {
             "$BASE_URL/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
     )
 
+    /**
+     * Remote download URLs for YOLOv8-nano ONNX models hosted on GitHub Releases.
+     *
+     * The models are exported from the official ``ultralytics/ultralytics`` YOLOv8
+     * weights and stored in the project's GitHub Releases under the ``models`` tag.
+     * Replace these URLs with your own CDN or GitHub Releases links if you host
+     * the models elsewhere.
+     */
+    val YOLO_MODEL_URLS: Map<String, String> = mapOf(
+        YoloProcessor.MODEL_DETECT to
+            "https://github.com/MatPomGit/mobile-vis/releases/download/models/yolov8n_det.onnx",
+        YoloProcessor.MODEL_SEGMENT to
+            "https://github.com/MatPomGit/mobile-vis/releases/download/models/yolov8n_seg.onnx",
+        YoloProcessor.MODEL_POSE to
+            "https://github.com/MatPomGit/mobile-vis/releases/download/models/yolov8n_pose.onnx",
+    )
+
+    private const val YOLO_DIR = "yolo"
+
     private val httpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
             .connectTimeout(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
@@ -118,8 +137,19 @@ object ModelDownloadManager {
      * @param url Source URL.
      * @return ``true`` on success.
      */
-    fun downloadModel(context: Context, filename: String, url: String): Boolean {
-        val dest = modelFile(context, filename)
+    fun downloadModel(context: Context, filename: String, url: String): Boolean =
+        downloadModel(context, filename, url, modelFile(context, filename))
+
+    /**
+     * Download a single model file from [url] to [dest].
+     *
+     * @param context Application or activity context.
+     * @param filename Logical filename used for logging.
+     * @param url Source URL.
+     * @param dest Destination [File] on internal storage.
+     * @return ``true`` on success.
+     */
+    private fun downloadModel(context: Context, filename: String, url: String, dest: File): Boolean {
         val tempFile = File(dest.parent, "$filename.tmp")
         dest.parentFile?.mkdirs()
 
@@ -160,6 +190,76 @@ object ModelDownloadManager {
     }
 
     // ------------------------------------------------------------------
+    // YOLO model management
+    // ------------------------------------------------------------------
+
+    /**
+     * Return the absolute path to a YOLO model file if it exists in internal
+     * storage, or ``null`` if it has not been downloaded yet.
+     *
+     * @param context Application or activity context.
+     * @param modelFilename Filename such as [YoloProcessor.MODEL_DETECT].
+     */
+    fun getYoloModelPath(context: Context, modelFilename: String): String? {
+        val file = yoloModelFile(context, modelFilename)
+        return if (file.exists() && file.length() > 0) file.absolutePath else null
+    }
+
+    /**
+     * Return ``true`` if **all** YOLO model files are present and non-empty.
+     *
+     * @param context Application or activity context.
+     */
+    fun areYoloModelsReady(context: Context): Boolean =
+        YOLO_MODEL_URLS.keys.all { getYoloModelPath(context, it) != null }
+
+    /**
+     * Download all missing YOLO model files.
+     *
+     * This is a blocking call; run it on a background thread.
+     *
+     * @param context Application or activity context.
+     * @param onProgress Optional callback invoked with current and total file count.
+     * @return ``true`` if all YOLO models are now available; ``false`` if any download failed.
+     */
+    fun downloadMissingYoloModels(
+        context: Context,
+        onProgress: ((downloaded: Int, total: Int) -> Unit)? = null,
+    ): Boolean {
+        val missing = YOLO_MODEL_URLS.filter { (filename, _) ->
+            getYoloModelPath(context, filename) == null
+        }
+        if (missing.isEmpty()) return true
+
+        var downloaded = 0
+        val total = missing.size
+
+        for ((filename, url) in missing) {
+            val dest = yoloModelFile(context, filename)
+            val success = downloadModel(context, filename, url, dest)
+            if (success) {
+                downloaded++
+                onProgress?.invoke(downloaded, total)
+            } else {
+                Log.e(TAG, "Failed to download YOLO model: $filename")
+                return false
+            }
+        }
+        return true
+    }
+
+    /**
+     * Delete all downloaded YOLO model files from internal storage.
+     *
+     * @param context Application or activity context.
+     */
+    fun deleteAllYoloModels(context: Context) {
+        val dir = yoloDir(context)
+        dir.listFiles()?.forEach { it.delete() }
+        Log.i(TAG, "All YOLO models deleted")
+    }
+
+    // ------------------------------------------------------------------
     // Internal helpers
     // ------------------------------------------------------------------
 
@@ -168,4 +268,10 @@ object ModelDownloadManager {
 
     private fun modelFile(context: Context, filename: String): File =
         File(mediapipeDir(context), filename)
+
+    private fun yoloDir(context: Context): File =
+        File(context.filesDir, YOLO_DIR).also { it.mkdirs() }
+
+    private fun yoloModelFile(context: Context, filename: String): File =
+        File(yoloDir(context), filename)
 }

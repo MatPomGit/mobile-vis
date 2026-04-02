@@ -13,6 +13,9 @@ import pl.edu.mobilecv.databinding.ActivityMenuBinding
  * and pre-selects the chosen mode tab.  Separating the launcher from the camera
  * activity prevents crashes caused by eager camera / OpenCV initialization
  * before the user has made a selection.
+ *
+ * An additional card for the [PointCloudViewerActivity] is appended at the bottom
+ * of the list to allow loading and visualizing previously saved point clouds.
  */
 class MenuActivity : AppCompatActivity() {
 
@@ -28,6 +31,7 @@ class MenuActivity : AppCompatActivity() {
         binding = ActivityMenuBinding.inflate(layoutInflater)
         setContentView(binding.root)
         buildModeCards()
+        buildPointCloudViewerCard()
     }
 
     /** Inflates one card per [AnalysisMode] and appends it to the container. */
@@ -50,6 +54,17 @@ class MenuActivity : AppCompatActivity() {
             card.setOnClickListener { launchMainActivity(mode) }
             binding.modeListContainer.addView(card)
         }
+    }
+
+    /** Appends a special card to open the point cloud viewer (not a camera mode). */
+    private fun buildPointCloudViewerCard() {
+        val card = layoutInflater.inflate(R.layout.item_mode_card, binding.modeListContainer, false)
+        card.findViewById<TextView>(R.id.textModeName).text = getString(R.string.mode_point_cloud_viewer)
+        card.findViewById<TextView>(R.id.textModeDescription).text = getString(R.string.mode_desc_point_cloud_viewer)
+        card.setOnClickListener {
+            startActivity(Intent(this, PointCloudViewerActivity::class.java))
+        }
+        binding.modeListContainer.addView(card)
     }
 
     /** Starts [MainActivity] with the chosen [mode] pre-selected. */

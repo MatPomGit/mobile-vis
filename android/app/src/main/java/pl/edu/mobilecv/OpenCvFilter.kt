@@ -139,6 +139,37 @@ enum class OpenCvFilter(val displayName: String) {
     ROBERTS("Roberts Edges"),
 
     // ------------------------------------------------------------------
+    // Artistic / visual effects
+    // ------------------------------------------------------------------
+
+    /** Inverts all colour channels (bitwise NOT). */
+    INVERT("Inwersja"),
+
+    /**
+     * Applies a warm sepia-tone look by blending the grayscale image with
+     * predefined brown-tinted channel weights.
+     */
+    SEPIA("Sepia"),
+
+    /**
+     * Emboss / relief effect that accentuates surface texture using a
+     * directional convolution kernel.
+     */
+    EMBOSS("Emboss"),
+
+    /**
+     * Reduces apparent resolution by downsampling and then upsampling the
+     * frame, creating a blocky pixel-art appearance.
+     */
+    PIXELATE("Pikselizacja"),
+
+    /**
+     * Cartoon / comic-book effect produced by combining a colour-smoothed
+     * image (bilateral filter) with thick Canny edges drawn on top.
+     */
+    CARTOON("Kreskówka"),
+
+    // ------------------------------------------------------------------
     // YOLO object detection
     // ------------------------------------------------------------------
 

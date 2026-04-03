@@ -154,6 +154,11 @@ class ImageProcessor {
             OpenCvFilter.SCHARR -> applyScharr(baseFrame)
             OpenCvFilter.PREWITT -> applyPrewitt(baseFrame)
             OpenCvFilter.ROBERTS -> applyRoberts(baseFrame)
+            OpenCvFilter.INVERT -> applyInvert(baseFrame)
+            OpenCvFilter.SEPIA -> applySepia(baseFrame)
+            OpenCvFilter.EMBOSS -> applyEmboss(baseFrame)
+            OpenCvFilter.PIXELATE -> applyPixelate(baseFrame)
+            OpenCvFilter.CARTOON -> applyCartoon(baseFrame)
             else -> baseFrame.clone()
         }
 
@@ -365,6 +370,7 @@ class ImageProcessor {
         private const val MAX_LINE_DIRECTION_CLUSTERS = 4
         private const val POINT_CLOUD_CIRCLE_RADIUS = 3
         private const val POINT_CLOUD_MESH_THICKNESS = 1
+        private const val PIXELATE_BLOCK_SIZE = 16
     }
 
     /**
@@ -757,6 +763,104 @@ class ImageProcessor {
         Core.addWeighted(absX, 0.5, absY, 0.5, 0.0, combined)
         Imgproc.cvtColor(combined, res, Imgproc.COLOR_GRAY2RGBA)
         gray.release(); kernelX.release(); kernelY.release(); gradX.release(); gradY.release(); absX.release(); absY.release(); combined.release()
+        return res
+    }
+
+    /** Inverts all colour channels using a bitwise NOT operation. */
+    private fun applyInvert(src: Mat): Mat {
+        val res = Mat(); Core.bitwise_not(src, res); return res
+    }
+
+    /**
+     * Applies a warm sepia-tone effect using the Adobe Photoshop sepia preset matrix.
+     * The frame is transformed from RGBA to RGB, each pixel is linearly projected
+     * through the sepia colour matrix, and the result is converted back to RGBA.
+     * Matches the Python [apply_sepia] implementation exactly.
+     */
+    private fun applySepia(src: Mat): Mat {
+        val rgb = Mat(); Imgproc.cvtColor(src, rgb, Imgproc.COLOR_RGBA2RGB)
+        val rgb32f = Mat(); rgb.convertTo(rgb32f, CvType.CV_32FC3)
+        // Adobe Photoshop sepia matrix (rows = output RGB channels, cols = input RGB channels):
+        // out_R = 0.393*R + 0.769*G + 0.189*B
+        // out_G = 0.349*R + 0.686*G + 0.168*B
+        // out_B = 0.272*R + 0.534*G + 0.131*B
+        val kernel = Mat(3, 3, CvType.CV_32F)
+        kernel.put(0, 0, floatArrayOf(0.393f, 0.769f, 0.189f))  // output R row
+        kernel.put(1, 0, floatArrayOf(0.349f, 0.686f, 0.168f))  // output G row
+        kernel.put(2, 0, floatArrayOf(0.272f, 0.534f, 0.131f))  // output B row
+        val sepia32f = Mat(); Core.transform(rgb32f, sepia32f, kernel)
+        val sepia8u = Mat(); sepia32f.convertTo(sepia8u, CvType.CV_8UC3)  // saturate_cast clips [0,255]
+        val res = Mat(); Imgproc.cvtColor(sepia8u, res, Imgproc.COLOR_RGB2RGBA)
+        rgb.release(); rgb32f.release(); kernel.release(); sepia32f.release(); sepia8u.release()
+        return res
+    }
+
+    /**
+     * Produces an emboss / relief effect using a directional 3×3 kernel that
+     * highlights edges as raised surface texture against a mid-grey background.
+     */
+    private fun applyEmboss(src: Mat): Mat {
+        val gray = Mat(); val embossed = Mat(); val res = Mat()
+        Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
+        val kernel = Mat(3, 3, CvType.CV_32F)
+        kernel.put(0, 0, -2.0, -1.0, 0.0, -1.0, 1.0, 1.0, 0.0, 1.0, 2.0)
+        Imgproc.filter2D(gray, embossed, -1, kernel)
+        Core.add(embossed, Scalar(128.0), embossed)       // shift to mid-grey baseline
+        Imgproc.cvtColor(embossed, res, Imgproc.COLOR_GRAY2RGBA)
+        gray.release(); embossed.release(); kernel.release(); return res
+    }
+
+    /**
+     * Pixelates the frame by downscaling to a tiny resolution and then scaling
+     * back up with nearest-neighbour interpolation, creating a blocky pixel-art look.
+     *
+     * Uses [PIXELATE_BLOCK_SIZE] as the pixel block side length. Downsampling uses
+     * INTER_AREA for better quality area-averaging (consistent with the Python implementation).
+     */
+    private fun applyPixelate(src: Mat): Mat {
+        val small = Mat()
+        val res = Mat()
+        Imgproc.resize(src, small, Size(src.cols().toDouble() / PIXELATE_BLOCK_SIZE, src.rows().toDouble() / PIXELATE_BLOCK_SIZE), 0.0, 0.0, Imgproc.INTER_AREA)
+        Imgproc.resize(small, res, Size(src.cols().toDouble(), src.rows().toDouble()), 0.0, 0.0, Imgproc.INTER_NEAREST)
+        small.release(); return res
+    }
+
+    /**
+     * Creates a cartoon / comic-book effect by combining a heavily smoothed
+     * (bilateral-filtered) colour image with binary Canny edges drawn in black.
+     */
+    private fun applyCartoon(src: Mat): Mat {
+        // Step 1: colour-smooth with bilateral filter (applied on RGB, not RGBA)
+        val rgb = Mat(); val smoothed = Mat()
+        Imgproc.cvtColor(src, rgb, Imgproc.COLOR_RGBA2RGB)
+        Imgproc.bilateralFilter(rgb, smoothed, 9, 75.0, 75.0)
+
+        // Step 2: extract edges on grayscale
+        val gray = Mat(); val blurred = Mat(); val edges = Mat()
+        Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
+        Imgproc.medianBlur(gray, blurred, 7)
+        Imgproc.Canny(blurred, edges, 80.0, 200.0)
+
+        // Step 3: invert edges → black lines on white mask
+        val edgesInv = Mat(); Core.bitwise_not(edges, edgesInv)
+
+        // Step 4: dilate the edge mask to make lines slightly thicker
+        val dilatedEdges = Mat()
+        Imgproc.dilate(edgesInv, dilatedEdges, dilationKernel3x3)
+
+        // Step 5: apply edge mask to smoothed colour image (black out edge pixels)
+        val edgeMask3ch = Mat()
+        Imgproc.cvtColor(dilatedEdges, edgeMask3ch, Imgproc.COLOR_GRAY2RGB)
+        val maskedSmoothed = Mat()
+        Core.bitwise_and(smoothed, edgeMask3ch, maskedSmoothed)
+
+        // Step 6: convert back to RGBA
+        val res = Mat()
+        Imgproc.cvtColor(maskedSmoothed, res, Imgproc.COLOR_RGB2RGBA)
+
+        rgb.release(); smoothed.release(); gray.release(); blurred.release()
+        edges.release(); edgesInv.release(); dilatedEdges.release()
+        edgeMask3ch.release(); maskedSmoothed.release()
         return res
     }
 }

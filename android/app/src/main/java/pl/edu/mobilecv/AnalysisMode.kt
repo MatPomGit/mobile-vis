@@ -125,4 +125,19 @@ enum class AnalysisMode(val displayName: String, val filters: List<OpenCvFilter>
             OpenCvFilter.YOLO_POSE,
         )
     ),
+
+    /**
+     * Artistic and visual effects: colour inversion, sepia tone, emboss relief,
+     * pixel-art pixelation, and cartoon / comic-book rendering.
+     */
+    EFFECTS(
+        "Efekty",
+        listOf(
+            OpenCvFilter.INVERT,
+            OpenCvFilter.SEPIA,
+            OpenCvFilter.EMBOSS,
+            OpenCvFilter.PIXELATE,
+            OpenCvFilter.CARTOON,
+        )
+    ),
 }

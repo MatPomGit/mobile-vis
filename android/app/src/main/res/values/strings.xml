@@ -112,8 +112,16 @@
     <string name="vo_depth_gain_label" tools:keep="@string/vo_depth_gain_label">Wzmocnienie głębi:</string>
     <string name="vo_mesh_toggle">Pokaż siatkę (Mesh)</string>
 
+    <!-- Main menu – instructions card -->
+    <string name="instructions_card_title">Instrukcja obsługi</string>
+    <string name="instructions_card_description">Jak korzystać z aplikacji MobileCV</string>
+    <string name="instructions_title">Instrukcja obsługi MobileCV</string>
+    <string name="instructions_content">Witaj w MobileCV – aplikacji do analizy obrazu w czasie rzeczywistym.\n\nJak korzystać z aplikacji:\n1. Wybierz tryb analizy z poniższego menu.\n2. Kamera otworzy się z wybranym filtrem.\n3. Zmień filtr przyciskami na dole ekranu.\n4. Naciśnij przycisk migawki, aby zrobić zdjęcie.\n5. Przytrzymaj przycisk migawki, aby nagrywać wideo.\n\nDostępne tryby:\n• Filtry – podstawowe filtry obrazu (skala szarości, rozmycie, progowanie)\n• Krawędzie – detekcja krawędzi (Canny, Sobel, Laplacian)\n• Morfologia – dylatacja, erozja, otwarcie, zamknięcie\n• Markery – detekcja ArUco, AprilTag, QR, CCTag\n• Poza / Twarz – śledzenie ciała i twarzy (MediaPipe)\n• Odometria 3D – odometria wizualna i chmura punktów\n• Geometria 3D – detekcja płaszczyzn i punkty zbieżności\n• Kalibracja – kalibracja kamery wzorcem szachownicy\n• YOLO – detekcja obiektów, segmentacja i poza (YOLOv8)\n\nUwaga: tryby Poza i YOLO wymagają pobrania modeli przy pierwszym użyciu (wymagane połączenie z internetem).\n\nPołączenie z robotem (ROS2): użyj ikony anteny w prawym dolnym rogu.\nZmiana rozdzielczości: ikona klucza w prawym dolnym rogu.\nKalibracja: ikona szachownicy (dostępna w trybie Kalibracja).</string>
+    <string name="instructions_close">Zamknij</string>
+
     <!-- Main menu -->
     <string name="menu_subtitle">Wybierz tryb analizy obrazu</string>
+    <string name="mode_desc_yolo">Detekcja obiektów, segmentacja instancji i estymacja pozy z użyciem YOLOv8</string>
     <string name="mode_desc_filters">Konwersja kolorów, rozmycie Gaussowskie, progowanie</string>
     <string name="mode_desc_edges">Detekcja krawędzi: Canny, Sobel, Laplacian</string>
     <string name="mode_desc_morphology">Dylatacja, erozja, otwarcie, zamknięcie i inne</string>

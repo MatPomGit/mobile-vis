@@ -82,7 +82,7 @@ class MainActivity : AppCompatActivity() {
     private val yoloProcessor: YoloProcessor by lazy { YoloProcessor(this) }
 
     @Volatile private var mediaPipeDownloadInProgress = false
-    @Volatile private var yoloDownloadInProgress = false
+    private val yoloDownloadInProgress = AtomicBoolean(false)
     @Volatile private var currentFilter = OpenCvFilter.ORIGINAL
     @Volatile private var currentMode: AnalysisMode = AnalysisMode.entries.first()
     @Volatile private var isActiveVisionEnabled = false
@@ -151,6 +151,38 @@ class MainActivity : AppCompatActivity() {
             imageProcessor.mediaPipeProcessor = mediaPipeProcessor
             yoloProcessor.initialize()
             imageProcessor.yoloProcessor = yoloProcessor
+            // Automatically download missing YOLO models in the background at startup
+            // so they are ready regardless of which tab the user opens first.
+            if (!ModelDownloadManager.areYoloModelsReady(this) && yoloDownloadInProgress.compareAndSet(false, true)) {
+                runOnUiThread {
+                    if (!isDestroyed && !isFinishing)
+                        Toast.makeText(this, getString(R.string.yolo_models_downloading), Toast.LENGTH_LONG).show()
+                }
+                try {
+                    if (ModelDownloadManager.downloadMissingYoloModels(this)) {
+                        yoloProcessor.close()
+                        yoloProcessor.initialize()
+                        imageProcessor.yoloProcessor = yoloProcessor
+                        runOnUiThread {
+                            if (!isDestroyed && !isFinishing)
+                                Toast.makeText(this, getString(R.string.yolo_models_ready), Toast.LENGTH_SHORT).show()
+                        }
+                    } else {
+                        runOnUiThread {
+                            if (!isDestroyed && !isFinishing)
+                                Toast.makeText(this, getString(R.string.yolo_models_download_failed), Toast.LENGTH_LONG).show()
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Background YOLO model download failed", e)
+                    runOnUiThread {
+                        if (!isDestroyed && !isFinishing)
+                            Toast.makeText(this, getString(R.string.yolo_models_download_failed), Toast.LENGTH_LONG).show()
+                    }
+                } finally {
+                    yoloDownloadInProgress.set(false)
+                }
+            }
         }
 
         rosBridgeClient.onStateChanged = { state ->
@@ -338,8 +370,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startYoloModelDownload() {
-        if (yoloDownloadInProgress) return
-        yoloDownloadInProgress = true
+        if (!yoloDownloadInProgress.compareAndSet(false, true)) return
         Toast.makeText(this, getString(R.string.yolo_models_downloading), Toast.LENGTH_LONG).show()
         analysisExecutor.execute {
             try {
@@ -347,10 +378,22 @@ class MainActivity : AppCompatActivity() {
                     yoloProcessor.close(); yoloProcessor.initialize()
                     imageProcessor.yoloProcessor = yoloProcessor
                     runOnUiThread {
-                        Toast.makeText(this, getString(R.string.yolo_models_ready), Toast.LENGTH_SHORT).show()
+                        if (!isDestroyed && !isFinishing)
+                            Toast.makeText(this, getString(R.string.yolo_models_ready), Toast.LENGTH_SHORT).show()
+                    }
+                } else {
+                    runOnUiThread {
+                        if (!isDestroyed && !isFinishing)
+                            Toast.makeText(this, getString(R.string.yolo_models_download_failed), Toast.LENGTH_LONG).show()
                     }
                 }
-            } finally { yoloDownloadInProgress = false }
+            } catch (e: Exception) {
+                Log.e(TAG, "YOLO model download failed", e)
+                runOnUiThread {
+                    if (!isDestroyed && !isFinishing)
+                        Toast.makeText(this, getString(R.string.yolo_models_download_failed), Toast.LENGTH_LONG).show()
+                }
+            } finally { yoloDownloadInProgress.set(false) }
         }
     }
 

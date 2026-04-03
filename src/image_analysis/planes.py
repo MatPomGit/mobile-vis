@@ -266,13 +266,13 @@ def detect_planes(
     clusters = [c for c in clusters if len(c) >= 2]
 
     planes: list[PlaneDetection] = []
-    used_pairs: set[tuple[int, int]] = set()
+    used_clusters: set[int] = set()
 
     for i in range(len(clusters)):
         for j in range(i + 1, len(clusters)):
             if len(planes) >= max_planes:
                 break
-            if (i, j) in used_pairs:
+            if i in used_clusters or j in used_clusters:
                 continue
 
             vp1 = _intersect_lines(clusters[i])
@@ -303,7 +303,8 @@ def detect_planes(
                     inlier_count=len(inlier_lines),
                 )
             )
-            used_pairs.add((i, j))
+            used_clusters.add(i)
+            used_clusters.add(j)
 
     planes.sort(key=lambda p: p.confidence, reverse=True)
     logger.debug("Detected %d plane(s)", len(planes))

@@ -41,6 +41,19 @@ class ProcessedVideoRecorder(private val context: Context) {
         private const val AUDIO_BIT_RATE = 128_000
         private const val AUDIO_CHANNELS = 1
         private const val CODEC_TIMEOUT_US = 10_000L
+
+        // BT.601 full-range RGB → YUV coefficients (fixed-point, shift=8)
+        private const val BT601_Y_R = 66
+        private const val BT601_Y_G = 129
+        private const val BT601_Y_B = 25
+        private const val BT601_Y_OFFSET = 16
+        private const val BT601_U_R = -38
+        private const val BT601_U_G = -74
+        private const val BT601_U_B = 112
+        private const val BT601_UV_OFFSET = 128
+        private const val BT601_V_R = 112
+        private const val BT601_V_G = -94
+        private const val BT601_V_B = -18
     }
 
     /** True while a recording session is active (set to false on [finalize]). */
@@ -125,7 +138,11 @@ class ProcessedVideoRecorder(private val context: Context) {
                 return
             }
             if (withAudio) {
-                if (initAudioEncoder()) startAudioCapture() else audioFormatReady = true
+                if (initAudioEncoder()) startAudioCapture()
+                else {
+                    Log.w(TAG, "Audio encoder init failed; proceeding with video-only recording")
+                    audioFormatReady = true
+                }
             }
         }
         encodeVideoFrame(bitmap)
@@ -166,9 +183,13 @@ class ProcessedVideoRecorder(private val context: Context) {
     // -------------------------------------------------------------------------
 
     private fun initVideoEncoder(width: Int, height: Int): Boolean {
-        // YUV encoders require even dimensions
-        val encWidth = if (width % 2 == 0) width else width - 1
-        val encHeight = if (height % 2 == 0) height else height - 1
+        // YUV encoders require even dimensions; log if adjustment is needed.
+        val encWidth = if (width % 2 == 0) width else (width - 1).also {
+            Log.w(TAG, "Frame width $width is odd; cropping to $it for YUV encoding")
+        }
+        val encHeight = if (height % 2 == 0) height else (height - 1).also {
+            Log.w(TAG, "Frame height $height is odd; cropping to $it for YUV encoding")
+        }
         return try {
             val format = MediaFormat.createVideoFormat(MIME_TYPE_VIDEO, encWidth, encHeight).apply {
                 setInteger(
@@ -239,7 +260,7 @@ class ProcessedVideoRecorder(private val context: Context) {
                 maxOf(minBufSize, 4096),
             )
         } catch (e: Exception) {
-            Log.e(TAG, "AudioRecord init failed", e)
+            Log.e(TAG, "AudioRecord init failed; proceeding with video-only recording", e)
             audioFormatReady = true
             return
         }
@@ -295,7 +316,10 @@ class ProcessedVideoRecorder(private val context: Context) {
     private fun encodeVideoFrame(bitmap: Bitmap) {
         val encoder = videoEncoder ?: return
         val idx = encoder.dequeueInputBuffer(CODEC_TIMEOUT_US)
-        if (idx < 0) return // encoder busy; drop frame
+        if (idx < 0) {
+            Log.d(TAG, "Encoder input buffer unavailable; dropping frame")
+            return
+        }
 
         val image = encoder.getInputImage(idx)
         val ts = timestampUs()
@@ -310,6 +334,39 @@ class ProcessedVideoRecorder(private val context: Context) {
             buf.put(nv12)
             encoder.queueInputBuffer(idx, 0, nv12.size, ts, 0)
         }
+    }
+
+    /**
+     * Converts an ARGB pixel to its Y (luma) component using BT.601 full-range coefficients.
+     * Result is clamped to [0, 255].
+     */
+    private fun argbToY(argb: Int): Int {
+        val r = (argb shr 16) and 0xff
+        val g = (argb shr 8) and 0xff
+        val b = argb and 0xff
+        return ((BT601_Y_R * r + BT601_Y_G * g + BT601_Y_B * b + 128) shr 8) + BT601_Y_OFFSET
+    }
+
+    /**
+     * Converts an ARGB pixel to its U (Cb) component using BT.601 full-range coefficients.
+     * Result is clamped to [0, 255].
+     */
+    private fun argbToU(argb: Int): Int {
+        val r = (argb shr 16) and 0xff
+        val g = (argb shr 8) and 0xff
+        val b = argb and 0xff
+        return ((BT601_U_R * r + BT601_U_G * g + BT601_U_B * b + 128) shr 8) + BT601_UV_OFFSET
+    }
+
+    /**
+     * Converts an ARGB pixel to its V (Cr) component using BT.601 full-range coefficients.
+     * Result is clamped to [0, 255].
+     */
+    private fun argbToV(argb: Int): Int {
+        val r = (argb shr 16) and 0xff
+        val g = (argb shr 8) and 0xff
+        val b = argb and 0xff
+        return ((BT601_V_R * r + BT601_V_G * g + BT601_V_B * b + 128) shr 8) + BT601_UV_OFFSET
     }
 
     /**
@@ -336,11 +393,7 @@ class ProcessedVideoRecorder(private val context: Context) {
             val srcRow = j * w
             val dstRow = j * yStride
             for (i in 0 until w) {
-                val p = argb[srcRow + i]
-                val r = (p shr 16) and 0xff
-                val g = (p shr 8) and 0xff
-                val b = p and 0xff
-                yBuf.put(dstRow + i, (((66 * r + 129 * g + 25 * b + 128) shr 8) + 16).toByte())
+                yBuf.put(dstRow + i, argbToY(argb[srcRow + i]).toByte())
             }
         }
 
@@ -349,14 +402,9 @@ class ProcessedVideoRecorder(private val context: Context) {
             val dstRow = j * uvStride
             for (i in 0 until w / 2) {
                 val p = argb[srcRow + i * 2]
-                val r = (p shr 16) and 0xff
-                val g = (p shr 8) and 0xff
-                val b = p and 0xff
-                val u = (((-38 * r - 74 * g + 112 * b + 128) shr 8) + 128).coerceIn(0, 255)
-                val v = (((112 * r - 94 * g - 18 * b + 128) shr 8) + 128).coerceIn(0, 255)
                 val pos = dstRow + i * uvPixelStride
-                uBuf.put(pos, u.toByte())
-                vBuf.put(pos, v.toByte())
+                uBuf.put(pos, argbToU(p).toByte())
+                vBuf.put(pos, argbToV(p).toByte())
             }
         }
     }
@@ -370,13 +418,8 @@ class ProcessedVideoRecorder(private val context: Context) {
         val nv12 = ByteArray(w * h * 3 / 2)
         for (j in 0 until h) {
             val srcRow = j * w
-            val dstRow = j * w
             for (i in 0 until w) {
-                val p = argb[srcRow + i]
-                val r = (p shr 16) and 0xff
-                val g = (p shr 8) and 0xff
-                val b = p and 0xff
-                nv12[dstRow + i] = (((66 * r + 129 * g + 25 * b + 128) shr 8) + 16).toByte()
+                nv12[srcRow + i] = argbToY(argb[srcRow + i]).toByte()
             }
         }
         val uvOffset = w * h
@@ -385,13 +428,8 @@ class ProcessedVideoRecorder(private val context: Context) {
             val srcRow = j * 2 * w
             for (i in 0 until w / 2) {
                 val p = argb[srcRow + i * 2]
-                val r = (p shr 16) and 0xff
-                val g = (p shr 8) and 0xff
-                val b = p and 0xff
-                nv12[uvOffset + uvIdx] =
-                    (((-38 * r - 74 * g + 112 * b + 128) shr 8) + 128).coerceIn(0, 255).toByte()
-                nv12[uvOffset + uvIdx + 1] =
-                    (((112 * r - 94 * g - 18 * b + 128) shr 8) + 128).coerceIn(0, 255).toByte()
+                nv12[uvOffset + uvIdx] = argbToU(p).toByte()
+                nv12[uvOffset + uvIdx + 1] = argbToV(p).toByte()
                 uvIdx += 2
             }
         }
@@ -526,12 +564,12 @@ class ProcessedVideoRecorder(private val context: Context) {
     }
 
     private fun release() {
-        try { videoEncoder?.stop() } catch (_: Exception) {}
-        try { audioEncoder?.stop() } catch (_: Exception) {}
+        try { videoEncoder?.stop() } catch (e: Exception) { Log.d(TAG, "videoEncoder stop error (ignored)", e) }
+        try { audioEncoder?.stop() } catch (e: Exception) { Log.d(TAG, "audioEncoder stop error (ignored)", e) }
         videoEncoder?.release()
         audioEncoder?.release()
         audioRecord?.release()
-        try { muxer?.release() } catch (_: Exception) {}
+        try { muxer?.release() } catch (e: Exception) { Log.d(TAG, "muxer release error (ignored)", e) }
         parcelFd?.close()
         videoEncoder = null
         audioEncoder = null

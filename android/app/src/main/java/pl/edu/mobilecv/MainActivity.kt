@@ -205,7 +205,11 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
         if (isRecording) {
             isRecording = false
-            analysisExecutor.execute { processedVideoRecorder.finalize { } }
+            analysisExecutor.execute {
+                processedVideoRecorder.finalize { success ->
+                    Log.d(TAG, "Recording finalized on destroy, success=$success")
+                }
+            }
         }
         stopRecordingTimer()
         analysisExecutor.execute { mediaPipeProcessor.close(); yoloProcessor.close() }

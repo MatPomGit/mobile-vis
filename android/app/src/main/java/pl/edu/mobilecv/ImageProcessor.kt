@@ -29,6 +29,14 @@ import kotlin.math.hypot
  * Applies OpenCV image-processing filters to Android [Bitmap] frames.
  */
 class ImageProcessor {
+    data class RuntimeBenchmarkSnapshot(
+        val filter: OpenCvFilter,
+        val samples: Int,
+        val avgBeforeMs: Double,
+        val avgAfterMs: Double,
+        val fpsBefore: Double,
+        val fpsAfter: Double,
+    )
 
     var calibrator: CameraCalibrator? = null
     var mediaPipeProcessor: MediaPipeProcessor? = null
@@ -101,6 +109,33 @@ class ImageProcessor {
     }
     private val qrCodeDetector by lazy { QRCodeDetector() }
 
+    // Reusable mats for the hottest filters to reduce per-frame allocations.
+    private val srcBuffer = Mat()
+    private val baseFrameBuffer = Mat()
+    private val originalBuffer = Mat()
+    private val grayBuffer = Mat()
+    private val grayRgbaBuffer = Mat()
+    private val cannyBlurBuffer = Mat()
+    private val cannyEdgesBuffer = Mat()
+    private val cannyRgbaBuffer = Mat()
+    private val gaussianBuffer = Mat()
+
+    private data class RuntimeBenchmarkAccumulator(
+        var samples: Int = 0,
+        var beforeNs: Long = 0,
+        var afterNs: Long = 0,
+    )
+
+    private val benchmarkFilters = setOf(
+        OpenCvFilter.ORIGINAL,
+        OpenCvFilter.GRAYSCALE,
+        OpenCvFilter.CANNY_EDGES,
+        OpenCvFilter.GAUSSIAN_BLUR,
+    )
+    private val benchmarkAccumulators = mutableMapOf<OpenCvFilter, RuntimeBenchmarkAccumulator>()
+    @Volatile
+    var benchmarkSampleLimit: Int = 30
+
     fun processFrame(bitmap: Bitmap, filter: OpenCvFilter): Bitmap {
         if (filter != OpenCvFilter.VISUAL_ODOMETRY && filter != OpenCvFilter.POINT_CLOUD) {
             visualOdometryEngine.reset()
@@ -113,59 +148,169 @@ class ImageProcessor {
                 ?: bitmap.copy(Bitmap.Config.ARGB_8888, false)
         }
 
-        val src = Mat()
+        val src = ensureMat(srcBuffer, bitmap.height, bitmap.width, CvType.CV_8UC4)
         Utils.bitmapToMat(bitmap, src)
         val baseFrame = if (isActiveVisionEnabled) {
             activeVisionOptimizer.optimize(src, visualizeWork = isActiveVisionVisualizationEnabled)
         } else {
-            src.clone()
+            val base = ensureMat(baseFrameBuffer, src.rows(), src.cols(), src.type())
+            src.copyTo(base)
+            base
         }
 
-        val processed: Mat = when (filter) {
-            OpenCvFilter.ORIGINAL -> baseFrame.clone()
-            OpenCvFilter.GRAYSCALE -> applyGrayscale(baseFrame)
-            OpenCvFilter.CANNY_EDGES -> applyCanny(baseFrame)
-            OpenCvFilter.GAUSSIAN_BLUR -> applyGaussianBlur(baseFrame)
-            OpenCvFilter.THRESHOLD -> applyThreshold(baseFrame)
-            OpenCvFilter.SOBEL -> applySobel(baseFrame)
-            OpenCvFilter.LAPLACIAN -> applyLaplacian(baseFrame)
-            OpenCvFilter.DILATE -> applyDilate(baseFrame)
-            OpenCvFilter.ERODE -> applyErode(baseFrame)
-            OpenCvFilter.OPEN -> applyMorphEx(baseFrame, Imgproc.MORPH_OPEN)
-            OpenCvFilter.CLOSE -> applyMorphEx(baseFrame, Imgproc.MORPH_CLOSE)
-            OpenCvFilter.GRADIENT -> applyMorphEx(baseFrame, Imgproc.MORPH_GRADIENT)
-            OpenCvFilter.TOP_HAT -> applyMorphEx(baseFrame, Imgproc.MORPH_TOPHAT)
-            OpenCvFilter.BLACK_HAT -> applyMorphEx(baseFrame, Imgproc.MORPH_BLACKHAT)
-            OpenCvFilter.APRIL_TAGS -> applyAprilTagDetection(baseFrame)
-            OpenCvFilter.ARUCO -> applyArucoDetection(baseFrame)
-            OpenCvFilter.QR_CODE -> applyQrCodeDetection(baseFrame)
-            OpenCvFilter.CCTAG -> applyCCTagDetection(baseFrame)
-            OpenCvFilter.CHESSBOARD_CALIBRATION -> applyChessboardCalibration(baseFrame)
-            OpenCvFilter.UNDISTORT -> applyUndistort(baseFrame)
-            OpenCvFilter.VISUAL_ODOMETRY -> applyVisualOdometry(baseFrame)
-            OpenCvFilter.POINT_CLOUD -> applyPointCloud(baseFrame)
-            OpenCvFilter.PLANE_DETECTION -> applyPlaneDetection(baseFrame)
-            OpenCvFilter.VANISHING_POINTS -> applyVanishingPoints(baseFrame)
-            OpenCvFilter.MEDIAN_BLUR -> applyMedianBlur(baseFrame)
-            OpenCvFilter.BILATERAL_FILTER -> applyBilateralFilter(baseFrame)
-            OpenCvFilter.BOX_FILTER -> applyBoxFilter(baseFrame)
-            OpenCvFilter.ADAPTIVE_THRESHOLD -> applyAdaptiveThreshold(baseFrame)
-            OpenCvFilter.HISTOGRAM_EQUALIZATION -> applyHistogramEqualization(baseFrame)
-            OpenCvFilter.SCHARR -> applyScharr(baseFrame)
-            OpenCvFilter.PREWITT -> applyPrewitt(baseFrame)
-            OpenCvFilter.ROBERTS -> applyRoberts(baseFrame)
-            OpenCvFilter.INVERT -> applyInvert(baseFrame)
-            OpenCvFilter.SEPIA -> applySepia(baseFrame)
-            OpenCvFilter.EMBOSS -> applyEmboss(baseFrame)
-            OpenCvFilter.PIXELATE -> applyPixelate(baseFrame)
-            OpenCvFilter.CARTOON -> applyCartoon(baseFrame)
-            else -> baseFrame.clone()
+        val shouldBenchmark = filter in benchmarkFilters
+        var benchmarkBeforeNs = 0L
+        if (shouldBenchmark) {
+            val beforeStart = System.nanoTime()
+            val before = processHotFilterLegacy(baseFrame, filter)
+            benchmarkBeforeNs = System.nanoTime() - beforeStart
+            before.release()
+        }
+
+        val processedPair = when (filter) {
+            OpenCvFilter.ORIGINAL,
+            OpenCvFilter.GRAYSCALE,
+            OpenCvFilter.CANNY_EDGES,
+            OpenCvFilter.GAUSSIAN_BLUR -> processHotFilterBuffered(baseFrame, filter)
+            OpenCvFilter.THRESHOLD -> Triple(applyThreshold(baseFrame), true, 0L)
+            OpenCvFilter.SOBEL -> Triple(applySobel(baseFrame), true, 0L)
+            OpenCvFilter.LAPLACIAN -> Triple(applyLaplacian(baseFrame), true, 0L)
+            OpenCvFilter.DILATE -> Triple(applyDilate(baseFrame), true, 0L)
+            OpenCvFilter.ERODE -> Triple(applyErode(baseFrame), true, 0L)
+            OpenCvFilter.OPEN -> Triple(applyMorphEx(baseFrame, Imgproc.MORPH_OPEN), true, 0L)
+            OpenCvFilter.CLOSE -> Triple(applyMorphEx(baseFrame, Imgproc.MORPH_CLOSE), true, 0L)
+            OpenCvFilter.GRADIENT -> Triple(applyMorphEx(baseFrame, Imgproc.MORPH_GRADIENT), true, 0L)
+            OpenCvFilter.TOP_HAT -> Triple(applyMorphEx(baseFrame, Imgproc.MORPH_TOPHAT), true, 0L)
+            OpenCvFilter.BLACK_HAT -> Triple(applyMorphEx(baseFrame, Imgproc.MORPH_BLACKHAT), true, 0L)
+            OpenCvFilter.APRIL_TAGS -> Triple(applyAprilTagDetection(baseFrame), true, 0L)
+            OpenCvFilter.ARUCO -> Triple(applyArucoDetection(baseFrame), true, 0L)
+            OpenCvFilter.QR_CODE -> Triple(applyQrCodeDetection(baseFrame), true, 0L)
+            OpenCvFilter.CCTAG -> Triple(applyCCTagDetection(baseFrame), true, 0L)
+            OpenCvFilter.CHESSBOARD_CALIBRATION -> Triple(applyChessboardCalibration(baseFrame), true, 0L)
+            OpenCvFilter.UNDISTORT -> Triple(applyUndistort(baseFrame), true, 0L)
+            OpenCvFilter.VISUAL_ODOMETRY -> Triple(applyVisualOdometry(baseFrame), true, 0L)
+            OpenCvFilter.POINT_CLOUD -> Triple(applyPointCloud(baseFrame), true, 0L)
+            OpenCvFilter.PLANE_DETECTION -> Triple(applyPlaneDetection(baseFrame), true, 0L)
+            OpenCvFilter.VANISHING_POINTS -> Triple(applyVanishingPoints(baseFrame), true, 0L)
+            OpenCvFilter.MEDIAN_BLUR -> Triple(applyMedianBlur(baseFrame), true, 0L)
+            OpenCvFilter.BILATERAL_FILTER -> Triple(applyBilateralFilter(baseFrame), true, 0L)
+            OpenCvFilter.BOX_FILTER -> Triple(applyBoxFilter(baseFrame), true, 0L)
+            OpenCvFilter.ADAPTIVE_THRESHOLD -> Triple(applyAdaptiveThreshold(baseFrame), true, 0L)
+            OpenCvFilter.HISTOGRAM_EQUALIZATION -> Triple(applyHistogramEqualization(baseFrame), true, 0L)
+            OpenCvFilter.SCHARR -> Triple(applyScharr(baseFrame), true, 0L)
+            OpenCvFilter.PREWITT -> Triple(applyPrewitt(baseFrame), true, 0L)
+            OpenCvFilter.ROBERTS -> Triple(applyRoberts(baseFrame), true, 0L)
+            OpenCvFilter.INVERT -> Triple(applyInvert(baseFrame), true, 0L)
+            OpenCvFilter.SEPIA -> Triple(applySepia(baseFrame), true, 0L)
+            OpenCvFilter.EMBOSS -> Triple(applyEmboss(baseFrame), true, 0L)
+            OpenCvFilter.PIXELATE -> Triple(applyPixelate(baseFrame), true, 0L)
+            OpenCvFilter.CARTOON -> Triple(applyCartoon(baseFrame), true, 0L)
+            else -> Triple(baseFrame.clone(), true, 0L)
+        }
+        val processed = processedPair.first
+        val shouldReleaseProcessed = processedPair.second
+
+        val benchmarkAfterNs = if (shouldBenchmark) {
+            processedPair.third
+        } else {
+            0L
         }
 
         val result = createBitmap(processed.cols(), processed.rows())
         Utils.matToBitmap(processed, result)
-        src.release(); baseFrame.release(); processed.release()
+        if (shouldReleaseProcessed) {
+            processed.release()
+        }
+        if (isActiveVisionEnabled) {
+            baseFrame.release()
+        }
+        if (shouldBenchmark && benchmarkAfterNs > 0L) {
+            updateBenchmark(filter, benchmarkBeforeNs, benchmarkAfterNs)
+        }
         return result
+    }
+
+    private fun ensureMat(mat: Mat, rows: Int, cols: Int, type: Int): Mat {
+        if (mat.rows() != rows || mat.cols() != cols || mat.type() != type) {
+            mat.create(rows, cols, type)
+        }
+        return mat
+    }
+
+    private fun processHotFilterBuffered(src: Mat, filter: OpenCvFilter): Triple<Mat, Boolean, Long> {
+        val start = System.nanoTime()
+        val output = when (filter) {
+            OpenCvFilter.ORIGINAL -> {
+                val out = ensureMat(originalBuffer, src.rows(), src.cols(), src.type())
+                src.copyTo(out)
+                out
+            }
+            OpenCvFilter.GRAYSCALE -> {
+                val gray = ensureMat(grayBuffer, src.rows(), src.cols(), CvType.CV_8UC1)
+                val out = ensureMat(grayRgbaBuffer, src.rows(), src.cols(), CvType.CV_8UC4)
+                Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
+                Imgproc.cvtColor(gray, out, Imgproc.COLOR_GRAY2RGBA)
+                out
+            }
+            OpenCvFilter.CANNY_EDGES -> {
+                val gray = ensureMat(grayBuffer, src.rows(), src.cols(), CvType.CV_8UC1)
+                val blur = ensureMat(cannyBlurBuffer, src.rows(), src.cols(), CvType.CV_8UC1)
+                val edges = ensureMat(cannyEdgesBuffer, src.rows(), src.cols(), CvType.CV_8UC1)
+                val out = ensureMat(cannyRgbaBuffer, src.rows(), src.cols(), CvType.CV_8UC4)
+                Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
+                Imgproc.GaussianBlur(gray, blur, Size(5.0, 5.0), 0.0)
+                Imgproc.Canny(blur, edges, 50.0, 150.0)
+                Imgproc.cvtColor(edges, out, Imgproc.COLOR_GRAY2RGBA)
+                out
+            }
+            OpenCvFilter.GAUSSIAN_BLUR -> {
+                val out = ensureMat(gaussianBuffer, src.rows(), src.cols(), src.type())
+                Imgproc.GaussianBlur(src, out, Size(5.0, 5.0), 0.0)
+                out
+            }
+            else -> src
+        }
+        return Triple(output, false, System.nanoTime() - start)
+    }
+
+    private fun processHotFilterLegacy(src: Mat, filter: OpenCvFilter): Mat {
+        return when (filter) {
+            OpenCvFilter.ORIGINAL -> src.clone()
+            OpenCvFilter.GRAYSCALE -> applyGrayscale(src)
+            OpenCvFilter.CANNY_EDGES -> applyCanny(src)
+            OpenCvFilter.GAUSSIAN_BLUR -> applyGaussianBlur(src)
+            else -> src.clone()
+        }
+    }
+
+    private fun updateBenchmark(filter: OpenCvFilter, beforeNs: Long, afterNs: Long) {
+        val acc = benchmarkAccumulators.getOrPut(filter) { RuntimeBenchmarkAccumulator() }
+        if (acc.samples >= benchmarkSampleLimit) {
+            return
+        }
+        acc.samples += 1
+        acc.beforeNs += beforeNs
+        acc.afterNs += afterNs
+    }
+
+    fun consumeBenchmarkSnapshot(filter: OpenCvFilter): RuntimeBenchmarkSnapshot? {
+        val acc = benchmarkAccumulators[filter] ?: return null
+        if (acc.samples == 0 || acc.samples < benchmarkSampleLimit) {
+            return null
+        }
+        benchmarkAccumulators.remove(filter)
+        val avgBeforeMs = acc.beforeNs.toDouble() / acc.samples / 1_000_000.0
+        val avgAfterMs = acc.afterNs.toDouble() / acc.samples / 1_000_000.0
+        val fpsBefore = if (avgBeforeMs > 0.0) 1000.0 / avgBeforeMs else 0.0
+        val fpsAfter = if (avgAfterMs > 0.0) 1000.0 / avgAfterMs else 0.0
+        return RuntimeBenchmarkSnapshot(
+            filter = filter,
+            samples = acc.samples,
+            avgBeforeMs = avgBeforeMs,
+            avgAfterMs = avgAfterMs,
+            fpsBefore = fpsBefore,
+            fpsAfter = fpsAfter,
+        )
     }
 
     private fun applyGrayscale(src: Mat): Mat {

@@ -54,6 +54,7 @@ class MainActivity : AppCompatActivity() {
         private const val PREF_ROBOT_PORT = "robot_port"
         private const val PREF_CAMERA_RESOLUTION = "camera_resolution"
         private const val RECORDING_TIMER_FORMAT = "%02d:%02d"
+        private const val UI_UPDATE_MIN_INTERVAL_NS = 33_000_000L
     }
 
     private lateinit var binding: ActivityMainBinding
@@ -98,6 +99,7 @@ class MainActivity : AppCompatActivity() {
     private var lastProcessedBitmap: Bitmap? = null
     private var pendingRecycleBitmap: Bitmap? = null
     private val uiUpdatePending = AtomicBoolean(false)
+    @Volatile private var lastUiUpdateNs: Long = 0
     private lateinit var analysisExecutor: ExecutorService
 
     private val permissionsLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
@@ -581,7 +583,22 @@ class MainActivity : AppCompatActivity() {
             // Write processed frame (with overlays) to the video recorder if active.
             if (isRecording) processedVideoRecorder.writeFrame(processed)
             
-            if (uiUpdatePending.compareAndSet(false, true)) {
+            imageProcessor.consumeBenchmarkSnapshot(currentFilter)?.let { snapshot ->
+                Log.i(
+                    TAG,
+                    "Runtime benchmark ${snapshot.filter.name} " +
+                        "samples=${snapshot.samples} " +
+                        "before_avg_ms=${"%.2f".format(snapshot.avgBeforeMs)} " +
+                        "after_avg_ms=${"%.2f".format(snapshot.avgAfterMs)} " +
+                        "before_fps=${"%.2f".format(snapshot.fpsBefore)} " +
+                        "after_fps=${"%.2f".format(snapshot.fpsAfter)}"
+                )
+            }
+
+            val nowNs = System.nanoTime()
+            val shouldUpdateUi = nowNs - lastUiUpdateNs >= UI_UPDATE_MIN_INTERVAL_NS
+            if (shouldUpdateUi && uiUpdatePending.compareAndSet(false, true)) {
+                lastUiUpdateNs = nowNs
                 runOnUiThread {
                     pendingRecycleBitmap?.recycle(); pendingRecycleBitmap = lastProcessedBitmap; binding.imageViewPreview.setImageBitmap(processed); lastProcessedBitmap = processed; uiUpdatePending.set(false)
                     updateDiagnosticsOverlay(

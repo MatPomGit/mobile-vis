@@ -150,6 +150,8 @@
     <string name="point_cloud_viewer_loaded">Wczytano %1$d punktów</string>
     <string name="point_cloud_viewer_error">Błąd wczytywania pliku: %1$s</string>
     <string name="point_cloud_viewer_points_label">Punkty: %1$d</string>
+    <string name="point_cloud_viewer_reset_rotation">Resetuj obrót</string>
+    <string name="point_cloud_rotate_hint">Przeciągnij, aby obrócić chmurę punktów</string>
 
     <!-- Back to menu button -->
     <string name="back_to_menu_description">Wróć do menu głównego</string>

@@ -26,13 +26,7 @@ import androidx.camera.core.ImageProxy
 import androidx.camera.core.resolutionselector.ResolutionSelector
 import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
-import androidx.camera.video.MediaStoreOutputOptions
-import androidx.camera.video.Quality
-import androidx.camera.video.QualitySelector
-import androidx.camera.video.Recorder
-import androidx.camera.video.Recording
-import androidx.camera.video.VideoCapture
-import androidx.camera.video.VideoRecordEvent
+
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import androidx.core.view.WindowCompat
@@ -69,8 +63,7 @@ class MainActivity : AppCompatActivity() {
     @Volatile private var lensFacing = CameraSelector.LENS_FACING_BACK
     @Volatile private var currentResolution: CameraResolution = CameraResolution.DEFAULT
     private var imageCapture: ImageCapture? = null
-    private var videoCapture: VideoCapture<Recorder>? = null
-    private var activeRecording: Recording? = null
+    private val processedVideoRecorder by lazy { ProcessedVideoRecorder(this) }
     private var isRecording = false
     private var recordingStartTimeMs: Long = 0
     private val recordingTimerHandler = android.os.Handler(android.os.Looper.getMainLooper())
@@ -210,7 +203,10 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        activeRecording?.stop()
+        if (isRecording) {
+            isRecording = false
+            analysisExecutor.execute { processedVideoRecorder.finalize { } }
+        }
         stopRecordingTimer()
         analysisExecutor.execute { mediaPipeProcessor.close(); yoloProcessor.close() }
         analysisExecutor.shutdown()
@@ -559,8 +555,7 @@ class MainActivity : AppCompatActivity() {
         val resolutionSelector = ResolutionSelector.Builder().setResolutionStrategy(ResolutionStrategy(currentResolution.size, ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER)).build()
         val imageAnalysis = ImageAnalysis.Builder().setResolutionSelector(resolutionSelector).setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST).setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888).build().also { it.setAnalyzer(analysisExecutor) { proxy -> processFrame(proxy) } }
         imageCapture = ImageCapture.Builder().setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY).build()
-        videoCapture = VideoCapture.withOutput(Recorder.Builder().setQualitySelector(QualitySelector.from(Quality.HIGHEST)).build())
-        try { provider.unbindAll(); fpsCounter.reset(); provider.bindToLifecycle(this, cameraSelector, imageAnalysis, imageCapture, videoCapture) } catch (e: Exception) { Log.e(TAG, "Binding failed", e) }
+        try { provider.unbindAll(); fpsCounter.reset(); provider.bindToLifecycle(this, cameraSelector, imageAnalysis, imageCapture) } catch (e: Exception) { Log.e(TAG, "Binding failed", e) }
     }
 
     private fun processFrame(imageProxy: ImageProxy) {
@@ -578,6 +573,9 @@ class MainActivity : AppCompatActivity() {
             val time = (System.nanoTime() - start) / 1_000_000L
             
             frameWidth = processed.width; frameHeight = processed.height; fpsCounter.onFrame()
+
+            // Write processed frame (with overlays) to the video recorder if active.
+            if (isRecording) processedVideoRecorder.writeFrame(processed)
             
             if (uiUpdatePending.compareAndSet(false, true)) {
                 runOnUiThread {
@@ -647,13 +645,36 @@ class MainActivity : AppCompatActivity() {
 
     @SuppressLint("MissingPermission")
     private fun startVideoRecording() {
-        val vc = videoCapture ?: return
-        isRecording = true; updateCaptureButtonState()
-        val values = ContentValues().apply { put(MediaStore.MediaColumns.DISPLAY_NAME, "VID_${System.currentTimeMillis()}"); put(MediaStore.MediaColumns.MIME_TYPE, "video/mp4"); if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/MobileCV") }
-        activeRecording = vc.output.prepareRecording(this, MediaStoreOutputOptions.Builder(contentResolver, MediaStore.Video.Media.EXTERNAL_CONTENT_URI).setContentValues(values).build()).apply { if (requiredPermissions().contains(Manifest.permission.RECORD_AUDIO) && ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) withAudioEnabled() }.start(ContextCompat.getMainExecutor(this)) { event -> if (event is VideoRecordEvent.Finalize) { isRecording = false; activeRecording = null; updateCaptureButtonState(); Toast.makeText(this, if (event.hasError()) R.string.video_error else R.string.video_saved, Toast.LENGTH_SHORT).show() } }
+        val hasAudio = requiredPermissions().contains(Manifest.permission.RECORD_AUDIO) &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
+            PackageManager.PERMISSION_GRANTED
+        val started = processedVideoRecorder.start(withAudio = hasAudio)
+        if (!started) {
+            Toast.makeText(this, R.string.video_error, Toast.LENGTH_SHORT).show()
+            return
+        }
+        isRecording = true
+        updateCaptureButtonState()
     }
 
-    private fun stopVideoRecording() = activeRecording?.stop()
+    private fun stopVideoRecording() {
+        if (!isRecording) return
+        isRecording = false
+        updateCaptureButtonState()
+        analysisExecutor.submit {
+            processedVideoRecorder.finalize { success ->
+                runOnUiThread {
+                    if (!isDestroyed && !isFinishing) {
+                        Toast.makeText(
+                            this,
+                            if (success) R.string.video_saved else R.string.video_error,
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    }
+                }
+            }
+        }
+    }
 
     private fun startRecordingTimer() {
         recordingStartTimeMs = System.currentTimeMillis()

@@ -152,9 +152,12 @@ class PointCloudViewerActivity : AppCompatActivity() {
  * Custom view that renders a point cloud using an orthographic projection.
  * The cloud can be rotated in 3D by dragging with one finger.
  *
- * Rotation is implemented as a simple Y-then-X Euler rotation applied to centred
- * point coordinates before 2D projection. Depth (Z) is encoded as colour brightness
- * (painter's algorithm ensures far points are drawn first).
+ * Rotation is implemented as a Y-then-X Euler rotation applied to centred point coordinates
+ * before 2D projection. Depth (Z after rotation) is encoded as colour brightness.
+ * The painter's algorithm (back-to-front sort) is used for correct depth ordering.
+ *
+ * Performance: the cloud centroid is cached on [setPoints]. The rotated/sorted list is
+ * cached between frames and only recomputed when the rotation angles or point data changes.
  */
 class PointCloudView(context: Context, attrs: android.util.AttributeSet?) : View(context, attrs) {
 
@@ -162,14 +165,34 @@ class PointCloudView(context: Context, attrs: android.util.AttributeSet?) : View
         /** Radians of rotation per screen pixel dragged. */
         private const val ROTATION_SENSITIVITY = 0.005f
         private const val POINT_RADIUS = 3f
+        private const val HINT_TEXT_ALPHA = 160
+        private const val HINT_TEXT_SIZE = 36f
+        /** Distance from the bottom edge at which the drag hint is drawn, in pixels. */
+        private const val HINT_BOTTOM_OFFSET = 60f
     }
 
     private var points: List<Triple<Float, Float, Float>> = emptyList()
+
+    /** Cached centroid of [points], recomputed only in [setPoints]. */
+    private var centroidX = 0f
+    private var centroidY = 0f
+    private var centroidZ = 0f
+
+    /**
+     * Pre-computed rotated and depth-sorted list.
+     * Recomputed only when [projectedDirty] is true.
+     */
+    private var projected: MutableList<Triple<Float, Float, Float>> = mutableListOf()
+    private var minX = 0f; private var maxX = 0f
+    private var minY = 0f; private var maxY = 0f
+    private var minZ = 0f; private var maxZ = 0f
+    private var projectedDirty = true
+
     private val paint = Paint().apply { isAntiAlias = true }
     private val hintPaint = Paint().apply {
         isAntiAlias = true
-        color = Color.argb(160, 255, 255, 255)
-        textSize = 36f
+        color = Color.argb(HINT_TEXT_ALPHA, 255, 255, 255)
+        textSize = HINT_TEXT_SIZE
         textAlign = Paint.Align.CENTER
     }
 
@@ -187,6 +210,20 @@ class PointCloudView(context: Context, attrs: android.util.AttributeSet?) : View
     /** Replaces the displayed point cloud and resets rotation to the default view. */
     fun setPoints(pts: List<Triple<Float, Float, Float>>) {
         points = pts
+        if (pts.isNotEmpty()) {
+            // Compute centroid in a single pass to avoid three separate iterations
+            var sumX = 0.0; var sumY = 0.0; var sumZ = 0.0
+            for ((x, y, z) in pts) {
+                sumX += x
+                sumY += y
+                sumZ += z
+            }
+            val n = pts.size.toDouble()
+            centroidX = (sumX / n).toFloat()
+            centroidY = (sumY / n).toFloat()
+            centroidZ = (sumZ / n).toFloat()
+        }
+        projectedDirty = true
         resetRotation()
     }
 
@@ -195,6 +232,7 @@ class PointCloudView(context: Context, attrs: android.util.AttributeSet?) : View
         rotX = 0f
         rotY = 0f
         everRotated = false
+        projectedDirty = true
         invalidate()
     }
 
@@ -217,6 +255,7 @@ class PointCloudView(context: Context, attrs: android.util.AttributeSet?) : View
                     lastTouchX = event.x
                     lastTouchY = event.y
                     everRotated = true
+                    projectedDirty = true
                     invalidate()
                 }
                 return true
@@ -229,24 +268,30 @@ class PointCloudView(context: Context, attrs: android.util.AttributeSet?) : View
         return super.onTouchEvent(event)
     }
 
-    override fun onDraw(canvas: Canvas) {
-        super.onDraw(canvas)
-        canvas.drawColor(Color.BLACK)
+    /** Recomputes [projected] (rotation + sort) only when [projectedDirty]. */
+    private fun ensureProjected() {
+        if (!projectedDirty) return
+        projectedDirty = false
 
-        if (points.isEmpty()) return
+        val cosX = cos(rotX)
+        val sinX = sin(rotX)
+        val cosY = cos(rotY)
+        val sinY = sin(rotY)
 
-        val cosX = cos(rotX); val sinX = sin(rotX)
-        val cosY = cos(rotY); val sinY = sin(rotY)
+        if (projected.size != points.size) {
+            projected = ArrayList(points.size)
+            repeat(points.size) { projected.add(Triple(0f, 0f, 0f)) }
+        }
 
-        // Compute centroid for rotation about the cloud centre
-        val cx = points.map { it.first }.average().toFloat()
-        val cy = points.map { it.second }.average().toFloat()
-        val cz = points.map { it.third }.average().toFloat()
+        var pMinX = Float.MAX_VALUE; var pMaxX = -Float.MAX_VALUE
+        var pMinY = Float.MAX_VALUE; var pMaxY = -Float.MAX_VALUE
+        var pMinZ = Float.MAX_VALUE; var pMaxZ = -Float.MAX_VALUE
 
-        // Apply Y-then-X Euler rotation and collect projected (rx, ry) + depth (rz)
-        val projected = ArrayList<Triple<Float, Float, Float>>(points.size)
-        for ((x, y, z) in points) {
-            val tx = x - cx; val ty = y - cy; val tz = z - cz
+        for (i in points.indices) {
+            val (x, y, z) = points[i]
+            val tx = x - centroidX
+            val ty = y - centroidY
+            val tz = z - centroidZ
 
             // Rotate around Y axis (horizontal drag → azimuth)
             val rx1 = tx * cosY + tz * sinY
@@ -258,17 +303,32 @@ class PointCloudView(context: Context, attrs: android.util.AttributeSet?) : View
             val ry2 = ry1 * cosX - rz1 * sinX
             val rz2 = ry1 * sinX + rz1 * cosX
 
-            projected.add(Triple(rx2, ry2, rz2))
+            projected[i] = Triple(rx2, ry2, rz2)
+
+            if (rx2 < pMinX) pMinX = rx2
+            if (rx2 > pMaxX) pMaxX = rx2
+            if (ry2 < pMinY) pMinY = ry2
+            if (ry2 > pMaxY) pMaxY = ry2
+            if (rz2 < pMinZ) pMinZ = rz2
+            if (rz2 > pMaxZ) pMaxZ = rz2
         }
 
-        // Normalise to view bounds
-        val xs = projected.map { it.first }
-        val ys = projected.map { it.second }
-        val zs = projected.map { it.third }
+        minX = pMinX; maxX = pMaxX
+        minY = pMinY; maxY = pMaxY
+        minZ = pMinZ; maxZ = pMaxZ
 
-        val minX = xs.min(); val maxX = xs.max()
-        val minY = ys.min(); val maxY = ys.max()
-        val minZ = zs.min(); val maxZ = zs.max()
+        // Painter's algorithm: sort back-to-front so near points appear on top
+        projected.sortBy { it.third }
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+        canvas.drawColor(Color.BLACK)
+
+        if (points.isEmpty()) return
+
+        ensureProjected()
+
         val rangeX = max(1f, maxX - minX)
         val rangeY = max(1f, maxY - minY)
         val rangeZ = max(1f, maxZ - minZ)
@@ -278,10 +338,7 @@ class PointCloudView(context: Context, attrs: android.util.AttributeSet?) : View
         val drawW = width - 2 * padX
         val drawH = height - 2 * padY
 
-        // Painter's algorithm: render far points (low Z) first so near points appear on top
-        val sorted = projected.sortedBy { it.third }
-
-        for ((rx, ry, rz) in sorted) {
+        for ((rx, ry, rz) in projected) {
             val px = padX + (rx - minX) / rangeX * drawW
             val py = padY + (ry - minY) / rangeY * drawH
             val brightness = ((rz - minZ) / rangeZ * 205 + 50).toInt().coerceIn(50, 255)
@@ -294,7 +351,7 @@ class PointCloudView(context: Context, attrs: android.util.AttributeSet?) : View
             canvas.drawText(
                 context.getString(R.string.point_cloud_rotate_hint),
                 width / 2f,
-                height - 60f,
+                height - HINT_BOTTOM_OFFSET,
                 hintPaint,
             )
         }

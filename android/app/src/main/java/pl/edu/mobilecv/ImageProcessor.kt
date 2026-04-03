@@ -342,11 +342,19 @@ class ImageProcessor {
     }
 
     private fun applyPointCloud(src: Mat): Mat {
-        val res = src.clone()
         visualOdometryEngine.processFrameRgba(src, calibrator)
+        val res = Mat.zeros(src.rows(), src.cols(), src.type())
         val cloud = visualOdometryEngine.lastPointCloud
         if (cloud != null) {
-            Imgproc.putText(res, "$labelPointCloud: ${cloud.points.size}", Point(30.0, 30.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.7, Scalar(255.0, 255.0, 255.0), 2)
+            if (isVoMeshEnabled) {
+                for ((p1, p2) in cloud.edges) {
+                    Imgproc.line(res, p1, p2, Scalar(0.0, 128.0, 255.0, 255.0), POINT_CLOUD_MESH_THICKNESS)
+                }
+            }
+            for (pt in cloud.points) {
+                Imgproc.circle(res, pt, POINT_CLOUD_CIRCLE_RADIUS, Scalar(0.0, 255.0, 255.0, 255.0), -1)
+            }
+            Imgproc.putText(res, "$labelPointCloud: ${cloud.points.size}", Point(30.0, 30.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.7, Scalar(255.0, 255.0, 255.0, 255.0), 2)
         }
         return res
     }
@@ -355,6 +363,8 @@ class ImageProcessor {
         private const val TAG = "ImageProcessor"
         private const val CLUSTER_ANGLE_THRESHOLD_DEG = 8.0
         private const val MAX_LINE_DIRECTION_CLUSTERS = 4
+        private const val POINT_CLOUD_CIRCLE_RADIUS = 3
+        private const val POINT_CLOUD_MESH_THICKNESS = 1
     }
 
     /**
@@ -425,10 +435,12 @@ class ImageProcessor {
             )
             val sortedClusters = clusters.sortedByDescending { it.size }.take(MAX_LINE_DIRECTION_CLUSTERS)
             var planeIdx = 0
+            val usedClusters = mutableSetOf<Int>()
 
             for (i in sortedClusters.indices) {
                 for (j in i + 1 until sortedClusters.size) {
                     if (planeIdx >= 3) break
+                    if (i in usedClusters || j in usedClusters) continue
                     val c1 = sortedClusters[i]; val c2 = sortedClusters[j]
                     if (c1.size + c2.size < 4) continue
                     val color = planeColors[planeIdx % planeColors.size]
@@ -467,6 +479,8 @@ class ImageProcessor {
                     }
 
                     Imgproc.putText(res, "P${planeIdx + 1} ($confidence%)", Point(cx + 8, cy), Imgproc.FONT_HERSHEY_SIMPLEX, 0.55, color, 2)
+                    usedClusters.add(i)
+                    usedClusters.add(j)
                     planeIdx++
                 }
             }

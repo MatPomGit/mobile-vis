@@ -374,6 +374,38 @@ class TestDetectPlanes:
                 assert plane.mask.shape == (h, w)
                 assert plane.mask.dtype == np.uint8
 
+    def test_no_cluster_shared_across_planes(self) -> None:
+        """Each line-direction cluster must belong to at most one plane.
+
+        The total inlier count across all planes must not exceed the number of
+        detected line segments (no double-counting from shared clusters).
+        """
+        # Build an image with 4 clearly distinct line directions so that up to
+        # 2 non-overlapping planes can be formed.
+        size = 300
+        canvas = np.full((size, size, 3), 255, dtype=np.uint8)
+        # Direction 0°: horizontal lines
+        for y in range(30, size, 60):
+            cv2.line(canvas, (0, y), (size - 1, y), (0, 0, 0), 2)
+        # Direction 90°: vertical lines
+        for x in range(30, size, 60):
+            cv2.line(canvas, (x, 0), (x, size - 1), (0, 0, 0), 2)
+        # Direction 45°: diagonal lines
+        for offset in range(-size, size * 2, 60):
+            cv2.line(canvas, (offset, 0), (offset + size, size), (0, 0, 0), 2)
+        # Direction 135°: anti-diagonal lines
+        for offset in range(-size, size * 2, 60):
+            cv2.line(canvas, (offset, size), (offset + size, 0), (0, 0, 0), 2)
+
+        gray = cv2.cvtColor(canvas, cv2.COLOR_BGR2GRAY)
+        lines = _detect_lines(gray)
+        total_line_count = len(lines) if lines is not None else 0
+
+        result = detect_planes(canvas, max_planes=3)
+        total_inliers = sum(p.inlier_count for p in result)
+        # With cluster exclusion each line segment is counted at most once.
+        assert total_inliers <= total_line_count
+
 
 # ---------------------------------------------------------------------------
 # fit_plane_ransac - input validation

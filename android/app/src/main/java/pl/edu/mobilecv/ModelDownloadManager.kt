@@ -28,6 +28,15 @@ object ModelDownloadManager {
     /** Read timeout in seconds for model download responses. */
     private const val READ_TIMEOUT_SECONDS = 120L
 
+    /** Write timeout in seconds for model download requests. */
+    private const val WRITE_TIMEOUT_SECONDS = 60L
+
+    /** Maximum number of download attempts before giving up (includes the initial attempt). */
+    private const val MAX_DOWNLOAD_RETRIES = 3
+
+    /** Milliseconds to wait before the first retry.  Doubles on each subsequent retry. */
+    private const val RETRY_DELAY_MS = 2_000L
+
     /**
      * Remote base URL for MediaPipe model bundles hosted on Google Cloud Storage.
      *
@@ -70,6 +79,7 @@ object ModelDownloadManager {
         OkHttpClient.Builder()
             .connectTimeout(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .readTimeout(READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .writeTimeout(WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .build()
     }
 
@@ -142,6 +152,10 @@ object ModelDownloadManager {
     /**
      * Download a single model file from [url] to [dest].
      *
+     * Each attempt writes to a temporary file alongside [dest] and atomically renames
+     * it on success.  Failed attempts are retried up to [MAX_DOWNLOAD_RETRIES] times
+     * with exponential back-off (starting at [RETRY_DELAY_MS] ms, doubling each time).
+     *
      * @param context Application or activity context.
      * @param filename Logical filename used for logging.
      * @param url Source URL.
@@ -149,32 +163,52 @@ object ModelDownloadManager {
      * @return ``true`` on success.
      */
     private fun downloadModel(context: Context, filename: String, url: String, dest: File): Boolean {
-        val tempFile = File(dest.parent, "$filename.tmp")
         dest.parentFile?.mkdirs()
 
         Log.i(TAG, "Downloading $filename from $url")
 
-        return try {
-            val request = Request.Builder().url(url).build()
-            httpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    Log.e(TAG, "HTTP ${response.code} downloading $filename")
-                    return false
-                }
-                response.body.byteStream().use { input ->
-                    tempFile.outputStream().use { output ->
-                        input.copyTo(output)
+        var delay = RETRY_DELAY_MS
+        for (attempt in 1..MAX_DOWNLOAD_RETRIES) {
+            val tempFile = File(dest.parent, "$filename.tmp")
+            var attemptSucceeded = false
+            try {
+                val request = Request.Builder().url(url).build()
+                httpClient.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        Log.w(TAG, "HTTP ${response.code} downloading $filename (attempt $attempt/$MAX_DOWNLOAD_RETRIES)")
+                        return@use
+                    }
+                    response.body.byteStream().use { input ->
+                        tempFile.outputStream().use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+                    if (tempFile.renameTo(dest)) {
+                        Log.i(TAG, "Downloaded $filename (${dest.length()} bytes)")
+                        attemptSucceeded = true
+                    } else {
+                        Log.w(TAG, "Failed to rename temp file for $filename (attempt $attempt/$MAX_DOWNLOAD_RETRIES)")
                     }
                 }
+            } catch (e: Exception) {
+                Log.w(TAG, "Exception downloading $filename (attempt $attempt/$MAX_DOWNLOAD_RETRIES): ${e.message}")
+            } finally {
+                if (!attemptSucceeded) {
+                    tempFile.delete()
+                }
             }
-            tempFile.renameTo(dest)
-            Log.i(TAG, "Downloaded $filename (${dest.length()} bytes)")
-            true
-        } catch (e: Exception) {
-            Log.e(TAG, "Exception downloading $filename", e)
-            tempFile.delete()
-            false
+
+            if (attemptSucceeded) return true
+
+            if (attempt < MAX_DOWNLOAD_RETRIES) {
+                Log.i(TAG, "Retrying $filename in ${delay}ms")
+                Thread.sleep(delay)
+                delay *= 2
+            }
         }
+
+        Log.e(TAG, "Failed to download $filename after $MAX_DOWNLOAD_RETRIES attempts")
+        return false
     }
 
     /**

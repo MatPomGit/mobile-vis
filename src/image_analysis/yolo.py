@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -58,6 +59,13 @@ YOLO_NMS_IOU_THRESHOLD: float = 0.45
 
 #: Default pretrained model weights downloaded by *ultralytics* on first use.
 DEFAULT_YOLO_MODEL: str = "yolov8n.pt"
+
+#: Maximum number of attempts when downloading YOLO model weights fails transiently.
+YOLO_DOWNLOAD_MAX_RETRIES: int = 3
+
+#: Seconds to wait before the first retry attempt.  Each subsequent retry waits twice
+#: as long (exponential back-off: 2 s → 4 s → 8 s).
+YOLO_DOWNLOAD_RETRY_DELAY_SECONDS: float = 2.0
 
 # ---------------------------------------------------------------------------
 # Data types
@@ -130,9 +138,17 @@ class YoloDetector:
         Calling this method explicitly is useful to measure load time
         separately from inference time.
 
+        On the first call with a bare model name (e.g. ``"yolov8n.pt"``), the
+        ``ultralytics`` package will attempt to download the weights from the
+        internet.  If the download fails transiently (e.g. due to a brief
+        network outage), it is retried up to :data:`YOLO_DOWNLOAD_MAX_RETRIES`
+        times with exponential back-off before raising.
+
         Raises:
-            FileNotFoundError: If *model_path* is not found on disk and
-                ``ultralytics`` cannot download it automatically.
+            FileNotFoundError: If *model_path* is an explicit path that does
+                not exist on disk.
+            RuntimeError: If the model cannot be downloaded after all retry
+                attempts have been exhausted.
         """
         if self._model is not None:
             return
@@ -140,9 +156,10 @@ class YoloDetector:
 
         str_path = str(self._model_path)
         if not self._model_path.exists() and "/" not in str_path and "\\" not in str_path:
-            # Let ultralytics resolve the name (e.g. "yolov8n.pt")
+            # Let ultralytics resolve the name (e.g. "yolov8n.pt"), retrying on
+            # transient network errors.
             logger.info("Loading YOLO model %s (may download weights)", str_path)
-            self._model = YOLO(str_path)
+            self._model = _load_with_retry(YOLO, str_path)
         elif not self._model_path.exists():
             raise FileNotFoundError(f"YOLO model not found: {self._model_path}")
         else:
@@ -470,6 +487,61 @@ def _is_dark_color(bgr: tuple[int, int, int]) -> bool:
     b, g, r = bgr
     luminance = 0.114 * b + 0.587 * g + 0.299 * r
     return luminance < 128
+
+
+def _load_with_retry(
+    yolo_cls: type,
+    model_name: str,
+    max_retries: int = YOLO_DOWNLOAD_MAX_RETRIES,
+    retry_delay: float = YOLO_DOWNLOAD_RETRY_DELAY_SECONDS,
+) -> "_UltralyticsYOLO":
+    """Attempt to instantiate *yolo_cls(model_name)*, retrying on transient failures.
+
+    Retries are spaced using exponential back-off: the first retry waits
+    *retry_delay* seconds, the second waits twice as long, and so on.
+
+    Args:
+        yolo_cls: The ``ultralytics.YOLO`` class (passed in to keep the import
+            deferred and make the function easy to test with a mock).
+        model_name: Model name or path forwarded to *yolo_cls*.
+        max_retries: Total number of attempts (including the initial one).
+        retry_delay: Wait time in seconds before the first retry.
+
+    Returns:
+        A loaded ``ultralytics.YOLO`` instance.
+
+    Raises:
+        RuntimeError: If all attempts fail.
+    """
+    last_exc: BaseException | None = None
+    delay = retry_delay
+    for attempt in range(1, max_retries + 1):
+        try:
+            return yolo_cls(model_name)
+        except Exception as exc:  # noqa: BLE001
+            last_exc = exc
+            if attempt < max_retries:
+                logger.warning(
+                    "Failed to load/download YOLO model '%s' (attempt %d/%d): %s"
+                    " – retrying in %.1f s",
+                    model_name,
+                    attempt,
+                    max_retries,
+                    exc,
+                    delay,
+                )
+                time.sleep(delay)
+                delay *= 2
+            else:
+                logger.error(
+                    "Failed to load/download YOLO model '%s' after %d attempts: %s",
+                    model_name,
+                    max_retries,
+                    exc,
+                )
+    raise RuntimeError(
+        f"Failed to download YOLO model '{model_name}' after {max_retries} attempts."
+    ) from last_exc
 
 
 def _require_ultralytics() -> None:

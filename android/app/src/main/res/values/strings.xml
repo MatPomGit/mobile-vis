@@ -94,6 +94,10 @@
     <string name="mediapipe_model_missing_pose">Model pozy niedostępny – pobieranie…</string>
     <string name="mediapipe_model_missing_hands">Model rąk niedostępny – pobieranie…</string>
     <string name="mediapipe_model_missing_face">Model twarzy niedostępny – pobieranie…</string>
+    <string name="mediapipe_person_detected">Wykryto: %d os.</string>
+    <string name="mediapipe_no_person">Nie wykryto człowieka</string>
+    <string name="mediapipe_mouth_open">Usta otwarte</string>
+    <string name="mediapipe_speaking">Mówi!</string>
 
     <!-- YOLO object detection -->
     <string name="yolo_models_downloading">Pobieranie modeli YOLO w tle…</string>

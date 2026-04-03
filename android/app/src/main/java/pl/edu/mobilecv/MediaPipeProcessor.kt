@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Rect
 import android.util.Log
 import com.google.mediapipe.framework.image.BitmapImageBuilder
 import com.google.mediapipe.tasks.components.containers.NormalizedLandmark
@@ -58,6 +59,42 @@ class MediaPipeProcessor(private val context: Context) {
         private const val LANDMARK_RADIUS = 4f
         private const val LINE_WIDTH = 3f
 
+        /** Jaw open blendshape score thresholds for mouth-state detection. */
+        private const val MOUTH_OPEN_THRESHOLD = 0.15f
+        private const val MOUTH_TALKING_THRESHOLD = 0.30f
+
+        /**
+         * Multiplier applied to the normalised iris-vs-eye-centre offset when drawing gaze lines.
+         * A value of 8 makes the line 8× longer than the raw offset, improving visibility.
+         */
+        private const val GAZE_LINE_SCALE = 8f
+        private const val GAZE_LINE_WIDTH = 5f
+        private const val INFO_TEXT_SIZE = 42f
+        private const val INFO_BADGE_MARGIN = 8f
+        private const val INFO_BADGE_PADDING = 10f
+
+        // ------------------------------------------------------------------
+        // Named eye / iris landmark indices (MediaPipe 478-point face mesh)
+        // ------------------------------------------------------------------
+
+        /** Lateral (temporal) corner of the left eye. */
+        private const val LEFT_EYE_OUTER = 33
+
+        /** Medial (nasal) corner of the left eye. */
+        private const val LEFT_EYE_INNER = 133
+
+        /** Lateral (temporal) corner of the right eye. */
+        private const val RIGHT_EYE_OUTER = 263
+
+        /** Medial (nasal) corner of the right eye. */
+        private const val RIGHT_EYE_INNER = 362
+
+        /** Centre landmark of the left iris (index 468 in the 478-point mesh). */
+        private const val LEFT_IRIS_CENTER = 468
+
+        /** Centre landmark of the right iris (index 473 in the 478-point mesh). */
+        private const val RIGHT_IRIS_CENTER = 473
+
         /** MediaPipe Pose landmarks connections (subset for visualization). */
         private val POSE_CONNECTIONS = listOf(
             0 to 1, 1 to 2, 2 to 3, 3 to 7, 0 to 4, 4 to 5, 5 to 6, 6 to 8,
@@ -101,6 +138,31 @@ class MediaPipeProcessor(private val context: Context) {
         isFakeBoldText = true
         setShadowLayer(5f, 0f, 0f, Color.BLACK)
     }
+
+    /** Semi-transparent paint for info text backgrounds. */
+    private val infoBgPaint = Paint().apply {
+        color = 0x99000000.toInt()
+        style = Paint.Style.FILL
+    }
+
+    /** Paint for person-detection and mouth-status overlay text. */
+    private val infoPaint = Paint().apply {
+        textSize = INFO_TEXT_SIZE
+        isFakeBoldText = true
+        isAntiAlias = true
+        setShadowLayer(6f, 0f, 0f, Color.BLACK)
+    }
+
+    /** Paint for gaze-direction lines drawn from iris centres. */
+    private val gazePaint = Paint().apply {
+        style = Paint.Style.STROKE
+        strokeWidth = GAZE_LINE_WIDTH
+        isAntiAlias = true
+        strokeCap = Paint.Cap.ROUND
+    }
+
+    /** Reusable Rect used for text-bounds measurement to avoid per-frame allocations. */
+    private val textBoundsRect = Rect()
 
     /**
      * Initialize all required MediaPipe detectors.
@@ -149,15 +211,35 @@ class MediaPipeProcessor(private val context: Context) {
             context.getString(R.string.mediapipe_model_missing_pose)
         )
 
-        val mpImage = BitmapImageBuilder(ensureArgb8888(bitmap)).build()
-        val result: PoseLandmarkerResult = detector.detect(mpImage)
+        val argbBitmap = ensureArgb8888(bitmap)
+        val result: PoseLandmarkerResult = detector.detect(BitmapImageBuilder(argbBitmap).build())
 
         val output = bitmap.copy(Bitmap.Config.ARGB_8888, true)
         val canvas = Canvas(output)
 
+        val personCount = result.landmarks().size
+
         for (person in result.landmarks()) {
             drawConnections(canvas, person, output.width, output.height, POSE_COLOR, POSE_CONNECTIONS)
             drawDots(canvas, person, output.width, output.height, POSE_COLOR)
+        }
+
+        // -- Human detection info overlay --
+        val personBadgeBottom = drawPersonInfo(canvas, personCount)
+
+        // -- Mouth / speaking detection (runs FaceLandmarker on the same frame) --
+        if (personCount > 0) {
+            faceLandmarker?.let { faceDetector ->
+                runCatching {
+                    val faceResult: FaceLandmarkerResult =
+                        faceDetector.detect(BitmapImageBuilder(argbBitmap).build())
+                    // Only examine the first detected face to avoid overlapping status badges.
+                    if (faceResult.faceLandmarks().isNotEmpty()) {
+                        val jawOpen = extractJawOpen(faceResult, 0)
+                        drawMouthStatus(canvas, jawOpen, personBadgeBottom)
+                    }
+                }.onFailure { e -> Log.w(TAG, "Face detection in pose mode failed", e) }
+            }
         }
 
         return output
@@ -190,11 +272,7 @@ class MediaPipeProcessor(private val context: Context) {
 
     private fun applyFaceLandmarker(bitmap: Bitmap, iris: Boolean): Bitmap {
         val detector = if (iris) faceLandmarkerIris else faceLandmarker
-        val missingMsg = if (iris) {
-            context.getString(R.string.mediapipe_model_missing_face)
-        } else {
-            context.getString(R.string.mediapipe_model_missing_face)
-        }
+        val missingMsg = context.getString(R.string.mediapipe_model_missing_face)
 
         if (detector == null) {
             return overlayMissingModel(bitmap, missingMsg)
@@ -220,6 +298,8 @@ class MediaPipeProcessor(private val context: Context) {
             if (iris && face.size >= 478) {
                 drawIrisCircle(canvas, face, output.width, output.height, LEFT_IRIS_INDICES, IRIS_COLOR_LEFT)
                 drawIrisCircle(canvas, face, output.width, output.height, RIGHT_IRIS_INDICES, IRIS_COLOR_RIGHT)
+                // Draw gaze-direction lines extending from each iris centre.
+                drawGazeLines(canvas, face, output.width, output.height)
             }
         }
 
@@ -360,12 +440,148 @@ class MediaPipeProcessor(private val context: Context) {
                 .setBaseOptions(BaseOptions.builder().setModelAssetPath(modelPath).build())
                 .setRunningMode(RunningMode.IMAGE)
                 .setNumFaces(1)
-                .setOutputFaceBlendshapes(false)
+                .setOutputFaceBlendshapes(true)
                 .build()
             FaceLandmarker.createFromOptions(context, options)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to create FaceLandmarker (iris=$refineIris)", e)
             null
         }
+    }
+
+    // ------------------------------------------------------------------
+    // Info / gaze overlay helpers
+    // ------------------------------------------------------------------
+
+    /**
+     * Draw a person-count badge at the top-left of the canvas.
+     *
+     * @return The bottom Y coordinate of the drawn badge (for stacking subsequent labels below it).
+     */
+    private fun drawPersonInfo(canvas: Canvas, personCount: Int): Float {
+        val text = if (personCount > 0) {
+            context.getString(R.string.mediapipe_person_detected, personCount)
+        } else {
+            context.getString(R.string.mediapipe_no_person)
+        }
+        infoPaint.color = if (personCount > 0) Color.GREEN else Color.RED
+        infoPaint.getTextBounds(text, 0, text.length, textBoundsRect)
+        val badgeBottom = textBoundsRect.height() + INFO_BADGE_MARGIN + INFO_BADGE_PADDING * 2
+        canvas.drawRect(
+            INFO_BADGE_MARGIN,
+            INFO_BADGE_MARGIN,
+            textBoundsRect.width() + INFO_BADGE_MARGIN + INFO_BADGE_PADDING * 2,
+            badgeBottom,
+            infoBgPaint,
+        )
+        canvas.drawText(
+            text,
+            INFO_BADGE_MARGIN + INFO_BADGE_PADDING,
+            INFO_BADGE_MARGIN + INFO_BADGE_PADDING + textBoundsRect.height(),
+            infoPaint,
+        )
+        return badgeBottom
+    }
+
+    /**
+     * Draw mouth-state label ("Usta otwarte" / "Mówi!") when [jawOpen] exceeds a threshold.
+     *
+     * @param personBadgeBottom Bottom Y coordinate returned by [drawPersonInfo]; the label is
+     *   placed below that position so the two badges do not overlap.
+     */
+    private fun drawMouthStatus(canvas: Canvas, jawOpen: Float, personBadgeBottom: Float) {
+        val (text, color) = when {
+            jawOpen > MOUTH_TALKING_THRESHOLD ->
+                context.getString(R.string.mediapipe_speaking) to Color.YELLOW
+            jawOpen > MOUTH_OPEN_THRESHOLD ->
+                context.getString(R.string.mediapipe_mouth_open) to Color.WHITE
+            else -> return
+        }
+        infoPaint.color = color
+        infoPaint.getTextBounds(text, 0, text.length, textBoundsRect)
+        val topY = personBadgeBottom + INFO_BADGE_MARGIN
+        canvas.drawRect(
+            INFO_BADGE_MARGIN,
+            topY,
+            textBoundsRect.width() + INFO_BADGE_MARGIN + INFO_BADGE_PADDING * 2,
+            topY + textBoundsRect.height() + INFO_BADGE_PADDING * 2,
+            infoBgPaint,
+        )
+        canvas.drawText(
+            text,
+            INFO_BADGE_MARGIN + INFO_BADGE_PADDING,
+            topY + INFO_BADGE_PADDING + textBoundsRect.height(),
+            infoPaint,
+        )
+    }
+
+    /**
+     * Extract the `jawOpen` blendshape score from a [FaceLandmarkerResult] for the face at
+     * [faceIndex].  Returns 0 if blendshapes are unavailable or the category is not found.
+     */
+    private fun extractJawOpen(result: FaceLandmarkerResult, faceIndex: Int): Float {
+        val shapesOpt = result.faceBlendshapes()
+        if (!shapesOpt.isPresent) return 0f
+        val shapes = shapesOpt.get()
+        if (faceIndex >= shapes.size) return 0f
+        return shapes[faceIndex].firstOrNull { it.categoryName() == "jawOpen" }?.score() ?: 0f
+    }
+
+    /**
+     * Draw gaze-direction lines from each iris centre in the given [landmarks] list.
+     *
+     * The direction is estimated as the vector from the eye-corner midpoint to the iris centre,
+     * scaled by [GAZE_LINE_SCALE] to produce a visible arrow.
+     *
+     * Left-eye gaze uses [IRIS_COLOR_LEFT], right-eye gaze uses [IRIS_COLOR_RIGHT].
+     *
+     * Requires at least 478 landmarks (iris indices 468–477 must be present).
+     */
+    private fun drawGazeLines(
+        canvas: Canvas,
+        landmarks: List<NormalizedLandmark>,
+        width: Int,
+        height: Int,
+    ) {
+        if (landmarks.size < 478) return
+        // Left eye: outer corner = LEFT_EYE_OUTER, inner corner = LEFT_EYE_INNER, iris centre = LEFT_IRIS_CENTER
+        drawSingleGazeLine(canvas, landmarks, width, height, LEFT_EYE_OUTER, LEFT_EYE_INNER, LEFT_IRIS_CENTER, IRIS_COLOR_LEFT)
+        // Right eye: outer corner = RIGHT_EYE_OUTER, inner corner = RIGHT_EYE_INNER, iris centre = RIGHT_IRIS_CENTER
+        drawSingleGazeLine(canvas, landmarks, width, height, RIGHT_EYE_OUTER, RIGHT_EYE_INNER, RIGHT_IRIS_CENTER, IRIS_COLOR_RIGHT)
+    }
+
+    /**
+     * Draw a single gaze line for one eye.
+     *
+     * The eye centre is the midpoint of [outerIdx] and [innerIdx] corners.
+     * The gaze vector is (iris_centre − eye_centre) × [GAZE_LINE_SCALE].
+     */
+    private fun drawSingleGazeLine(
+        canvas: Canvas,
+        landmarks: List<NormalizedLandmark>,
+        width: Int,
+        height: Int,
+        outerIdx: Int,
+        innerIdx: Int,
+        irisIdx: Int,
+        color: Int,
+    ) {
+        val outer = landmarks[outerIdx]
+        val inner = landmarks[innerIdx]
+        val iris = landmarks[irisIdx]
+
+        val eyeCenterX = (outer.x() + inner.x()) / 2f * width
+        val eyeCenterY = (outer.y() + inner.y()) / 2f * height
+        val irisPx = iris.x() * width
+        val irisPy = iris.y() * height
+
+        val gazeX = (irisPx - eyeCenterX) * GAZE_LINE_SCALE
+        val gazeY = (irisPy - eyeCenterY) * GAZE_LINE_SCALE
+
+        gazePaint.color = color
+        canvas.drawLine(irisPx, irisPy, irisPx + gazeX, irisPy + gazeY, gazePaint)
+        // Small filled dot at iris centre for clarity.
+        dotPaint.color = color
+        canvas.drawCircle(irisPx, irisPy, LANDMARK_RADIUS + 2f, dotPaint)
     }
 }

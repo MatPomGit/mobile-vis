@@ -580,7 +580,7 @@ class ImageProcessor {
             markerLabel = markerLabel,
         )
         if (!zAligned) {
-            Log.w("ImageProcessor", "Potential axis inconsistency for $markerLabel")
+            Log.w(TAG, "Potential axis inconsistency for $markerLabel")
         }
         Calib3d.drawFrameAxes(
             res,
@@ -669,13 +669,13 @@ class ImageProcessor {
         val dotWithCamera = zAxis.getOrElse(2) { 0.0 }
         val prev = markerPoseStates[markerKey]
         if (dotWithCamera < 0.0) {
-            Log.w("ImageProcessor", "$markerLabel has negative Z-axis dot with camera")
+            Log.w(TAG, "$markerLabel has negative Z-axis dot with camera")
             return false
         }
         if (prev != null) {
             val dot = prev.zAxisCamera.zip(zAxis).sumOf { it.first * it.second }
             if (dot < 0.0) {
-                Log.w("ImageProcessor", "$markerLabel Z-axis flipped between frames")
+                Log.w(TAG, "$markerLabel Z-axis flipped between frames")
                 return false
             }
         }

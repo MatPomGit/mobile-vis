@@ -11,7 +11,9 @@ import org.opencv.core.MatOfFloat
 import org.opencv.core.MatOfInt
 import org.opencv.core.MatOfPoint
 import org.opencv.core.MatOfPoint2f
+import org.opencv.core.MatOfPoint3f
 import org.opencv.core.Point
+import org.opencv.core.Point3
 import org.opencv.core.Scalar
 import org.opencv.core.Size
 import org.opencv.core.TermCriteria
@@ -24,6 +26,7 @@ import androidx.core.graphics.createBitmap
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.hypot
+import kotlin.math.sqrt
 
 /**
  * Applies OpenCV image-processing filters to Android [Bitmap] frames.
@@ -36,6 +39,23 @@ class ImageProcessor {
         val avgAfterMs: Double,
         val fpsBefore: Double,
         val fpsAfter: Double,
+    )
+
+    data class PoseOverlayMetrics(
+        val distanceMeters: Double,
+        val yawDeg: Double,
+        val pitchDeg: Double,
+        val rollDeg: Double,
+        val reprojectionErrorPx: Double,
+        val confidence: Double,
+    )
+
+    private data class PoseState(
+        val tvec: Mat,
+        val yawDeg: Double,
+        val pitchDeg: Double,
+        val rollDeg: Double,
+        val zAxisCamera: DoubleArray,
     )
 
     var calibrator: CameraCalibrator? = null
@@ -108,6 +128,28 @@ class ImageProcessor {
         ArucoDetector(Objdetect.getPredefinedDictionary(Objdetect.DICT_4X4_50), detectorParameters)
     }
     private val qrCodeDetector by lazy { QRCodeDetector() }
+    private val markerPoseStates = HashMap<String, PoseState>()
+
+    companion object {
+        private const val TAG = "ImageProcessor"
+        private const val MARKER_SIZE_METERS = 0.06
+        private const val AXIS_LENGTH_METERS = MARKER_SIZE_METERS * 0.6
+        private const val ORIENTATION_SMOOTH_ALPHA = 0.35
+        private const val MAX_ANGLE_STEP_DEG = 20.0
+        private const val LABEL_LINE_HEIGHT = 24.0
+        private const val LABEL_FONT_SCALE = 0.55
+        private val OVERLAY_CORNER_COLORS = listOf(
+            Scalar(255.0, 70.0, 70.0, 255.0),
+            Scalar(70.0, 255.0, 70.0, 255.0),
+            Scalar(70.0, 120.0, 255.0, 255.0),
+            Scalar(255.0, 220.0, 70.0, 255.0),
+        )
+        private const val CLUSTER_ANGLE_THRESHOLD_DEG = 8.0
+        private const val MAX_LINE_DIRECTION_CLUSTERS = 4
+        private const val POINT_CLOUD_CIRCLE_RADIUS = 3
+        private const val POINT_CLOUD_MESH_THICKNESS = 1
+        private const val PIXELATE_BLOCK_SIZE = 16
+    }
 
     // Reusable mats for the hottest filters to reduce per-frame allocations.
     private val srcBuffer = Mat()
@@ -385,13 +427,17 @@ class ImageProcessor {
             val detections = ArrayList<MarkerDetection>()
             for (i in 0 until corners.size) {
                 val c = corners[i]
-                val pts = listOf(
-                    Pair(c.get(0,0)[0].toFloat(), c.get(0,0)[1].toFloat()),
-                    Pair(c.get(0,1)[0].toFloat(), c.get(0,1)[1].toFloat()),
-                    Pair(c.get(0,2)[0].toFloat(), c.get(0,2)[1].toFloat()),
-                    Pair(c.get(0,3)[0].toFloat(), c.get(0,3)[1].toFloat())
+                val pts = ptsToList(c)
+                val markerId = ids.get(i, 0)[0].toInt()
+                val metrics = drawMarkerPoseOverlay(
+                    res = res,
+                    corners = pts,
+                    markerKey = "april:$markerId",
+                    markerLabel = "AprilTag#$markerId",
                 )
-                detections.add(MarkerDetection.AprilTag(ids.get(i,0)[0].toInt(), pts))
+                drawCornerOutlineWithOrder(res, pts)
+                drawMarkerLabel(res, pts, "ID=$markerId", metrics)
+                detections.add(MarkerDetection.AprilTag(markerId, pts))
             }
             onMarkersDetected?.invoke(detections)
         }
@@ -409,7 +455,16 @@ class ImageProcessor {
             for (i in 0 until corners.size) {
                 val c = corners[i]
                 val pts = ptsToList(c)
-                detections.add(MarkerDetection.Aruco(ids.get(i,0)[0].toInt(), pts))
+                val markerId = ids.get(i, 0)[0].toInt()
+                val metrics = drawMarkerPoseOverlay(
+                    res = res,
+                    corners = pts,
+                    markerKey = "aruco:$markerId",
+                    markerLabel = "ArUco#$markerId",
+                )
+                drawCornerOutlineWithOrder(res, pts)
+                drawMarkerLabel(res, pts, "ID=$markerId", metrics)
+                detections.add(MarkerDetection.Aruco(markerId, pts))
             }
             onMarkersDetected?.invoke(detections)
         }
@@ -423,6 +478,300 @@ class ImageProcessor {
             Pair(c.get(0,2)[0].toFloat(), c.get(0,2)[1].toFloat()),
             Pair(c.get(0,3)[0].toFloat(), c.get(0,3)[1].toFloat())
         )
+    }
+
+    private fun drawCornerOutlineWithOrder(res: Mat, corners: List<Pair<Float, Float>>) {
+        if (corners.size < 4) return
+        for (i in corners.indices) {
+            val a = corners[i]
+            val b = corners[(i + 1) % corners.size]
+            val pa = Point(a.first.toDouble(), a.second.toDouble())
+            val pb = Point(b.first.toDouble(), b.second.toDouble())
+            val color = OVERLAY_CORNER_COLORS[i % OVERLAY_CORNER_COLORS.size]
+            Imgproc.line(res, pa, pb, color, 3)
+            Imgproc.circle(res, pa, 4, color, -1)
+            Imgproc.putText(
+                res,
+                "$i",
+                Point(pa.x + 6.0, pa.y - 6.0),
+                Imgproc.FONT_HERSHEY_SIMPLEX,
+                0.45,
+                color,
+                2,
+            )
+        }
+    }
+
+    private fun drawMarkerPoseOverlay(
+        res: Mat,
+        corners: List<Pair<Float, Float>>,
+        markerKey: String,
+        markerLabel: String,
+    ): PoseOverlayMetrics? {
+        val calib = calibrator?.calibrationResult ?: return null
+        if (corners.size != 4) return null
+        val imagePoints = MatOfPoint2f(
+            Point(corners[0].first.toDouble(), corners[0].second.toDouble()),
+            Point(corners[1].first.toDouble(), corners[1].second.toDouble()),
+            Point(corners[2].first.toDouble(), corners[2].second.toDouble()),
+            Point(corners[3].first.toDouble(), corners[3].second.toDouble()),
+        )
+        val half = MARKER_SIZE_METERS / 2.0
+        val objectPoints = MatOfPoint3f(
+            Point3(-half, half, 0.0),
+            Point3(half, half, 0.0),
+            Point3(half, -half, 0.0),
+            Point3(-half, -half, 0.0),
+        )
+        val rvec = Mat()
+        val tvec = Mat()
+        val solved = Calib3d.solvePnP(
+            objectPoints,
+            imagePoints,
+            calib.cameraMatrix,
+            calib.distCoeffs,
+            rvec,
+            tvec,
+            false,
+            Calib3d.SOLVEPNP_IPPE_SQUARE,
+        ) || Calib3d.solvePnP(
+            objectPoints,
+            imagePoints,
+            calib.cameraMatrix,
+            calib.distCoeffs,
+            rvec,
+            tvec,
+        )
+        if (!solved) {
+            imagePoints.release()
+            objectPoints.release()
+            rvec.release()
+            tvec.release()
+            return null
+        }
+
+        val rmat = Mat()
+        Calib3d.Rodrigues(rvec, rmat)
+        val zAxis = doubleArrayOf(rmat.get(0, 2)[0], rmat.get(1, 2)[0], rmat.get(2, 2)[0])
+
+        val euler = rotationMatrixToEuler(rmat)
+        val prev = markerPoseStates[markerKey]
+        val smoothed = if (prev != null) {
+            val smoothYaw = smoothAngle(prev.yawDeg, euler[0])
+            val smoothPitch = smoothAngle(prev.pitchDeg, euler[1])
+            val smoothRoll = smoothAngle(prev.rollDeg, euler[2])
+            val mixedTvec = Mat()
+            Core.addWeighted(prev.tvec, 1.0 - ORIENTATION_SMOOTH_ALPHA, tvec, ORIENTATION_SMOOTH_ALPHA, 0.0, mixedTvec)
+            PoseState(
+                tvec = mixedTvec,
+                yawDeg = smoothYaw,
+                pitchDeg = smoothPitch,
+                rollDeg = smoothRoll,
+                zAxisCamera = zAxis,
+            )
+        } else {
+            PoseState(tvec.clone(), euler[0], euler[1], euler[2], zAxis)
+        }
+
+        val stableRvec = eulerToRvec(smoothed.yawDeg, smoothed.pitchDeg, smoothed.rollDeg)
+        val zAligned = ensureZAxisConsistency(
+            markerKey = markerKey,
+            zAxis = smoothed.zAxisCamera,
+            markerLabel = markerLabel,
+        )
+        if (!zAligned) {
+            Log.w("ImageProcessor", "Potential axis inconsistency for $markerLabel")
+        }
+        Calib3d.drawFrameAxes(
+            res,
+            calib.cameraMatrix,
+            calib.distCoeffs,
+            stableRvec,
+            smoothed.tvec,
+            AXIS_LENGTH_METERS.toFloat(),
+        )
+        val reprojectionError = computeReprojectionError(
+            objectPoints,
+            imagePoints,
+            stableRvec,
+            smoothed.tvec,
+            calib.cameraMatrix,
+            calib.distCoeffs,
+        )
+        val distance = norm3(smoothed.tvec)
+        val confidence = 1.0 / (1.0 + reprojectionError)
+
+        markerPoseStates[markerKey]?.tvec?.release()
+        markerPoseStates[markerKey] = PoseState(
+            smoothed.tvec.clone(),
+            smoothed.yawDeg,
+            smoothed.pitchDeg,
+            smoothed.rollDeg,
+            smoothed.zAxisCamera,
+        )
+
+        imagePoints.release()
+        objectPoints.release()
+        rvec.release()
+        tvec.release()
+        rmat.release()
+        stableRvec.release()
+        smoothed.tvec.release()
+        return PoseOverlayMetrics(
+            distanceMeters = distance,
+            yawDeg = smoothed.yawDeg,
+            pitchDeg = smoothed.pitchDeg,
+            rollDeg = smoothed.rollDeg,
+            reprojectionErrorPx = reprojectionError,
+            confidence = confidence,
+        )
+    }
+
+    private fun drawMarkerLabel(
+        res: Mat,
+        corners: List<Pair<Float, Float>>,
+        idLabel: String,
+        metrics: PoseOverlayMetrics?,
+    ) {
+        val anchor = corners.minByOrNull { it.second } ?: Pair(30f, 30f)
+        val x = anchor.first.toDouble()
+        val y = (anchor.second - 12f).toDouble().coerceAtLeast(30.0)
+        val lines = buildList {
+            add(idLabel)
+            if (metrics != null) {
+                add("dist=%.2fm".format(metrics.distanceMeters))
+                add(
+                    "yaw/pitch/roll=%.1f/%.1f/%.1f".format(
+                        metrics.yawDeg,
+                        metrics.pitchDeg,
+                        metrics.rollDeg,
+                    ),
+                )
+                add("q=%.2f err=%.2fpx".format(metrics.confidence, metrics.reprojectionErrorPx))
+            } else {
+                add("pose: calibration required")
+            }
+        }
+        lines.forEachIndexed { i, line ->
+            Imgproc.putText(
+                res,
+                line,
+                Point(x, y + i * LABEL_LINE_HEIGHT),
+                Imgproc.FONT_HERSHEY_SIMPLEX,
+                LABEL_FONT_SCALE,
+                Scalar(240.0, 240.0, 240.0, 255.0),
+                2,
+            )
+        }
+    }
+
+    private fun ensureZAxisConsistency(markerKey: String, zAxis: DoubleArray, markerLabel: String): Boolean {
+        val dotWithCamera = zAxis.getOrElse(2) { 0.0 }
+        val prev = markerPoseStates[markerKey]
+        if (dotWithCamera < 0.0) {
+            Log.w("ImageProcessor", "$markerLabel has negative Z-axis dot with camera")
+            return false
+        }
+        if (prev != null) {
+            val dot = prev.zAxisCamera.zip(zAxis).sumOf { it.first * it.second }
+            if (dot < 0.0) {
+                Log.w("ImageProcessor", "$markerLabel Z-axis flipped between frames")
+                return false
+            }
+        }
+        return true
+    }
+
+    private fun computeReprojectionError(
+        objectPoints: MatOfPoint3f,
+        imagePoints: MatOfPoint2f,
+        rvec: Mat,
+        tvec: Mat,
+        cameraMatrix: Mat,
+        distCoeffs: Mat,
+    ): Double {
+        val projected = MatOfPoint2f()
+        Calib3d.projectPoints(objectPoints, rvec, tvec, cameraMatrix, distCoeffs, projected)
+        val observed = imagePoints.toArray()
+        val reproj = projected.toArray()
+        projected.release()
+        if (observed.isEmpty() || observed.size != reproj.size) return Double.POSITIVE_INFINITY
+        var errSq = 0.0
+        for (i in observed.indices) {
+            val dx = observed[i].x - reproj[i].x
+            val dy = observed[i].y - reproj[i].y
+            errSq += dx * dx + dy * dy
+        }
+        return sqrt(errSq / observed.size)
+    }
+
+    private fun norm3(tvec: Mat): Double {
+        val x = tvec.get(0, 0)[0]
+        val y = tvec.get(1, 0)[0]
+        val z = tvec.get(2, 0)[0]
+        return sqrt(x * x + y * y + z * z)
+    }
+
+    private fun smoothAngle(prevDeg: Double, currentDeg: Double): Double {
+        val delta = normalizeAngle(currentDeg - prevDeg).coerceIn(-MAX_ANGLE_STEP_DEG, MAX_ANGLE_STEP_DEG)
+        return normalizeAngle(prevDeg + ORIENTATION_SMOOTH_ALPHA * delta)
+    }
+
+    private fun normalizeAngle(angleDeg: Double): Double {
+        var out = angleDeg
+        while (out > 180.0) out -= 360.0
+        while (out < -180.0) out += 360.0
+        return out
+    }
+
+    private fun rotationMatrixToEuler(rmat: Mat): DoubleArray {
+        val r00 = rmat.get(0, 0)[0]
+        val r10 = rmat.get(1, 0)[0]
+        val r20 = rmat.get(2, 0)[0]
+        val r21 = rmat.get(2, 1)[0]
+        val r22 = rmat.get(2, 2)[0]
+        val sy = sqrt(r00 * r00 + r10 * r10)
+        val singular = sy < 1e-6
+
+        val yaw: Double
+        val pitch: Double
+        val roll: Double
+        if (!singular) {
+            yaw = Math.toDegrees(atan2(r10, r00))
+            pitch = Math.toDegrees(atan2(-r20, sy))
+            roll = Math.toDegrees(atan2(r21, r22))
+        } else {
+            yaw = Math.toDegrees(atan2(-rmat.get(0, 1)[0], rmat.get(1, 1)[0]))
+            pitch = Math.toDegrees(atan2(-r20, sy))
+            roll = 0.0
+        }
+        return doubleArrayOf(yaw, pitch, roll)
+    }
+
+    private fun eulerToRvec(yawDeg: Double, pitchDeg: Double, rollDeg: Double): Mat {
+        val y = Math.toRadians(yawDeg)
+        val p = Math.toRadians(pitchDeg)
+        val r = Math.toRadians(rollDeg)
+        val cy = kotlin.math.cos(y)
+        val sy = kotlin.math.sin(y)
+        val cp = kotlin.math.cos(p)
+        val sp = kotlin.math.sin(p)
+        val cr = kotlin.math.cos(r)
+        val sr = kotlin.math.sin(r)
+        val rot = Mat(3, 3, CvType.CV_64F)
+        rot.put(0, 0, cy * cp)
+        rot.put(0, 1, cy * sp * sr - sy * cr)
+        rot.put(0, 2, cy * sp * cr + sy * sr)
+        rot.put(1, 0, sy * cp)
+        rot.put(1, 1, sy * sp * sr + cy * cr)
+        rot.put(1, 2, sy * sp * cr - cy * sr)
+        rot.put(2, 0, -sp)
+        rot.put(2, 1, cp * sr)
+        rot.put(2, 2, cp * cr)
+        val rvec = Mat()
+        Calib3d.Rodrigues(rot, rvec)
+        rot.release()
+        return rvec
     }
 
     private fun applyQrCodeDetection(src: Mat): Mat {
@@ -507,15 +856,6 @@ class ImageProcessor {
             Imgproc.putText(res, "$labelPointCloud: ${cloud.points.size}", Point(30.0, 30.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.7, Scalar(255.0, 255.0, 255.0, 255.0), 2)
         }
         return res
-    }
-
-    companion object {
-        private const val TAG = "ImageProcessor"
-        private const val CLUSTER_ANGLE_THRESHOLD_DEG = 8.0
-        private const val MAX_LINE_DIRECTION_CLUSTERS = 4
-        private const val POINT_CLOUD_CIRCLE_RADIUS = 3
-        private const val POINT_CLOUD_MESH_THICKNESS = 1
-        private const val PIXELATE_BLOCK_SIZE = 16
     }
 
     /**

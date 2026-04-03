@@ -347,8 +347,20 @@ class MainActivity : AppCompatActivity() {
                     yoloProcessor.close(); yoloProcessor.initialize()
                     imageProcessor.yoloProcessor = yoloProcessor
                     runOnUiThread {
-                        Toast.makeText(this, getString(R.string.yolo_models_ready), Toast.LENGTH_SHORT).show()
+                        if (!isDestroyed && !isFinishing)
+                            Toast.makeText(this, getString(R.string.yolo_models_ready), Toast.LENGTH_SHORT).show()
                     }
+                } else {
+                    runOnUiThread {
+                        if (!isDestroyed && !isFinishing)
+                            Toast.makeText(this, getString(R.string.yolo_models_download_failed), Toast.LENGTH_LONG).show()
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "YOLO model download failed", e)
+                runOnUiThread {
+                    if (!isDestroyed && !isFinishing)
+                        Toast.makeText(this, getString(R.string.yolo_models_download_failed), Toast.LENGTH_LONG).show()
                 }
             } finally { yoloDownloadInProgress = false }
         }

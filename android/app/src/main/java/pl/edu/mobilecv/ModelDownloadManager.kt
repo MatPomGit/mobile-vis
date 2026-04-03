@@ -5,7 +5,6 @@ import android.util.Log
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
-import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 /**
@@ -171,8 +170,8 @@ object ModelDownloadManager {
             tempFile.renameTo(dest)
             Log.i(TAG, "Downloaded $filename (${dest.length()} bytes)")
             true
-        } catch (e: IOException) {
-            Log.e(TAG, "IOException downloading $filename", e)
+        } catch (e: Exception) {
+            Log.e(TAG, "Exception downloading $filename", e)
             tempFile.delete()
             false
         }

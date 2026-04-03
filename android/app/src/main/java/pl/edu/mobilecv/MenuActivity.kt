@@ -3,6 +3,7 @@ package pl.edu.mobilecv
 import android.content.Intent
 import android.os.Bundle
 import android.widget.TextView
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import pl.edu.mobilecv.databinding.ActivityMenuBinding
 
@@ -30,8 +31,30 @@ class MenuActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivityMenuBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        buildInstructionsCard()
         buildModeCards()
         buildPointCloudViewerCard()
+    }
+
+    /**
+     * Inflates an instructions card and inserts it as the first item in the container.
+     * Tapping the card opens a dialog with a step-by-step guide on how to use the app.
+     */
+    private fun buildInstructionsCard() {
+        val card = layoutInflater.inflate(R.layout.item_mode_card, binding.modeListContainer, false)
+        card.findViewById<TextView>(R.id.textModeName).text = getString(R.string.instructions_card_title)
+        card.findViewById<TextView>(R.id.textModeDescription).text = getString(R.string.instructions_card_description)
+        card.setOnClickListener { showInstructionsDialog() }
+        binding.modeListContainer.addView(card)
+    }
+
+    /** Displays a scrollable dialog with the app's usage instructions. */
+    private fun showInstructionsDialog() {
+        AlertDialog.Builder(this)
+            .setTitle(R.string.instructions_title)
+            .setMessage(R.string.instructions_content)
+            .setPositiveButton(R.string.instructions_close, null)
+            .show()
     }
 
     /** Inflates one card per [AnalysisMode] and appends it to the container. */
@@ -45,6 +68,7 @@ class MenuActivity : AppCompatActivity() {
             AnalysisMode.ODOMETRY to getString(R.string.mode_desc_odometry),
             AnalysisMode.GEOMETRY to getString(R.string.mode_desc_geometry),
             AnalysisMode.CALIBRATION to getString(R.string.mode_desc_calibration),
+            AnalysisMode.YOLO to getString(R.string.mode_desc_yolo),
         )
 
         AnalysisMode.entries.forEach { mode ->

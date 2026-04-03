@@ -4,6 +4,7 @@
         To add other locales, create res/values-<lang>/strings.xml (e.g. values-en/).
     -->
     <string name="app_name">MobileCV</string>
+    <string name="app_version_format">Wersja %s</string>
     <string name="camera_permission_denied">Uprawnienie do kamery jest wymagane. Aplikacja zostanie zamknięta.</string>
     <string name="opencv_init_error">Błąd inicjalizacji OpenCV. Niektóre filtry mogą nie działać.</string>
     <string name="camera_preview_description">Podgląd kamery z nałożonym filtrem OpenCV</string>
@@ -93,6 +94,10 @@
     <string name="mediapipe_model_missing_pose">Model pozy niedostępny – pobieranie…</string>
     <string name="mediapipe_model_missing_hands">Model rąk niedostępny – pobieranie…</string>
     <string name="mediapipe_model_missing_face">Model twarzy niedostępny – pobieranie…</string>
+    <string name="mediapipe_person_detected">Wykryto: %d os.</string>
+    <string name="mediapipe_no_person">Nie wykryto człowieka</string>
+    <string name="mediapipe_mouth_open">Usta otwarte</string>
+    <string name="mediapipe_speaking">Mówi!</string>
 
     <!-- YOLO object detection -->
     <string name="yolo_models_downloading">Pobieranie modeli YOLO w tle…</string>

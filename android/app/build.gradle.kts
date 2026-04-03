@@ -12,8 +12,8 @@ android {
         applicationId = "pl.edu.mobilecv"
         minSdk = 24
         targetSdk = 36
-        versionName = rootProject.extra["app_version_code"].toString()
-        versionCode = (rootProject.extra["app_version_code"] as Number).toInt()
+        versionName = rootProject.extra["app_version_name"].toString()
+        versionCode = rootProject.extra["app_version_code"] as Int
     }
 
     signingConfigs {

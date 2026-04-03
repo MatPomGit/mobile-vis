@@ -33,6 +33,66 @@ class MenuActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMenuBinding
 
+    /** Lazily built map of [AnalysisMode] to its Polish description string. */
+    private val modeDescriptions: Map<AnalysisMode, String> by lazy {
+        mapOf(
+            AnalysisMode.FILTERS to getString(R.string.mode_desc_filters),
+            AnalysisMode.EDGES to getString(R.string.mode_desc_edges),
+            AnalysisMode.MORPHOLOGY to getString(R.string.mode_desc_morphology),
+            AnalysisMode.MARKERS to getString(R.string.mode_desc_markers),
+            AnalysisMode.POSE to getString(R.string.mode_desc_pose),
+            AnalysisMode.ODOMETRY to getString(R.string.mode_desc_odometry),
+            AnalysisMode.GEOMETRY to getString(R.string.mode_desc_geometry),
+            AnalysisMode.CALIBRATION to getString(R.string.mode_desc_calibration),
+            AnalysisMode.YOLO to getString(R.string.mode_desc_yolo),
+        )
+    }
+
+    /** Lazily built map of [OpenCvFilter] to its Polish description string. */
+    private val filterDescriptions: Map<OpenCvFilter, String> by lazy {
+        mapOf(
+            OpenCvFilter.ORIGINAL to getString(R.string.filter_desc_original),
+            OpenCvFilter.GRAYSCALE to getString(R.string.filter_desc_grayscale),
+            OpenCvFilter.GAUSSIAN_BLUR to getString(R.string.filter_desc_gaussian_blur),
+            OpenCvFilter.MEDIAN_BLUR to getString(R.string.filter_desc_median_blur),
+            OpenCvFilter.BILATERAL_FILTER to getString(R.string.filter_desc_bilateral),
+            OpenCvFilter.BOX_FILTER to getString(R.string.filter_desc_box_filter),
+            OpenCvFilter.THRESHOLD to getString(R.string.filter_desc_threshold),
+            OpenCvFilter.ADAPTIVE_THRESHOLD to getString(R.string.filter_desc_adaptive_threshold),
+            OpenCvFilter.HISTOGRAM_EQUALIZATION to getString(R.string.filter_desc_hist_eq),
+            OpenCvFilter.CANNY_EDGES to getString(R.string.filter_desc_canny),
+            OpenCvFilter.SOBEL to getString(R.string.filter_desc_sobel),
+            OpenCvFilter.SCHARR to getString(R.string.filter_desc_scharr),
+            OpenCvFilter.LAPLACIAN to getString(R.string.filter_desc_laplacian),
+            OpenCvFilter.PREWITT to getString(R.string.filter_desc_prewitt),
+            OpenCvFilter.ROBERTS to getString(R.string.filter_desc_roberts),
+            OpenCvFilter.DILATE to getString(R.string.filter_desc_dilate),
+            OpenCvFilter.ERODE to getString(R.string.filter_desc_erode),
+            OpenCvFilter.OPEN to getString(R.string.filter_desc_open),
+            OpenCvFilter.CLOSE to getString(R.string.filter_desc_close),
+            OpenCvFilter.GRADIENT to getString(R.string.filter_desc_gradient),
+            OpenCvFilter.TOP_HAT to getString(R.string.filter_desc_top_hat),
+            OpenCvFilter.BLACK_HAT to getString(R.string.filter_desc_black_hat),
+            OpenCvFilter.APRIL_TAGS to getString(R.string.filter_desc_apriltag),
+            OpenCvFilter.ARUCO to getString(R.string.filter_desc_aruco),
+            OpenCvFilter.QR_CODE to getString(R.string.filter_desc_qr),
+            OpenCvFilter.CCTAG to getString(R.string.filter_desc_cctag),
+            OpenCvFilter.HOLISTIC_BODY to getString(R.string.filter_desc_body),
+            OpenCvFilter.HOLISTIC_HANDS to getString(R.string.filter_desc_hands),
+            OpenCvFilter.HOLISTIC_FACE to getString(R.string.filter_desc_face),
+            OpenCvFilter.IRIS to getString(R.string.filter_desc_iris),
+            OpenCvFilter.VISUAL_ODOMETRY to getString(R.string.filter_desc_visual_odometry),
+            OpenCvFilter.POINT_CLOUD to getString(R.string.filter_desc_point_cloud),
+            OpenCvFilter.PLANE_DETECTION to getString(R.string.filter_desc_plane_detection),
+            OpenCvFilter.VANISHING_POINTS to getString(R.string.filter_desc_vanishing_points),
+            OpenCvFilter.CHESSBOARD_CALIBRATION to getString(R.string.filter_desc_chessboard),
+            OpenCvFilter.UNDISTORT to getString(R.string.filter_desc_undistort),
+            OpenCvFilter.YOLO_DETECT to getString(R.string.filter_desc_yolo_detect),
+            OpenCvFilter.YOLO_SEGMENT to getString(R.string.filter_desc_yolo_segment),
+            OpenCvFilter.YOLO_POSE to getString(R.string.filter_desc_yolo_pose),
+        )
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMenuBinding.inflate(layoutInflater)
@@ -104,22 +164,10 @@ class MenuActivity : AppCompatActivity() {
 
     /** Inflates one card per [AnalysisMode] and appends it to the container. */
     private fun buildModeCards() {
-        val descriptions = mapOf(
-            AnalysisMode.FILTERS to getString(R.string.mode_desc_filters),
-            AnalysisMode.EDGES to getString(R.string.mode_desc_edges),
-            AnalysisMode.MORPHOLOGY to getString(R.string.mode_desc_morphology),
-            AnalysisMode.MARKERS to getString(R.string.mode_desc_markers),
-            AnalysisMode.POSE to getString(R.string.mode_desc_pose),
-            AnalysisMode.ODOMETRY to getString(R.string.mode_desc_odometry),
-            AnalysisMode.GEOMETRY to getString(R.string.mode_desc_geometry),
-            AnalysisMode.CALIBRATION to getString(R.string.mode_desc_calibration),
-            AnalysisMode.YOLO to getString(R.string.mode_desc_yolo),
-        )
-
         AnalysisMode.entries.forEach { mode ->
             val card = layoutInflater.inflate(R.layout.item_mode_card, binding.modeListContainer, false)
             card.findViewById<TextView>(R.id.textModeName).text = mode.displayName
-            card.findViewById<TextView>(R.id.textModeDescription).text = descriptions[mode] ?: ""
+            card.findViewById<TextView>(R.id.textModeDescription).text = modeDescriptions[mode] ?: ""
             card.setOnClickListener { launchMainActivity(mode) }
             binding.modeListContainer.addView(card)
         }
@@ -157,13 +205,10 @@ class MenuActivity : AppCompatActivity() {
     private fun buildAboutContent() {
         addAppDescriptionCard()
 
-        val filterDescriptions = buildFilterDescriptionMap()
-
         AnalysisMode.entries.forEach { mode ->
             addModeSectionCard(mode)
             mode.filters.forEach { filter ->
-                val description = filterDescriptions[filter] ?: ""
-                addFilterDescriptionRow(filter.displayName, description)
+                addFilterDescriptionRow(filter.displayName, filterDescriptions[filter] ?: "")
             }
         }
     }
@@ -183,22 +228,9 @@ class MenuActivity : AppCompatActivity() {
      * The card shows the mode name and its high-level description.
      */
     private fun addModeSectionCard(mode: AnalysisMode) {
-        val modeDescriptions = mapOf(
-            AnalysisMode.FILTERS to getString(R.string.mode_desc_filters),
-            AnalysisMode.EDGES to getString(R.string.mode_desc_edges),
-            AnalysisMode.MORPHOLOGY to getString(R.string.mode_desc_morphology),
-            AnalysisMode.MARKERS to getString(R.string.mode_desc_markers),
-            AnalysisMode.POSE to getString(R.string.mode_desc_pose),
-            AnalysisMode.ODOMETRY to getString(R.string.mode_desc_odometry),
-            AnalysisMode.GEOMETRY to getString(R.string.mode_desc_geometry),
-            AnalysisMode.CALIBRATION to getString(R.string.mode_desc_calibration),
-            AnalysisMode.YOLO to getString(R.string.mode_desc_yolo),
-        )
-
         val card = layoutInflater.inflate(R.layout.item_mode_card, binding.aboutContainer, false)
         card.findViewById<TextView>(R.id.textModeName).text = mode.displayName
-        card.findViewById<TextView>(R.id.textModeDescription).text =
-            modeDescriptions[mode] ?: ""
+        card.findViewById<TextView>(R.id.textModeDescription).text = modeDescriptions[mode] ?: ""
         card.isClickable = false
         binding.aboutContainer.addView(card)
     }
@@ -206,7 +238,7 @@ class MenuActivity : AppCompatActivity() {
     /**
      * Inflates a filter description row and appends it to the About container.
      *
-     * @param name        Human-readable filter name shown in bold.
+     * @param name        Human-readable filter name shown as a bullet item.
      * @param description Polish description of what the filter does.
      */
     private fun addFilterDescriptionRow(name: String, description: String) {
@@ -217,48 +249,6 @@ class MenuActivity : AppCompatActivity() {
         row.findViewById<TextView>(R.id.textFilterDescription).text = description
         binding.aboutContainer.addView(row)
     }
-
-    /** Returns a map of [OpenCvFilter] to its Polish description string. */
-    private fun buildFilterDescriptionMap(): Map<OpenCvFilter, String> = mapOf(
-        OpenCvFilter.ORIGINAL to getString(R.string.filter_desc_original),
-        OpenCvFilter.GRAYSCALE to getString(R.string.filter_desc_grayscale),
-        OpenCvFilter.GAUSSIAN_BLUR to getString(R.string.filter_desc_gaussian_blur),
-        OpenCvFilter.MEDIAN_BLUR to getString(R.string.filter_desc_median_blur),
-        OpenCvFilter.BILATERAL_FILTER to getString(R.string.filter_desc_bilateral),
-        OpenCvFilter.BOX_FILTER to getString(R.string.filter_desc_box_filter),
-        OpenCvFilter.THRESHOLD to getString(R.string.filter_desc_threshold),
-        OpenCvFilter.ADAPTIVE_THRESHOLD to getString(R.string.filter_desc_adaptive_threshold),
-        OpenCvFilter.HISTOGRAM_EQUALIZATION to getString(R.string.filter_desc_hist_eq),
-        OpenCvFilter.CANNY_EDGES to getString(R.string.filter_desc_canny),
-        OpenCvFilter.SOBEL to getString(R.string.filter_desc_sobel),
-        OpenCvFilter.SCHARR to getString(R.string.filter_desc_scharr),
-        OpenCvFilter.LAPLACIAN to getString(R.string.filter_desc_laplacian),
-        OpenCvFilter.PREWITT to getString(R.string.filter_desc_prewitt),
-        OpenCvFilter.ROBERTS to getString(R.string.filter_desc_roberts),
-        OpenCvFilter.DILATE to getString(R.string.filter_desc_dilate),
-        OpenCvFilter.ERODE to getString(R.string.filter_desc_erode),
-        OpenCvFilter.OPEN to getString(R.string.filter_desc_open),
-        OpenCvFilter.CLOSE to getString(R.string.filter_desc_close),
-        OpenCvFilter.GRADIENT to getString(R.string.filter_desc_gradient),
-        OpenCvFilter.TOP_HAT to getString(R.string.filter_desc_top_hat),
-        OpenCvFilter.BLACK_HAT to getString(R.string.filter_desc_black_hat),
-        OpenCvFilter.APRIL_TAGS to getString(R.string.filter_desc_apriltag),
-        OpenCvFilter.ARUCO to getString(R.string.filter_desc_aruco),
-        OpenCvFilter.QR_CODE to getString(R.string.filter_desc_qr),
-        OpenCvFilter.CCTAG to getString(R.string.filter_desc_cctag),
-        OpenCvFilter.HOLISTIC_BODY to getString(R.string.filter_desc_body),
-        OpenCvFilter.HOLISTIC_HANDS to getString(R.string.filter_desc_hands),
-        OpenCvFilter.HOLISTIC_FACE to getString(R.string.filter_desc_face),
-        OpenCvFilter.IRIS to getString(R.string.filter_desc_iris),
-        OpenCvFilter.VISUAL_ODOMETRY to getString(R.string.filter_desc_visual_odometry),
-        OpenCvFilter.POINT_CLOUD to getString(R.string.filter_desc_point_cloud),
-        OpenCvFilter.PLANE_DETECTION to getString(R.string.filter_desc_plane_detection),
-        OpenCvFilter.VANISHING_POINTS to getString(R.string.filter_desc_vanishing_points),
-        OpenCvFilter.CHESSBOARD_CALIBRATION to getString(R.string.filter_desc_chessboard),
-        OpenCvFilter.UNDISTORT to getString(R.string.filter_desc_undistort),
-        OpenCvFilter.YOLO_DETECT to getString(R.string.filter_desc_yolo_detect),
-        OpenCvFilter.YOLO_SEGMENT to getString(R.string.filter_desc_yolo_segment),
-        OpenCvFilter.YOLO_POSE to getString(R.string.filter_desc_yolo_pose),
-    )
 }
+
 

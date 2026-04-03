@@ -11,6 +11,7 @@ import android.graphics.Matrix
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import android.os.SystemClock
 import android.provider.MediaStore
 import android.util.Log
 import android.view.View
@@ -98,7 +99,10 @@ class MainActivity : AppCompatActivity() {
     private var lastProcessedBitmap: Bitmap? = null
     private var pendingRecycleBitmap: Bitmap? = null
     private val uiUpdatePending = AtomicBoolean(false)
-    private lateinit var analysisExecutor: ExecutorService
+    private lateinit var cameraAnalysisExecutor: ExecutorService
+    private lateinit var backgroundExecutor: ExecutorService
+    @Volatile private var cameraStartTimeMs: Long = 0
+    private val firstFrameRenderedLogged = AtomicBoolean(false)
 
     private val permissionsLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
         if (results[Manifest.permission.CAMERA] == true) startCamera()
@@ -113,7 +117,8 @@ class MainActivity : AppCompatActivity() {
         // Initialize OpenCV first before any components that might use it are created.
         initOpenCv()
 
-        analysisExecutor = Executors.newSingleThreadExecutor()
+        cameraAnalysisExecutor = Executors.newSingleThreadExecutor()
+        backgroundExecutor = Executors.newSingleThreadExecutor()
 
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         lastRobotHost = prefs.getString(PREF_ROBOT_HOST, lastRobotHost) ?: lastRobotHost
@@ -139,7 +144,7 @@ class MainActivity : AppCompatActivity() {
         imageProcessor.labelGeometryError = getString(R.string.overlay_geometry_error)
         imageProcessor.labelVpError = getString(R.string.overlay_vp_error)
 
-        analysisExecutor.execute {
+        backgroundExecutor.execute {
             mediaPipeProcessor.initialize()
             imageProcessor.mediaPipeProcessor = mediaPipeProcessor
             yoloProcessor.initialize()
@@ -205,15 +210,16 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
         if (isRecording) {
             isRecording = false
-            analysisExecutor.execute {
+            backgroundExecutor.execute {
                 processedVideoRecorder.finalize { success ->
                     Log.d(TAG, "Recording finalized on destroy, success=$success")
                 }
             }
         }
         stopRecordingTimer()
-        analysisExecutor.execute { mediaPipeProcessor.close(); yoloProcessor.close() }
-        analysisExecutor.shutdown()
+        backgroundExecutor.execute { mediaPipeProcessor.close(); yoloProcessor.close() }
+        cameraAnalysisExecutor.shutdown()
+        backgroundExecutor.shutdown()
         pendingRecycleBitmap?.recycle(); lastProcessedBitmap?.recycle()
         rosBridgeClient.shutdown()
     }
@@ -359,7 +365,7 @@ class MainActivity : AppCompatActivity() {
         if (mediaPipeDownloadInProgress) return
         mediaPipeDownloadInProgress = true
         Toast.makeText(this, getString(R.string.mediapipe_models_downloading), Toast.LENGTH_LONG).show()
-        analysisExecutor.execute {
+        backgroundExecutor.execute {
             try {
                 if (ModelDownloadManager.downloadMissingModels(this)) {
                     mediaPipeProcessor.close(); mediaPipeProcessor.initialize()
@@ -372,7 +378,7 @@ class MainActivity : AppCompatActivity() {
     private fun startYoloModelDownload() {
         if (!yoloDownloadInProgress.compareAndSet(false, true)) return
         Toast.makeText(this, getString(R.string.yolo_models_downloading), Toast.LENGTH_LONG).show()
-        analysisExecutor.execute {
+        backgroundExecutor.execute {
             try {
                 if (ModelDownloadManager.downloadMissingYoloModels(this)) {
                     yoloProcessor.close(); yoloProcessor.initialize()
@@ -546,6 +552,8 @@ class MainActivity : AppCompatActivity() {
     ) + if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE) else emptyArray()
 
     private fun startCamera() {
+        cameraStartTimeMs = SystemClock.elapsedRealtime()
+        firstFrameRenderedLogged.set(false)
         val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
         cameraProviderFuture.addListener({
             cameraProvider = try { cameraProviderFuture.get() } catch (_: Exception) { null }
@@ -557,7 +565,7 @@ class MainActivity : AppCompatActivity() {
         val provider = cameraProvider ?: return
         val cameraSelector = CameraSelector.Builder().requireLensFacing(lensFacing).build()
         val resolutionSelector = ResolutionSelector.Builder().setResolutionStrategy(ResolutionStrategy(currentResolution.size, ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER)).build()
-        val imageAnalysis = ImageAnalysis.Builder().setResolutionSelector(resolutionSelector).setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST).setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888).build().also { it.setAnalyzer(analysisExecutor) { proxy -> processFrame(proxy) } }
+        val imageAnalysis = ImageAnalysis.Builder().setResolutionSelector(resolutionSelector).setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST).setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888).build().also { it.setAnalyzer(cameraAnalysisExecutor) { proxy -> processFrame(proxy) } }
         imageCapture = ImageCapture.Builder().setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY).build()
         try { provider.unbindAll(); fpsCounter.reset(); provider.bindToLifecycle(this, cameraSelector, imageAnalysis, imageCapture) } catch (e: Exception) { Log.e(TAG, "Binding failed", e) }
     }
@@ -584,6 +592,10 @@ class MainActivity : AppCompatActivity() {
             if (uiUpdatePending.compareAndSet(false, true)) {
                 runOnUiThread {
                     pendingRecycleBitmap?.recycle(); pendingRecycleBitmap = lastProcessedBitmap; binding.imageViewPreview.setImageBitmap(processed); lastProcessedBitmap = processed; uiUpdatePending.set(false)
+                    if (firstFrameRenderedLogged.compareAndSet(false, true) && cameraStartTimeMs > 0L) {
+                        val startupLatencyMs = SystemClock.elapsedRealtime() - cameraStartTimeMs
+                        Log.d(TAG, "Camera startup latency to first rendered frame: ${startupLatencyMs}ms")
+                    }
                     updateDiagnosticsOverlay(
                         fpsCounter.fps,
                         frameWidth,
@@ -665,7 +677,7 @@ class MainActivity : AppCompatActivity() {
         if (!isRecording) return
         isRecording = false
         updateCaptureButtonState()
-        analysisExecutor.submit {
+        backgroundExecutor.submit {
             processedVideoRecorder.finalize { success ->
                 runOnUiThread {
                     if (!isDestroyed && !isFinishing) {

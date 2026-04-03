@@ -215,6 +215,19 @@ class RosBridgeClient {
                     obj.put("corners", cornersToJsonArray(detection.corners))
                     obj.put("timestamp_ms", detection.timestampMs)
                 }
+                is MarkerDetection.YoloObject -> {
+                    obj.put("type", "yolo")
+                    obj.put("label", detection.label)
+                    obj.put("class_id", detection.classId)
+                    obj.put("confidence", detection.confidence.toDouble())
+                    obj.put("bbox", JSONObject().apply {
+                        put("x1", detection.bbox.left.toDouble())
+                        put("y1", detection.bbox.top.toDouble())
+                        put("x2", detection.bbox.right.toDouble())
+                        put("y2", detection.bbox.bottom.toDouble())
+                    })
+                    obj.put("timestamp_ms", detection.timestampMs)
+                }
             }
             array.put(obj)
         }

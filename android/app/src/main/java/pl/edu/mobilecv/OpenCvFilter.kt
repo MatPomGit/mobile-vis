@@ -137,6 +137,31 @@ enum class OpenCvFilter(val displayName: String) {
 
     /** Roberts cross operator (simulated via custom kernel). */
     ROBERTS("Roberts Edges"),
+
+    // ------------------------------------------------------------------
+    // YOLO object detection
+    // ------------------------------------------------------------------
+
+    /**
+     * Detects objects in the current frame using YOLOv8-nano (detect variant).
+     * Draws bounding boxes with class labels and confidence scores for all
+     * 80 COCO classes.
+     */
+    YOLO_DETECT("YOLO Detect"),
+
+    /**
+     * Runs YOLOv8-nano instance segmentation, overlaying bounding boxes for
+     * detected objects.  Full pixel-level mask rendering is approximated with
+     * the bounding box due to CPU performance constraints.
+     */
+    YOLO_SEGMENT("YOLO Segment"),
+
+    /**
+     * Estimates 17-keypoint human body poses using YOLOv8-nano pose variant.
+     * Draws bounding boxes for each detected person and connects the skeleton
+     * keypoints with coloured lines.
+     */
+    YOLO_POSE("YOLO Pose"),
 }
 
 /**
@@ -148,3 +173,12 @@ val OpenCvFilter.isMediaPipe: Boolean
         this == OpenCvFilter.HOLISTIC_HANDS ||
         this == OpenCvFilter.HOLISTIC_FACE ||
         this == OpenCvFilter.IRIS
+
+/**
+ * Returns ``true`` if this filter requires the YOLO processing pipeline
+ * backed by the OpenCV DNN module.
+ */
+val OpenCvFilter.isYolo: Boolean
+    get() = this == OpenCvFilter.YOLO_DETECT ||
+        this == OpenCvFilter.YOLO_SEGMENT ||
+        this == OpenCvFilter.YOLO_POSE

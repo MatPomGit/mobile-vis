@@ -25,6 +25,9 @@ dev = [
     "mypy>=1.10",
     "pre-commit>=3.7",
 ]
+yolo = [
+    "ultralytics>=8.0",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -93,6 +93,11 @@
     <string name="mediapipe_model_missing_pose">Model pozy niedostępny – pobieranie…</string>
     <string name="mediapipe_model_missing_hands">Model rąk niedostępny – pobieranie…</string>
     <string name="mediapipe_model_missing_face">Model twarzy niedostępny – pobieranie…</string>
+
+    <!-- YOLO object detection -->
+    <string name="yolo_models_downloading">Pobieranie modeli YOLO w tle…</string>
+    <string name="yolo_models_ready">Modele YOLO gotowe</string>
+    <string name="yolo_models_download_failed" tools:keep="@string/yolo_models_download_failed">Nie udało się pobrać modeli YOLO. Sprawdź połączenie z internetem.</string>
     <string name="vo_overlay_tracks" tools:keep="@string/vo_overlay_tracks">Ścieżki VO</string>
     <string name="vo_overlay_point_cloud" tools:keep="@string/vo_overlay_point_cloud">Chmura</string>
 

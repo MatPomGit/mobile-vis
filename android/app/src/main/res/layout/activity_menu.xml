@@ -22,6 +22,18 @@
         android:paddingStart="16dp"
         android:paddingEnd="16dp" />
 
+    <!-- Version number displayed under the app name -->
+    <TextView
+        android:id="@+id/textAppVersion"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:paddingBottom="4dp"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:textAppearance="?attr/textAppearanceLabelMedium"
+        android:textColor="?attr/colorOnSurfaceVariant" />
+
     <!-- Subtitle / instructions -->
     <TextView
         android:layout_width="match_parent"

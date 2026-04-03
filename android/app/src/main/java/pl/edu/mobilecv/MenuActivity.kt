@@ -22,6 +22,8 @@ class MenuActivity : AppCompatActivity() {
     companion object {
         /** Intent extra key used to pass the selected [AnalysisMode] name to [MainActivity]. */
         const val EXTRA_MODE = "extra_mode"
+
+        private const val TAG = "MenuActivity"
     }
 
     private lateinit var binding: ActivityMenuBinding
@@ -30,8 +32,20 @@ class MenuActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivityMenuBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        showAppVersion()
         buildModeCards()
         buildPointCloudViewerCard()
+    }
+
+    /** Displays the current app version below the app name. */
+    private fun showAppVersion() {
+        val versionName = try {
+            packageManager.getPackageInfo(packageName, 0).versionName ?: ""
+        } catch (e: android.content.pm.PackageManager.NameNotFoundException) {
+            android.util.Log.e(TAG, "Could not read app version", e)
+            ""
+        }
+        binding.textAppVersion.text = getString(R.string.app_version_format, versionName)
     }
 
     /** Inflates one card per [AnalysisMode] and appends it to the container. */

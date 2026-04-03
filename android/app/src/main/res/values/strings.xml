@@ -4,6 +4,7 @@
         To add other locales, create res/values-<lang>/strings.xml (e.g. values-en/).
     -->
     <string name="app_name">MobileCV</string>
+    <string name="app_version_format">Wersja %s</string>
     <string name="camera_permission_denied">Uprawnienie do kamery jest wymagane. Aplikacja zostanie zamknięta.</string>
     <string name="opencv_init_error">Błąd inicjalizacji OpenCV. Niektóre filtry mogą nie działać.</string>
     <string name="camera_preview_description">Podgląd kamery z nałożonym filtrem OpenCV</string>

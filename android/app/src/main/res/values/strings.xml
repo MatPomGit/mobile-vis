@@ -119,8 +119,69 @@
     <string name="instructions_content">Witaj w MobileCV – aplikacji do analizy obrazu w czasie rzeczywistym.\n\nJak korzystać z aplikacji:\n1. Wybierz tryb analizy z poniższego menu.\n2. Kamera otworzy się z wybranym filtrem.\n3. Zmień filtr przyciskami na dole ekranu.\n4. Naciśnij przycisk migawki, aby zrobić zdjęcie.\n5. Przytrzymaj przycisk migawki, aby nagrywać wideo.\n\nDostępne tryby:\n• Filtry – podstawowe filtry obrazu (skala szarości, rozmycie, progowanie)\n• Krawędzie – detekcja krawędzi (Canny, Sobel, Laplacian)\n• Morfologia – dylatacja, erozja, otwarcie, zamknięcie\n• Markery – detekcja ArUco, AprilTag, QR, CCTag\n• Poza / Twarz – śledzenie ciała i twarzy (MediaPipe)\n• Odometria 3D – odometria wizualna i chmura punktów\n• Geometria 3D – detekcja płaszczyzn i punkty zbieżności\n• Kalibracja – kalibracja kamery wzorcem szachownicy\n• YOLO – detekcja obiektów, segmentacja i poza (YOLOv8)\n\nUwaga: tryby Poza i YOLO wymagają pobrania modeli przy pierwszym użyciu (wymagane połączenie z internetem).\n\nPołączenie z robotem (ROS2): użyj ikony anteny w prawym dolnym rogu.\nZmiana rozdzielczości: ikona klucza w prawym dolnym rogu.\nKalibracja: ikona szachownicy (dostępna w trybie Kalibracja).</string>
     <string name="instructions_close">Zamknij</string>
 
-    <!-- Main menu -->
-    <string name="menu_subtitle">Wybierz tryb analizy obrazu</string>
+    <!-- Main menu tabs -->
+    <string name="tab_modes">Tryby</string>
+    <string name="tab_about">O aplikacji</string>
+
+    <!-- About tab – app description -->
+    <string name="about_app_description">MobileCV to mobilna aplikacja do analizy obrazu w czasie rzeczywistym. Korzysta z bibliotek OpenCV, MediaPipe i YOLO, przetwarzając obraz z kamery bezpośrednio na urządzeniu – bez przesyłania danych do chmury.\n\nAplikacja umożliwia eksplorację szerokiego zakresu technik computer vision: od filtrowania i detekcji krawędzi, przez rozpoznawanie znaczników i śledzenie pozy człowieka, aż po detekcję obiektów przy użyciu sieci neuronowych.</string>
+
+    <!-- About tab – filter descriptions (FILTERS mode) -->
+    <string name="filter_desc_original">Surowy obraz z kamery bez żadnego przetwarzania. Pozwala porównać działanie pozostałych filtrów z oryginałem.</string>
+    <string name="filter_desc_grayscale">Konwertuje kolorowy obraz do skali szarości przez uśrednienie kanałów RGB. Redukuje ilość przetwarzanych danych.</string>
+    <string name="filter_desc_gaussian_blur">Rozmywa obraz za pomocą jądra Gaussowskiego. Redukuje szum i drobne szczegóły, przygotowując obraz do dalszej analizy.</string>
+    <string name="filter_desc_median_blur">Zastępuje każdy piksel medianą wartości w jego otoczeniu. Skutecznie usuwa szum impulsowy (tzw. sól i pieprz).</string>
+    <string name="filter_desc_bilateral">Rozmywa obraz, zachowując krawędzie. Wygładza jednorodne obszary, nie rozmywając granic obiektów.</string>
+    <string name="filter_desc_box_filter">Rozmycie przez uśrednianie – każdy piksel przyjmuje średnią wartość sąsiadów w prostokątnym oknie.</string>
+    <string name="filter_desc_threshold">Binaryzacja obrazu: piksele jaśniejsze od progu stają się białe, ciemniejsze – czarne. Wyodrębnia obiekty od tła.</string>
+    <string name="filter_desc_adaptive_threshold">Binaryzacja z lokalnie wyznaczanym progiem. Działa poprawnie przy nierównomiernym oświetleniu.</string>
+    <string name="filter_desc_hist_eq">Wyrównanie histogramu: rozciąga kontrast tak, by jasności były równomiernie rozłożone. Poprawia widoczność szczegółów.</string>
+
+    <!-- About tab – filter descriptions (EDGES mode) -->
+    <string name="filter_desc_canny">Algorytm Canny\'ego: oblicza gradient, stosuje supresję niemaksymalną i podwójne progowanie. Daje cienkie, precyzyjne krawędzie.</string>
+    <string name="filter_desc_sobel">Operator Sobela: oblicza gradient obrazu w kierunku X i Y. Wskazuje miejsca gwałtownych zmian jasności.</string>
+    <string name="filter_desc_scharr">Ulepszona wersja operatora Sobela z dokładniejszą aproksymacją gradientu w oknie 3×3.</string>
+    <string name="filter_desc_laplacian">Operator Laplace\'a: wykrywa krawędzie jako miejsca zerowe drugiej pochodnej jasności. Czuły na szum.</string>
+    <string name="filter_desc_prewitt">Operator Prewitta: podobny do Sobela, używa uproszczonego jądra do aproksymacji gradientu w 8 kierunkach.</string>
+    <string name="filter_desc_roberts">Krzyż Robertsa: minimalne jądro 2×2 do detekcji krawędzi ukośnych. Bardzo szybki, ale wrażliwy na szum.</string>
+
+    <!-- About tab – filter descriptions (MORPHOLOGY mode) -->
+    <string name="filter_desc_dilate">Dylatacja: rozszerza jasne obszary. Wypełnia drobne dziury i łączy bliskie elementy na obrazie.</string>
+    <string name="filter_desc_erode">Erozja: zmniejsza jasne obszary. Usuwa małe obiekty i odcina cienkie połączenia między elementami.</string>
+    <string name="filter_desc_open">Otwarcie (erozja, potem dylatacja): usuwa małe jasne punkty, zachowując kształt większych obiektów.</string>
+    <string name="filter_desc_close">Zamknięcie (dylatacja, potem erozja): wypełnia małe ciemne dziury wewnątrz jasnych obszarów.</string>
+    <string name="filter_desc_gradient">Gradient morfologiczny: różnica dylatacji i erozji. Podkreśla kontury obiektów podobnie do detekcji krawędzi.</string>
+    <string name="filter_desc_top_hat">Top-hat: różnica oryginału i otwarcia. Wyodrębnia jasne drobne szczegóły wyróżniające się na tle.</string>
+    <string name="filter_desc_black_hat">Black-hat: różnica zamknięcia i oryginału. Wyodrębnia ciemne drobne szczegóły na jasnym tle.</string>
+
+    <!-- About tab – filter descriptions (MARKERS mode) -->
+    <string name="filter_desc_apriltag">Detekcja znaczników AprilTag (rodzina Tag36h11): rysuje ramkę, wyświetla ID i szacuje pozycję 6-DoF w przestrzeni 3D.</string>
+    <string name="filter_desc_aruco">Detekcja znaczników ArUco (słownik 4×4): wykrywa i identyfikuje markery, nakłada oś układu współrzędnych XYZ.</string>
+    <string name="filter_desc_qr">Detekcja kodów QR: dekoduje zawartość tekstową lub URL i zaznacza kod na ekranie.</string>
+    <string name="filter_desc_cctag">Detekcja znaczników CCTag (koncentryczne okręgi): odporne na zmianę kąta widzenia i warunki oświetleniowe.</string>
+
+    <!-- About tab – filter descriptions (POSE mode) -->
+    <string name="filter_desc_body">Śledzenie pozy ciała: MediaPipe Pose Landmarker rysuje 33 punkty szkieletu całego ciała w czasie rzeczywistym.</string>
+    <string name="filter_desc_hands">Śledzenie rąk: MediaPipe Hand Landmarker wykrywa 21 punktów na każdej dłoni (obie ręce jednocześnie).</string>
+    <string name="filter_desc_face">Siatka twarzy: MediaPipe Face Landmarker rysuje 468 punktów charakterystycznych twarzy.</string>
+    <string name="filter_desc_iris">Śledzenie wzroku (Iris): 478 punktów twarzy z 10 dodatkowymi dla tęczówek. Wizualizuje kierunek patrzenia.</string>
+
+    <!-- About tab – filter descriptions (ODOMETRY mode) -->
+    <string name="filter_desc_visual_odometry">Odometria wizyjna: śledzi punkty charakterystyczne między klatkami i szacuje ruch kamery (translacja i rotacja).</string>
+    <string name="filter_desc_point_cloud">Chmura punktów 3D: rekonstruuje głębię sceny z paralaksy ruchu kamery. Punkty kolorowane wg szacowanej odległości.</string>
+
+    <!-- About tab – filter descriptions (GEOMETRY mode) -->
+    <string name="filter_desc_plane_detection">Detekcja płaszczyzn: grupuje linie Hougha wg kierunku i wyznacza płaszczyzny metodą RANSAC. Nakłada kolorowe wypełnienia i strzałki normalnych.</string>
+    <string name="filter_desc_vanishing_points">Punkty zbieżności perspektywy: grupy równoległych linii zbiegają się w punktach znikania. Wizualizuje geometrię 3D sceny.</string>
+
+    <!-- About tab – filter descriptions (CALIBRATION mode) -->
+    <string name="filter_desc_chessboard">Kalibracja wzorcem szachownicy: wykrywa narożniki i oblicza macierz kamery oraz współczynniki dystorsji. Zbierz min. 10 klatek z różnych pozycji.</string>
+    <string name="filter_desc_undistort">Korekcja dystorsji: stosuje wcześniej obliczoną kalibrację, by wyprostować zniekształcenia soczewki obiektywu.</string>
+
+    <!-- About tab – filter descriptions (YOLO mode) -->
+    <string name="filter_desc_yolo_detect">Detekcja obiektów YOLOv8-nano: rozpoznaje 80 klas obiektów (COCO), rysuje ramki z etykietami i poziomem pewności detekcji.</string>
+    <string name="filter_desc_yolo_segment">Segmentacja instancji YOLOv8-nano: wykrywa obiekty i przybliża maski pikselowe za pomocą nakładek na ramkach detekcji.</string>
+    <string name="filter_desc_yolo_pose">Estymacja pozy YOLOv8-nano: wykrywa osoby i rysuje 17 punktów szkieletu połączonych kolorowymi liniami.</string>
     <string name="mode_desc_yolo">Detekcja obiektów, segmentacja instancji i estymacja pozy z użyciem YOLOv8</string>
     <string name="mode_desc_filters">Konwersja kolorów, rozmycie Gaussowskie, progowanie</string>
     <string name="mode_desc_edges">Detekcja krawędzi: Canny, Sobel, Laplacian</string>

@@ -2,21 +2,25 @@ package pl.edu.mobilecv
 
 import android.content.Intent
 import android.os.Bundle
+import android.view.View
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import com.google.android.material.tabs.TabLayout
 import pl.edu.mobilecv.databinding.ActivityMenuBinding
 
 /**
  * Launcher activity that presents a main menu with all available analysis modes.
  *
- * The user picks a mode and is taken to [MainActivity], which opens the camera
- * and pre-selects the chosen mode tab.  Separating the launcher from the camera
- * activity prevents crashes caused by eager camera / OpenCV initialization
- * before the user has made a selection.
+ * The menu is split into two tabs:
+ * - **Tryby** – mode cards; tapping a card launches [MainActivity] with that mode.
+ * - **O aplikacji** – general app description plus per-filter descriptions.
  *
- * An additional card for the [PointCloudViewerActivity] is appended at the bottom
- * of the list to allow loading and visualizing previously saved point clouds.
+ * Separating the launcher from the camera activity prevents crashes caused by eager
+ * camera / OpenCV initialization before the user has made a selection.
+ *
+ * An additional card for the [PointCloudViewerActivity] is appended at the bottom of
+ * the modes list to allow loading and visualizing previously saved point clouds.
  */
 class MenuActivity : AppCompatActivity() {
 
@@ -37,7 +41,34 @@ class MenuActivity : AppCompatActivity() {
         buildInstructionsCard()
         buildModeCards()
         buildPointCloudViewerCard()
+        buildAboutContent()
+        setupMenuTabs()
     }
+
+    // ------------------------------------------------------------------
+    // Tab setup
+    // ------------------------------------------------------------------
+
+    /** Configures the two-tab layout and switches the visible scroll view. */
+    private fun setupMenuTabs() {
+        binding.tabLayoutMenu.addTab(binding.tabLayoutMenu.newTab().setText(R.string.tab_modes))
+        binding.tabLayoutMenu.addTab(binding.tabLayoutMenu.newTab().setText(R.string.tab_about))
+
+        binding.tabLayoutMenu.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
+            override fun onTabSelected(tab: TabLayout.Tab) {
+                val showAbout = tab.position == 1
+                binding.scrollViewModes.visibility = if (showAbout) View.GONE else View.VISIBLE
+                binding.scrollViewAbout.visibility = if (showAbout) View.VISIBLE else View.GONE
+            }
+
+            override fun onTabUnselected(tab: TabLayout.Tab) {}
+            override fun onTabReselected(tab: TabLayout.Tab) {}
+        })
+    }
+
+    // ------------------------------------------------------------------
+    // Modes tab content
+    // ------------------------------------------------------------------
 
     /**
      * Inflates an instructions card and inserts it as the first item in the container.
@@ -113,4 +144,121 @@ class MenuActivity : AppCompatActivity() {
             }
         )
     }
+
+    // ------------------------------------------------------------------
+    // About tab content
+    // ------------------------------------------------------------------
+
+    /**
+     * Populates the About tab with a general app description card followed by
+     * one section per [AnalysisMode], each showing its mode description and
+     * a list of individual filter descriptions.
+     */
+    private fun buildAboutContent() {
+        addAppDescriptionCard()
+
+        val filterDescriptions = buildFilterDescriptionMap()
+
+        AnalysisMode.entries.forEach { mode ->
+            addModeSectionCard(mode)
+            mode.filters.forEach { filter ->
+                val description = filterDescriptions[filter] ?: ""
+                addFilterDescriptionRow(filter.displayName, description)
+            }
+        }
+    }
+
+    /** Adds a card at the top of the About tab describing the application. */
+    private fun addAppDescriptionCard() {
+        val card = layoutInflater.inflate(R.layout.item_mode_card, binding.aboutContainer, false)
+        card.findViewById<TextView>(R.id.textModeName).text = getString(R.string.app_name)
+        card.findViewById<TextView>(R.id.textModeDescription).text =
+            getString(R.string.about_app_description)
+        card.isClickable = false
+        binding.aboutContainer.addView(card)
+    }
+
+    /**
+     * Adds a section-header card for [mode] in the About tab.
+     * The card shows the mode name and its high-level description.
+     */
+    private fun addModeSectionCard(mode: AnalysisMode) {
+        val modeDescriptions = mapOf(
+            AnalysisMode.FILTERS to getString(R.string.mode_desc_filters),
+            AnalysisMode.EDGES to getString(R.string.mode_desc_edges),
+            AnalysisMode.MORPHOLOGY to getString(R.string.mode_desc_morphology),
+            AnalysisMode.MARKERS to getString(R.string.mode_desc_markers),
+            AnalysisMode.POSE to getString(R.string.mode_desc_pose),
+            AnalysisMode.ODOMETRY to getString(R.string.mode_desc_odometry),
+            AnalysisMode.GEOMETRY to getString(R.string.mode_desc_geometry),
+            AnalysisMode.CALIBRATION to getString(R.string.mode_desc_calibration),
+            AnalysisMode.YOLO to getString(R.string.mode_desc_yolo),
+        )
+
+        val card = layoutInflater.inflate(R.layout.item_mode_card, binding.aboutContainer, false)
+        card.findViewById<TextView>(R.id.textModeName).text = mode.displayName
+        card.findViewById<TextView>(R.id.textModeDescription).text =
+            modeDescriptions[mode] ?: ""
+        card.isClickable = false
+        binding.aboutContainer.addView(card)
+    }
+
+    /**
+     * Inflates a filter description row and appends it to the About container.
+     *
+     * @param name        Human-readable filter name shown in bold.
+     * @param description Polish description of what the filter does.
+     */
+    private fun addFilterDescriptionRow(name: String, description: String) {
+        val row = layoutInflater.inflate(
+            R.layout.item_filter_description, binding.aboutContainer, false
+        )
+        row.findViewById<TextView>(R.id.textFilterName).text = "• $name"
+        row.findViewById<TextView>(R.id.textFilterDescription).text = description
+        binding.aboutContainer.addView(row)
+    }
+
+    /** Returns a map of [OpenCvFilter] to its Polish description string. */
+    private fun buildFilterDescriptionMap(): Map<OpenCvFilter, String> = mapOf(
+        OpenCvFilter.ORIGINAL to getString(R.string.filter_desc_original),
+        OpenCvFilter.GRAYSCALE to getString(R.string.filter_desc_grayscale),
+        OpenCvFilter.GAUSSIAN_BLUR to getString(R.string.filter_desc_gaussian_blur),
+        OpenCvFilter.MEDIAN_BLUR to getString(R.string.filter_desc_median_blur),
+        OpenCvFilter.BILATERAL_FILTER to getString(R.string.filter_desc_bilateral),
+        OpenCvFilter.BOX_FILTER to getString(R.string.filter_desc_box_filter),
+        OpenCvFilter.THRESHOLD to getString(R.string.filter_desc_threshold),
+        OpenCvFilter.ADAPTIVE_THRESHOLD to getString(R.string.filter_desc_adaptive_threshold),
+        OpenCvFilter.HISTOGRAM_EQUALIZATION to getString(R.string.filter_desc_hist_eq),
+        OpenCvFilter.CANNY_EDGES to getString(R.string.filter_desc_canny),
+        OpenCvFilter.SOBEL to getString(R.string.filter_desc_sobel),
+        OpenCvFilter.SCHARR to getString(R.string.filter_desc_scharr),
+        OpenCvFilter.LAPLACIAN to getString(R.string.filter_desc_laplacian),
+        OpenCvFilter.PREWITT to getString(R.string.filter_desc_prewitt),
+        OpenCvFilter.ROBERTS to getString(R.string.filter_desc_roberts),
+        OpenCvFilter.DILATE to getString(R.string.filter_desc_dilate),
+        OpenCvFilter.ERODE to getString(R.string.filter_desc_erode),
+        OpenCvFilter.OPEN to getString(R.string.filter_desc_open),
+        OpenCvFilter.CLOSE to getString(R.string.filter_desc_close),
+        OpenCvFilter.GRADIENT to getString(R.string.filter_desc_gradient),
+        OpenCvFilter.TOP_HAT to getString(R.string.filter_desc_top_hat),
+        OpenCvFilter.BLACK_HAT to getString(R.string.filter_desc_black_hat),
+        OpenCvFilter.APRIL_TAGS to getString(R.string.filter_desc_apriltag),
+        OpenCvFilter.ARUCO to getString(R.string.filter_desc_aruco),
+        OpenCvFilter.QR_CODE to getString(R.string.filter_desc_qr),
+        OpenCvFilter.CCTAG to getString(R.string.filter_desc_cctag),
+        OpenCvFilter.HOLISTIC_BODY to getString(R.string.filter_desc_body),
+        OpenCvFilter.HOLISTIC_HANDS to getString(R.string.filter_desc_hands),
+        OpenCvFilter.HOLISTIC_FACE to getString(R.string.filter_desc_face),
+        OpenCvFilter.IRIS to getString(R.string.filter_desc_iris),
+        OpenCvFilter.VISUAL_ODOMETRY to getString(R.string.filter_desc_visual_odometry),
+        OpenCvFilter.POINT_CLOUD to getString(R.string.filter_desc_point_cloud),
+        OpenCvFilter.PLANE_DETECTION to getString(R.string.filter_desc_plane_detection),
+        OpenCvFilter.VANISHING_POINTS to getString(R.string.filter_desc_vanishing_points),
+        OpenCvFilter.CHESSBOARD_CALIBRATION to getString(R.string.filter_desc_chessboard),
+        OpenCvFilter.UNDISTORT to getString(R.string.filter_desc_undistort),
+        OpenCvFilter.YOLO_DETECT to getString(R.string.filter_desc_yolo_detect),
+        OpenCvFilter.YOLO_SEGMENT to getString(R.string.filter_desc_yolo_segment),
+        OpenCvFilter.YOLO_POSE to getString(R.string.filter_desc_yolo_pose),
+    )
 }
+

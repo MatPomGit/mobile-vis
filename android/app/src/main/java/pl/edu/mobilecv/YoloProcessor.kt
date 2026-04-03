@@ -266,8 +266,10 @@ class YoloProcessor(private val context: Context) {
             val ry2 = ((box.y + box.height) * scaleY).toFloat()
             val rectF = RectF(rx1, ry1, rx2, ry2)
 
-            drawBox(canvas, rectF, label, score, color)
-            detections.add(MarkerDetection.YoloObject(label, classId, score, rectF))
+            val detection = MarkerDetection.YoloObject(label, classId, score, rectF)
+            drawBox(canvas, rectF, "${detection.type}:${detection.id}", score, color)
+            logMarkerDiagnostics(detection)
+            detections.add(detection)
         }
 
         if (detections.isNotEmpty()) onDetections?.invoke(detections)
@@ -349,8 +351,10 @@ class YoloProcessor(private val context: Context) {
                 style = Paint.Style.FILL
             }
             canvas.drawRect(rectF, fillPaint)
-            drawBox(canvas, rectF, "$label [seg]", score, color)
-            detections.add(MarkerDetection.YoloObject(label, classId, score, rectF))
+            val detection = MarkerDetection.YoloObject(label, classId, score, rectF)
+            drawBox(canvas, rectF, "${detection.type}:${detection.id}[seg]", score, color)
+            logMarkerDiagnostics(detection)
+            detections.add(detection)
         }
 
         if (detections.isNotEmpty()) onDetections?.invoke(detections)
@@ -424,7 +428,8 @@ class YoloProcessor(private val context: Context) {
             val ry2 = ((box.y + box.height) * scaleY).toFloat()
             val rectF = RectF(rx1, ry1, rx2, ry2)
 
-            drawBox(canvas, rectF, "person", score, Color.GREEN)
+            val detection = MarkerDetection.YoloObject("person", 0, score, rectF)
+            drawBox(canvas, rectF, "${detection.type}:${detection.id}", score, Color.GREEN)
 
             // Draw skeleton connections
             bonePaint.color = Color.GREEN
@@ -450,7 +455,8 @@ class YoloProcessor(private val context: Context) {
                 canvas.drawCircle(kx, ky, KEYPOINT_RADIUS, kpPaint)
             }
 
-            detections.add(MarkerDetection.YoloObject("person", 0, score, rectF))
+            logMarkerDiagnostics(detection)
+            detections.add(detection)
         }
 
         if (detections.isNotEmpty()) onDetections?.invoke(detections)
@@ -569,4 +575,8 @@ class YoloProcessor(private val context: Context) {
     private fun ensureArgb8888(bitmap: Bitmap): Bitmap =
         if (bitmap.config == Bitmap.Config.ARGB_8888) bitmap.copy(Bitmap.Config.ARGB_8888, true)
         else bitmap.copy(Bitmap.Config.ARGB_8888, false)
+
+    private fun logMarkerDiagnostics(detection: MarkerDetection) {
+        Log.d(TAG, "marker_detection ${detection.toDiagnosticSummary()}")
+    }
 }

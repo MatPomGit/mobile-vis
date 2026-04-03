@@ -135,7 +135,7 @@ class RosBridgeClient {
      * The payload is a JSON array serialised into the `data` field of a
      * `std_msgs/String` message so that any ROS2 node can parse it:
      * ```json
-     * [{"type":"apriltag","id":0,"corners":[…],"timestamp_ms":…}, …]
+     * [{"type":"apriltag","id":"0","corners":[…],"rvec":[…],"tvec":[…],"quality":{…},"timestamp":…}, …]
      * ```
      *
      * @param detections Marker detections collected during the current frame.
@@ -186,63 +186,9 @@ class RosBridgeClient {
     private fun buildDetectionsPayload(detections: List<MarkerDetection>): String {
         val array = JSONArray()
         for (detection in detections) {
-            val obj = JSONObject()
-            when (detection) {
-                is MarkerDetection.AprilTag -> {
-                    obj.put("type", "apriltag")
-                    obj.put("id", detection.id)
-                    obj.put("corners", cornersToJsonArray(detection.corners))
-                    obj.put("timestamp_ms", detection.timestampMs)
-                }
-                is MarkerDetection.Aruco -> {
-                    obj.put("type", "aruco")
-                    obj.put("id", detection.id)
-                    obj.put("corners", cornersToJsonArray(detection.corners))
-                    obj.put("timestamp_ms", detection.timestampMs)
-                }
-                is MarkerDetection.QrCode -> {
-                    obj.put("type", "qr")
-                    obj.put("text", detection.text)
-                    obj.put("corners", cornersToJsonArray(detection.corners))
-                    obj.put("timestamp_ms", detection.timestampMs)
-                }
-                is MarkerDetection.CCTag -> {
-                    obj.put("type", "cctag")
-                    obj.put("id", detection.id)
-                    obj.put("center_x", detection.center.first.toDouble())
-                    obj.put("center_y", detection.center.second.toDouble())
-                    obj.put("radius", detection.radius.toDouble())
-                    obj.put("corners", cornersToJsonArray(detection.corners))
-                    obj.put("timestamp_ms", detection.timestampMs)
-                }
-                is MarkerDetection.YoloObject -> {
-                    obj.put("type", "yolo")
-                    obj.put("label", detection.label)
-                    obj.put("class_id", detection.classId)
-                    obj.put("confidence", detection.confidence.toDouble())
-                    obj.put("bbox", JSONObject().apply {
-                        put("x1", detection.bbox.left.toDouble())
-                        put("y1", detection.bbox.top.toDouble())
-                        put("x2", detection.bbox.right.toDouble())
-                        put("y2", detection.bbox.bottom.toDouble())
-                    })
-                    obj.put("timestamp_ms", detection.timestampMs)
-                }
-            }
-            array.put(obj)
+            array.put(detection.toCommonJson())
         }
         return array.toString()
-    }
-
-    private fun cornersToJsonArray(corners: List<Pair<Float, Float>>): JSONArray {
-        val array = JSONArray()
-        for ((x, y) in corners) {
-            array.put(JSONObject().apply {
-                put("x", x.toDouble())
-                put("y", y.toDouble())
-            })
-        }
-        return array
     }
 
     private fun updateState(newState: State) {

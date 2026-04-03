@@ -138,8 +138,9 @@ class ProcessedVideoRecorder(private val context: Context) {
                 return
             }
             if (withAudio) {
-                if (initAudioEncoder()) startAudioCapture()
-                else {
+                if (initAudioEncoder()) {
+                    startAudioCapture()
+                } else {
                     Log.w(TAG, "Audio encoder init failed; proceeding with video-only recording")
                     audioFormatReady = true
                 }
@@ -156,7 +157,10 @@ class ProcessedVideoRecorder(private val context: Context) {
      * runs after the last in-progress [writeFrame].
      */
     fun finalize(onComplete: (success: Boolean) -> Unit) {
-        if (!active) { onComplete(false); return }
+        if (!active) {
+            onComplete(false)
+            return
+        }
         active = false
         var success = false
         try {
@@ -338,7 +342,7 @@ class ProcessedVideoRecorder(private val context: Context) {
 
     /**
      * Converts an ARGB pixel to its Y (luma) component using BT.601 full-range coefficients.
-     * Result is clamped to [0, 255].
+     * For valid RGB input in [0, 255] the result lies in [16, 235].
      */
     private fun argbToY(argb: Int): Int {
         val r = (argb shr 16) and 0xff
@@ -349,7 +353,7 @@ class ProcessedVideoRecorder(private val context: Context) {
 
     /**
      * Converts an ARGB pixel to its U (Cb) component using BT.601 full-range coefficients.
-     * Result is clamped to [0, 255].
+     * For valid RGB input in [0, 255] the result lies in [16, 240].
      */
     private fun argbToU(argb: Int): Int {
         val r = (argb shr 16) and 0xff
@@ -360,7 +364,7 @@ class ProcessedVideoRecorder(private val context: Context) {
 
     /**
      * Converts an ARGB pixel to its V (Cr) component using BT.601 full-range coefficients.
-     * Result is clamped to [0, 255].
+     * For valid RGB input in [0, 255] the result lies in [16, 240].
      */
     private fun argbToV(argb: Int): Int {
         val r = (argb shr 16) and 0xff

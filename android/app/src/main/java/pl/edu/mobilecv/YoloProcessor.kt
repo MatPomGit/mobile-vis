@@ -344,7 +344,7 @@ class YoloProcessor(private val context: Context) {
 
             // Semi-transparent fill to indicate segmentation mode
             val fillPaint = Paint().apply {
-                color = CLASS_COLORS[classId % CLASS_COLORS.size]
+                this.color = CLASS_COLORS[classId % CLASS_COLORS.size]
                 alpha = 60
                 style = Paint.Style.FILL
             }

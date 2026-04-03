@@ -56,6 +56,13 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "process_iris": (".iris", "process_iris"),
     "resize_image": (".preprocessing", "resize_image"),
     "undistort_image": (".calibration", "undistort_image"),
+    # Effects
+    "PIXELATE_BLOCK_SIZE": (".effects", "PIXELATE_BLOCK_SIZE"),
+    "apply_invert": (".effects", "apply_invert"),
+    "apply_sepia": (".effects", "apply_sepia"),
+    "apply_emboss": (".effects", "apply_emboss"),
+    "apply_pixelate": (".effects", "apply_pixelate"),
+    "apply_cartoon": (".effects", "apply_cartoon"),
 }
 
 __all__ = sorted(_EXPORTS)

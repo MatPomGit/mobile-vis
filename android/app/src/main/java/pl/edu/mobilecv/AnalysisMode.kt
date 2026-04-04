@@ -137,6 +137,27 @@ enum class AnalysisMode(val displayName: String, val filters: List<OpenCvFilter>
             OpenCvFilter.YOLO_DETECT,
             OpenCvFilter.YOLO_SEGMENT,
             OpenCvFilter.YOLO_POSE,
+            OpenCvFilter.YOLO_CLASSIFY,
+            OpenCvFilter.YOLO_OBB,
+        )
+    ),
+
+    /**
+     * Real-time object detection with axis-aligned and rotated bounding boxes
+     * powered by RTMDet-nano (OpenMMLab) models running on the OpenCV DNN
+     * backend.
+     *
+     * RTMDet (Real-Time instance detection) delivers state-of-the-art accuracy
+     * at competitive inference speeds.  The rotated variant (RTMDet-R) supports
+     * oriented bounding boxes for aerial and scene-text imagery.
+     *
+     * Models are downloaded on demand the first time this tab is selected.
+     */
+    RTMDET(
+        "RTMDet",
+        listOf(
+            OpenCvFilter.RTMDET_DETECT,
+            OpenCvFilter.RTMDET_ROTATED,
         )
     ),
 

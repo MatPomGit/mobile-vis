@@ -120,6 +120,10 @@
     <string name="instructions_close">Zamknij</string>
 
     <!-- Main menu tabs -->
+    <string name="tab_processing">Przetwarzanie</string>
+    <string name="tab_detection">Detekcja</string>
+    <string name="tab_analysis">Analiza 3D</string>
+    <string name="tab_models">Modele</string>
     <string name="tab_modes">Tryby</string>
     <string name="tab_about">O aplikacji</string>
 
@@ -182,7 +186,9 @@
     <string name="filter_desc_yolo_detect">Detekcja obiektów YOLOv8-nano: rozpoznaje 80 klas obiektów (COCO), rysuje ramki z etykietami i poziomem pewności detekcji.</string>
     <string name="filter_desc_yolo_segment">Segmentacja instancji YOLOv8-nano: wykrywa obiekty i przybliża maski pikselowe za pomocą nakładek na ramkach detekcji.</string>
     <string name="filter_desc_yolo_pose">Estymacja pozy YOLOv8-nano: wykrywa osoby i rysuje 17 punktów szkieletu połączonych kolorowymi liniami.</string>
-    <string name="mode_desc_yolo">Detekcja obiektów, segmentacja instancji i estymacja pozy z użyciem YOLOv8</string>
+    <string name="filter_desc_yolo_classify">Klasyfikacja obrazu YOLOv8-nano: rozpoznaje scenę i wyświetla 5 najbardziej prawdopodobnych kategorii ImageNet-1000 z poziomem pewności klasyfikacji.</string>
+    <string name="filter_desc_yolo_obb">Detekcja z orientowanymi ramkami YOLOv8-nano (OBB): wykrywa obiekty na zdjęciach lotniczych w zbiorze DOTAv1 i rysuje obrócone prostokąty wyrównane do osi obiektu.</string>
+    <string name="mode_desc_yolo">Detekcja obiektów, segmentacja instancji, estymacja pozy, klasyfikacja obrazu i detekcja z orientowanymi ramkami z użyciem YOLOv8</string>
     <string name="mode_desc_filters">Konwersja kolorów, rozmycie Gaussowskie, progowanie</string>
     <string name="mode_desc_edges">Detekcja krawędzi: Canny, Sobel, Laplacian</string>
     <string name="mode_desc_morphology">Dylatacja, erozja, otwarcie, zamknięcie i inne</string>
@@ -191,6 +197,44 @@
     <string name="mode_desc_odometry">Odometria wizualna i rekonstrukcja chmury punktów 3D</string>
     <string name="mode_desc_geometry">Detekcja płaszczyzn i punkty zbieżności perspektywy</string>
     <string name="mode_desc_calibration">Kalibracja kamery wzorcem szachownicy</string>
+    <string name="mode_desc_effects">Artystyczne efekty wizualne: inwersja, sepia, tłoczenie, pikselizacja i styl kreskówki</string>
+
+    <!-- About tab – filter descriptions (EFFECTS mode) -->
+    <string name="filter_desc_invert">Inwersja kolorów: odwraca wartości pikseli (255 − wartość), tworząc efekt fotograficznego negatywu.</string>
+    <string name="filter_desc_sepia">Efekt sepii: nakłada ciepłą brązową tonację naśladującą stare fotografie, używając macierzy kolorów Adobe Photoshop.</string>
+    <string name="filter_desc_emboss">Tłoczenie (emboss): symuluje efekt wypukłego reliefu przez podkreślenie gradientów w jednym kierunku.</string>
+    <string name="filter_desc_pixelate">Pikselizacja: dzieli obraz na bloki 16×16 pikseli i wypełnia je średnią barwą, tworząc styl pixel-art.</string>
+    <string name="filter_desc_cartoon">Styl kreskówki: łączy wygładzanie metodą bilateralną z grubymi konturami krawędzi, dając efekt komiksu.</string>
+
+    <!-- Group tab descriptions (shown above mode cards) -->
+    <string name="group_desc_processing">Podstawowe operacje na obrazie: konwersja kolorów, wygładzanie szumów, detekcja cech i transformacje morfologiczne. Punkt wyjścia każdego potoku przetwarzania.</string>
+    <string name="group_desc_detection">Zaawansowana detekcja i klasyfikacja: rozpoznawanie znaczników wizualnych, detekcja obiektów sieciami YOLO oraz śledzenie pozy człowieka modelem MediaPipe.</string>
+    <string name="group_desc_analysis">Przestrzenna analiza sceny: odometria wizualna, detekcja geometrii 3D i kalibracja parametrów kamery niezbędna dla poprawnych pomiarów.</string>
+
+    <!-- Models tab -->
+    <string name="models_tab_description">Tryby Poza/Twarz i YOLO wymagają pobrania modeli uczenia maszynowego. Sprawdź stan poniżej i pobierz brakujące modele przed pierwszym użyciem tych trybów.</string>
+    <string name="models_mediapipe_title">Modele MediaPipe</string>
+    <string name="models_mediapipe_description">Modele do śledzenia pozy ciała (Pose), rąk (Hand) i siatki twarzy (Face Mesh) używane w trybie Poza/Twarz.</string>
+    <string name="models_yolo_title">Modele YOLO</string>
+    <string name="models_yolo_description">Modele YOLOv8-nano do detekcji obiektów (Detect), segmentacji instancji (Segment), estymacji pozy (Pose), klasyfikacji obrazu (Classify) i detekcji z orientowanymi ramkami (OBB) używane w trybie YOLO.</string>
+    <string name="model_name_pose_landmarker">Pose Landmarker (ciało)</string>
+    <string name="model_name_hand_landmarker">Hand Landmarker (ręce)</string>
+    <string name="model_name_face_landmarker">Face Landmarker (twarz)</string>
+    <string name="model_name_yolo_detect">YOLOv8n Detect (detekcja obiektów)</string>
+    <string name="model_name_yolo_segment">YOLOv8n Segment (segmentacja)</string>
+    <string name="model_name_yolo_pose">YOLOv8n Pose (estymacja pozy)</string>
+    <string name="model_name_yolo_classify">YOLOv8n Classify (klasyfikacja ImageNet-1000)</string>
+    <string name="model_name_yolo_obb">YOLOv8n OBB (orientowane ramki, DOTAv1)</string>
+    <string name="model_status_available">Pobrano • %1$s</string>
+    <string name="model_status_missing">Nie pobrano</string>
+    <string name="model_btn_download">Pobierz</string>
+    <string name="model_btn_downloading">Pobieranie…</string>
+    <string name="model_btn_downloaded">Pobrano ✓</string>
+    <string name="model_download_all">Pobierz wszystkie brakujące</string>
+    <string name="model_download_success" tools:keep="@string/model_download_success">Pobrano: %1$s</string>
+    <string name="model_download_failed" tools:keep="@string/model_download_failed">Błąd pobierania: %1$s</string>
+    <string name="model_download_all_success" tools:keep="@string/model_download_all_success">Wszystkie modele pobrane pomyślnie</string>
+    <string name="model_download_all_failed" tools:keep="@string/model_download_all_failed">Nie udało się pobrać wszystkich modeli</string>
 
     <!-- Point cloud save -->
     <string name="save_point_cloud_description">Zapisz chmurę punktów do pliku</string>

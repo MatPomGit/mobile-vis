@@ -194,6 +194,39 @@ enum class OpenCvFilter(val displayName: String) {
      */
     YOLO_POSE("YOLO Pose"),
 
+    /**
+     * Classifies the entire camera frame into one of 1 000 ImageNet categories
+     * using YOLOv8-nano classify variant.
+     * Displays the top-5 predicted classes with their softmax confidence scores.
+     */
+    YOLO_CLASSIFY("YOLO Classify"),
+
+    /**
+     * Detects objects with oriented (rotated) bounding boxes using YOLOv8-nano
+     * OBB variant trained on the DOTAv1 dataset (15 aerial-imagery classes).
+     * Draws rotated rectangles aligned to each detected object's principal axis.
+     */
+    YOLO_OBB("YOLO OBB"),
+
+    // ------------------------------------------------------------------
+    // RTMDet object detection
+    // ------------------------------------------------------------------
+
+    /**
+     * Detects objects using RTMDet-nano (OpenMMLab) running on the OpenCV DNN
+     * backend.  Draws axis-aligned bounding boxes with class labels and
+     * confidence scores for all 80 COCO classes.
+     */
+    RTMDET_DETECT("RTMDet Detect"),
+
+    /**
+     * Detects objects with oriented (rotated) bounding boxes using
+     * RTMDet-nano-r (RTMDet-Rotated) running on the OpenCV DNN backend.
+     * Each detection is rendered as a rotated rectangle together with its
+     * class label and rotation angle.
+     */
+    RTMDET_ROTATED("RTMDet Rotated"),
+
     // ------------------------------------------------------------------
     // Full 3-D odometry
     // ------------------------------------------------------------------
@@ -237,7 +270,17 @@ val OpenCvFilter.isMediaPipe: Boolean
 val OpenCvFilter.isYolo: Boolean
     get() = this == OpenCvFilter.YOLO_DETECT ||
         this == OpenCvFilter.YOLO_SEGMENT ||
-        this == OpenCvFilter.YOLO_POSE
+        this == OpenCvFilter.YOLO_POSE ||
+        this == OpenCvFilter.YOLO_CLASSIFY ||
+        this == OpenCvFilter.YOLO_OBB
+
+/**
+ * Returns ``true`` if this filter requires the RTMDet processing pipeline
+ * backed by the OpenCV DNN module.
+ */
+val OpenCvFilter.isRtmDet: Boolean
+    get() = this == OpenCvFilter.RTMDET_DETECT ||
+        this == OpenCvFilter.RTMDET_ROTATED
 
 /**
  * Returns ``true`` if this filter belongs to the full 3-D odometry pipeline

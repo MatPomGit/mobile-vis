@@ -258,6 +258,57 @@ pytest tests/test_preprocessing.py -v
 
 ---
 
+## Szybka diagnostyka
+
+Poniższy zestaw komend pozwala lokalnie odtworzyć kluczowe kroki CI dla części Python i Android.
+
+### Python (lint / type / test / smoke / metryki FPS)
+
+```bash
+# 1) Instalacja zależności deweloperskich
+python -m pip install --upgrade pip
+pip install -e ".[dev]"
+
+# 2) Lint i typy
+ruff check src/ tests/
+mypy src/
+
+# 3) Testy jednostkowe z pokryciem
+pytest --cov=src/image_analysis --cov-report=term-missing
+
+# 4) Smoke import modułów
+python -c 'import importlib; [importlib.import_module(m) for m in [
+"image_analysis",
+"image_analysis.preprocessing",
+"image_analysis.detection",
+"image_analysis.classification",
+"image_analysis.april_tags",
+"image_analysis.qr_detection",
+"image_analysis.utils",
+]]; print("Smoke import OK")'
+
+# 5) Metryki wydajności smoke (czas klatki / FPS)
+python scripts/smoke_perf.py --iterations 150 --warmup 30
+```
+
+### Android (build debug / lint / testy instrumentacyjne)
+
+```bash
+cd android
+chmod +x gradlew
+
+# 1) Lint Android
+./gradlew lintDebug --stacktrace
+
+# 2) Build debug APK
+./gradlew assembleDebug --stacktrace
+
+# 3) (Opcjonalnie) testy instrumentacyjne na emulatorze/urządzeniu
+./gradlew connectedDebugAndroidTest --stacktrace
+```
+
+---
+
 ## Styl kodu i narzędzia jakości
 
 Projekt używa następujących narzędzi (skonfigurowanych w `pyproject.toml`):

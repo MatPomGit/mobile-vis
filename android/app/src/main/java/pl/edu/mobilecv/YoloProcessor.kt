@@ -527,6 +527,10 @@ class YoloProcessor(private val context: Context) {
 
         // Output shape is [1, NUM_IMAGENET_CLASSES] – read all class logits.
         val numClasses = minOf(NUM_IMAGENET_CLASSES, output.total().toInt())
+        if (numClasses == 0) {
+            output.release()
+            return ensureArgb8888(bitmap)
+        }
         val logits = FloatArray(numClasses) { i -> output.get(0, i)[0].toFloat() }
         output.release()
 

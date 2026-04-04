@@ -164,8 +164,10 @@ class PoseTemporalFilter(private var config: PoseTemporalConfig = PoseTemporalCo
     private fun pairwiseStepNorms(history: ArrayDeque<DoubleArray>): List<Double> {
         if (history.size < 2) return emptyList()
         val out = ArrayList<Double>(history.size - 1)
-        var prev = history.first()
-        history.drop(1).forEach { cur ->
+        val iterator = history.iterator()
+        var prev = iterator.next()
+        while (iterator.hasNext()) {
+            val cur = iterator.next()
             var sum = 0.0
             for (i in 0 until 3) {
                 val d = cur[i] - prev[i]

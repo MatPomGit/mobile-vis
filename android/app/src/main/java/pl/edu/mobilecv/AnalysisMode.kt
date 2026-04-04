@@ -137,6 +137,8 @@ enum class AnalysisMode(val displayName: String, val filters: List<OpenCvFilter>
             OpenCvFilter.YOLO_DETECT,
             OpenCvFilter.YOLO_SEGMENT,
             OpenCvFilter.YOLO_POSE,
+            OpenCvFilter.YOLO_CLASSIFY,
+            OpenCvFilter.YOLO_OBB,
         )
     ),
 

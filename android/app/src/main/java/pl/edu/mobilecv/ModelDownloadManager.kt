@@ -71,6 +71,10 @@ object ModelDownloadManager {
             "https://github.com/MatPomGit/mobile-vis/releases/download/models/yolov8n_seg.onnx",
         YoloProcessor.MODEL_POSE to
             "https://github.com/MatPomGit/mobile-vis/releases/download/models/yolov8n_pose.onnx",
+        YoloProcessor.MODEL_CLASSIFY to
+            "https://github.com/MatPomGit/mobile-vis/releases/download/models/yolov8n_cls.onnx",
+        YoloProcessor.MODEL_OBB to
+            "https://github.com/MatPomGit/mobile-vis/releases/download/models/yolov8n_obb.onnx",
     )
 
     /**
@@ -87,6 +91,10 @@ object ModelDownloadManager {
             "https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8n-seg.onnx",
         YoloProcessor.MODEL_POSE to
             "https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8n-pose.onnx",
+        YoloProcessor.MODEL_CLASSIFY to
+            "https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8n-cls.onnx",
+        YoloProcessor.MODEL_OBB to
+            "https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8n-obb.onnx",
     )
 
     private const val YOLO_DIR = "yolo"

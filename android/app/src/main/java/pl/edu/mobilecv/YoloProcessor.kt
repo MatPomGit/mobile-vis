@@ -21,13 +21,16 @@ import org.opencv.imgproc.Imgproc
 import androidx.core.graphics.createBitmap
 
 /**
- * Applies YOLO-based detection and pose estimation filters to Android [Bitmap] frames.
+ * Applies YOLO-based detection, segmentation, pose estimation, image classification and
+ * oriented-bounding-box detection filters to Android [Bitmap] frames.
  *
  * Inference is performed on-device using the OpenCV DNN module loading YOLOv8-nano
- * ONNX models.  Three modes are supported, each driven by [OpenCvFilter]:
- * - [OpenCvFilter.YOLO_DETECT]  – 80-class COCO object detection (bounding boxes).
- * - [OpenCvFilter.YOLO_SEGMENT] – instance segmentation (bounding boxes only on CPU).
- * - [OpenCvFilter.YOLO_POSE]    – 17-keypoint human pose estimation.
+ * ONNX models.  Five modes are supported, each driven by [OpenCvFilter]:
+ * - [OpenCvFilter.YOLO_DETECT]   – 80-class COCO object detection (bounding boxes).
+ * - [OpenCvFilter.YOLO_SEGMENT]  – instance segmentation (bounding boxes only on CPU).
+ * - [OpenCvFilter.YOLO_POSE]     – 17-keypoint human pose estimation.
+ * - [OpenCvFilter.YOLO_CLASSIFY] – ImageNet-1000 image classification (top-5 overlay).
+ * - [OpenCvFilter.YOLO_OBB]      – DOTAv1 oriented bounding boxes (15 aerial classes).
  *
  * Call [initialize] once after construction and [close] when the processor is no longer
  * needed.  If a required model file has not been downloaded yet, the frame is returned
@@ -45,9 +48,14 @@ class YoloProcessor(private val context: Context) {
         const val MODEL_DETECT = "yolov8n_det.onnx"
         const val MODEL_SEGMENT = "yolov8n_seg.onnx"
         const val MODEL_POSE = "yolov8n_pose.onnx"
+        const val MODEL_CLASSIFY = "yolov8n_cls.onnx"
+        const val MODEL_OBB = "yolov8n_obb.onnx"
 
-        /** YOLOv8 inference input size (square). */
+        /** YOLOv8 inference input size (square) for detection/segmentation/pose/OBB. */
         private const val INPUT_SIZE = 640
+
+        /** YOLOv8-classify inference input size (square). */
+        private const val CLS_INPUT_SIZE = 224
 
         /** Minimum detection confidence. */
         private const val CONFIDENCE_THRESHOLD = 0.5f
@@ -57,6 +65,12 @@ class YoloProcessor(private val context: Context) {
 
         /** Number of object classes in the COCO vocabulary. */
         private const val NUM_CLASSES = 80
+
+        /** Number of output classes for YOLOv8-nano classify (ImageNet-1000). */
+        private const val NUM_IMAGENET_CLASSES = 1000
+
+        /** Number of classes in the DOTAv1 dataset used by the YOLOv8-nano OBB model. */
+        private const val NUM_DOTA_CLASSES = 15
 
         /** Number of keypoints in YOLOv8-pose output (COCO-person: 17 joints). */
         private const val NUM_KEYPOINTS = 17
@@ -125,6 +139,22 @@ class YoloProcessor(private val context: Context) {
             "refrigerator", "book", "clock", "vase", "scissors", "teddy bear", "hair drier",
             "toothbrush",
         )
+
+        /** 15 DOTAv1 class names in canonical order (used by YOLOv8-nano OBB). */
+        private val DOTA_CLASSES = arrayOf(
+            "plane", "ship", "storage-tank", "baseball-diamond", "tennis-court",
+            "basketball-court", "ground-track-field", "harbor", "bridge", "large-vehicle",
+            "small-vehicle", "helicopter", "roundabout", "soccer-ball-field", "swimming-pool",
+        )
+
+        /** Number of top-N predictions shown in classify mode. */
+        private const val CLASSIFY_TOP_N = 5
+
+        /** Font size for the classification result overlay text. */
+        private const val CLASSIFY_TEXT_SIZE = 42f
+
+        /** Number of features per proposal in the OBB output tensor (4 xywh + 1 angle + classes). */
+        private const val OBB_BBOX_DIM = 5
     }
 
     // -------------------------------------------------------------------------
@@ -134,6 +164,8 @@ class YoloProcessor(private val context: Context) {
     private var netDetect: Net? = null
     private var netSegment: Net? = null
     private var netPose: Net? = null
+    private var netClassify: Net? = null
+    private var netObb: Net? = null
 
     // -------------------------------------------------------------------------
     // Lifecycle
@@ -153,6 +185,8 @@ class YoloProcessor(private val context: Context) {
         netDetect = tryLoadNet(MODEL_DETECT)
         netSegment = tryLoadNet(MODEL_SEGMENT)
         netPose = tryLoadNet(MODEL_POSE)
+        netClassify = tryLoadNet(MODEL_CLASSIFY)
+        netObb = tryLoadNet(MODEL_OBB)
     }
 
     /**
@@ -165,6 +199,8 @@ class YoloProcessor(private val context: Context) {
         netDetect = null
         netSegment = null
         netPose = null
+        netClassify = null
+        netObb = null
         Log.d(TAG, "YoloProcessor closed")
     }
 
@@ -177,8 +213,9 @@ class YoloProcessor(private val context: Context) {
      * annotated result.
      *
      * @param bitmap Input camera frame (any config, will be converted to ARGB_8888).
-     * @param filter One of [OpenCvFilter.YOLO_DETECT], [OpenCvFilter.YOLO_SEGMENT]
-     *               or [OpenCvFilter.YOLO_POSE].
+     * @param filter One of [OpenCvFilter.YOLO_DETECT], [OpenCvFilter.YOLO_SEGMENT],
+     *               [OpenCvFilter.YOLO_POSE], [OpenCvFilter.YOLO_CLASSIFY] or
+     *               [OpenCvFilter.YOLO_OBB].
      * @param onDetections Optional callback invoked with YOLO detections for ROS
      *                     publishing.  Called only when detections are non-empty.
      * @return Annotated [Bitmap] in ARGB_8888 format.
@@ -192,6 +229,8 @@ class YoloProcessor(private val context: Context) {
             OpenCvFilter.YOLO_DETECT -> applyDetection(bitmap, onDetections)
             OpenCvFilter.YOLO_SEGMENT -> applySegmentation(bitmap, onDetections)
             OpenCvFilter.YOLO_POSE -> applyPose(bitmap, onDetections)
+            OpenCvFilter.YOLO_CLASSIFY -> applyClassify(bitmap)
+            OpenCvFilter.YOLO_OBB -> applyObb(bitmap, onDetections)
             else -> bitmap.copy(Bitmap.Config.ARGB_8888, false)
         }
     }
@@ -455,6 +494,167 @@ class YoloProcessor(private val context: Context) {
                 canvas.drawCircle(kx, ky, KEYPOINT_RADIUS, kpPaint)
             }
 
+            logMarkerDiagnostics(detection)
+            detections.add(detection)
+        }
+
+        if (detections.isNotEmpty()) onDetections?.invoke(detections)
+        return result
+    }
+
+    private fun applyClassify(bitmap: Bitmap): Bitmap {
+        val net = netClassify ?: return drawModelMissing(bitmap, MODEL_CLASSIFY)
+
+        // Resize to the classification input size (224×224) instead of the detection size.
+        val argb = ensureArgb8888(bitmap)
+        val src = Mat()
+        Utils.bitmapToMat(argb, src)
+        val rgb = Mat()
+        Imgproc.cvtColor(src, rgb, Imgproc.COLOR_RGBA2RGB)
+        src.release()
+
+        val blob = Dnn.blobFromImage(
+            rgb, 1.0 / 255.0, Size(CLS_INPUT_SIZE.toDouble(), CLS_INPUT_SIZE.toDouble()),
+            org.opencv.core.Scalar(0.0, 0.0, 0.0), true, false,
+        )
+        rgb.release()
+        net.setInput(blob)
+        val output = net.forward()
+        blob.release()
+
+        // Output shape is [1, NUM_IMAGENET_CLASSES] – read all class logits.
+        val numClasses = minOf(NUM_IMAGENET_CLASSES, output.total().toInt())
+        val logits = FloatArray(numClasses) { i -> output.get(0, i)[0].toFloat() }
+        output.release()
+
+        // Numerical-stable softmax
+        val maxLogit = logits.maxOrNull() ?: 0f
+        val expLogits = FloatArray(numClasses) { i -> Math.exp((logits[i] - maxLogit).toDouble()).toFloat() }
+        val sumExp = expLogits.sum()
+        val probs = FloatArray(numClasses) { i -> expLogits[i] / sumExp }
+
+        // Pick top-N by descending probability
+        val topIndices = probs.indices.sortedByDescending { probs[it] }.take(CLASSIFY_TOP_N)
+
+        val result = ensureArgb8888(bitmap)
+        val canvas = Canvas(result)
+
+        val bgPaint = Paint().apply {
+            color = Color.argb(180, 0, 0, 0)
+            style = Paint.Style.FILL
+        }
+        val textPaint = Paint().apply {
+            color = Color.WHITE
+            textSize = CLASSIFY_TEXT_SIZE
+            isAntiAlias = true
+        }
+        val headerPaint = Paint().apply {
+            color = Color.YELLOW
+            textSize = CLASSIFY_TEXT_SIZE
+            isFakeBoldText = true
+            isAntiAlias = true
+        }
+
+        val lineH = CLASSIFY_TEXT_SIZE + 8f
+        val boxW = result.width * 0.85f
+        val boxH = lineH * (CLASSIFY_TOP_N + 1) + 16f
+        canvas.drawRect(16f, 16f, 16f + boxW, 16f + boxH, bgPaint)
+        canvas.drawText("Top-$CLASSIFY_TOP_N (ImageNet-1000):", 24f, 16f + lineH, headerPaint)
+
+        topIndices.forEachIndexed { rank, classIdx ->
+            val pct = "%.1f".format(probs[classIdx] * 100)
+            canvas.drawText(
+                "${rank + 1}. class $classIdx  $pct%",
+                24f, 16f + lineH * (rank + 2), textPaint,
+            )
+        }
+
+        return result
+    }
+
+    private fun applyObb(
+        bitmap: Bitmap,
+        onDetections: ((List<MarkerDetection>) -> Unit)?,
+    ): Bitmap {
+        val net = netObb ?: return drawModelMissing(bitmap, MODEL_OBB)
+        val (src, scaleX, scaleY) = bitmapToSquareMat(bitmap)
+
+        val blob = Dnn.blobFromImage(
+            src, 1.0 / 255.0, Size(INPUT_SIZE.toDouble(), INPUT_SIZE.toDouble()),
+            org.opencv.core.Scalar(0.0, 0.0, 0.0), true, false,
+        )
+        net.setInput(blob)
+        val output = net.forward()
+        src.release(); blob.release()
+
+        // YOLOv8-obb output shape: [1, OBB_BBOX_DIM + NUM_DOTA_CLASSES, num_proposals]
+        // Channels: [cx, cy, w, h, angle, cls_0 … cls_14]
+        val numProposals = output.size(2)
+        val numFeatures = output.size(1)
+
+        val boxes = ArrayList<Rect2d>()
+        val scores = ArrayList<Float>()
+        val classIds = ArrayList<Int>()
+        val angles = ArrayList<Float>()
+
+        for (i in 0 until numProposals) {
+            val cx = output.get(0, 0)[i]
+            val cy = output.get(0, 1)[i]
+            val w = output.get(0, 2)[i]
+            val h = output.get(0, 3)[i]
+            val angle = output.get(0, 4)[i].toFloat()
+
+            var maxScore = 0f
+            var maxClassId = 0
+            for (c in 0 until minOf(NUM_DOTA_CLASSES, numFeatures - OBB_BBOX_DIM)) {
+                val score = output.get(0, OBB_BBOX_DIM + c)[i].toFloat()
+                if (score > maxScore) { maxScore = score; maxClassId = c }
+            }
+
+            if (maxScore < CONFIDENCE_THRESHOLD) continue
+
+            boxes.add(Rect2d(cx - w / 2.0, cy - h / 2.0, w, h))
+            scores.add(maxScore)
+            classIds.add(maxClassId)
+            angles.add(angle)
+        }
+
+        output.release()
+        val kept = applyNms(boxes, scores)
+
+        val result = ensureArgb8888(bitmap)
+        val canvas = Canvas(result)
+        val detections = ArrayList<MarkerDetection>()
+
+        for (idx in kept) {
+            val box = boxes[idx]
+            val classId = classIds[idx]
+            val score = scores[idx]
+            val angleDeg = Math.toDegrees(angles[idx].toDouble()).toFloat()
+            val label = DOTA_CLASSES.getOrElse(classId) { classId.toString() }
+            val color = CLASS_COLORS[classId % CLASS_COLORS.size]
+
+            val cx = ((box.x + box.width / 2.0) * scaleX).toFloat()
+            val cy = ((box.y + box.height / 2.0) * scaleY).toFloat()
+            val rw = (box.width * scaleX).toFloat()
+            val rh = (box.height * scaleY).toFloat()
+
+            val rectF = RectF(cx - rw / 2f, cy - rh / 2f, cx + rw / 2f, cy + rh / 2f)
+
+            canvas.save()
+            canvas.rotate(angleDeg, cx, cy)
+            val boxPaint = Paint().apply {
+                this.color = color
+                strokeWidth = BOX_THICKNESS
+                style = Paint.Style.STROKE
+                isAntiAlias = true
+            }
+            canvas.drawRect(rectF, boxPaint)
+            canvas.restore()
+
+            // Draw label at (non-rotated) bounding box top-left for readability
+            val detection = MarkerDetection.YoloObject(label, classId, score, rectF)
+            drawBox(canvas, rectF, "${detection.type}:${detection.id}[obb]", score, color)
             logMarkerDiagnostics(detection)
             detections.add(detection)
         }

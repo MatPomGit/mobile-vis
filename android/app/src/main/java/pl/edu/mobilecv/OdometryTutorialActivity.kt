@@ -10,7 +10,7 @@ import androidx.appcompat.app.AppCompatActivity
 /**
  * Didactic activity that explains the visual-odometry pipeline step by step.
  *
- * Six stage cards are shown in a scrollable list, each describing one phase of
+ * Eight stage cards are shown in a scrollable list, each describing one phase of
  * the monocular visual-odometry process:
  *
  * 1. Image acquisition
@@ -19,6 +19,8 @@ import androidx.appcompat.app.AppCompatActivity
  * 4. Motion estimation (Essential Matrix + RANSAC + SVD)
  * 5. Triangulation and 3-D reconstruction
  * 6. Trajectory and map accumulation (pose composition)
+ * 7. From pixel to 3-D world point (camera matrix K, ray casting, parallax)
+ * 8. Robot control using full odometry (velocity, ROS 2, navigation)
  *
  * A button at the bottom launches [MainActivity] pre-set to [AnalysisMode.FULL_ODOMETRY_3D]
  * so the user can immediately try the real pipeline after reading the theory.
@@ -82,6 +84,18 @@ class OdometryTutorialActivity : AppCompatActivity() {
                 emoji = getString(R.string.tutorial_stage6_emoji),
                 title = getString(R.string.tutorial_stage6_title),
                 description = getString(R.string.tutorial_stage6_desc),
+            ),
+            OdometryStage(
+                stepNumber = 7,
+                emoji = getString(R.string.tutorial_stage7_emoji),
+                title = getString(R.string.tutorial_stage7_title),
+                description = getString(R.string.tutorial_stage7_desc),
+            ),
+            OdometryStage(
+                stepNumber = 8,
+                emoji = getString(R.string.tutorial_stage8_emoji),
+                title = getString(R.string.tutorial_stage8_title),
+                description = getString(R.string.tutorial_stage8_desc),
             ),
         )
     }

@@ -8,6 +8,7 @@ import org.opencv.core.Core
 import org.opencv.core.CvException
 import org.opencv.core.CvType
 import org.opencv.core.Mat
+import org.opencv.core.MatOfDouble
 import org.opencv.core.MatOfFloat
 import org.opencv.core.MatOfInt
 import org.opencv.core.MatOfPoint
@@ -756,7 +757,7 @@ class ImageProcessor {
         rvec: Mat,
         tvec: Mat,
         cameraMatrix: Mat,
-        distCoeffs: Mat,
+        distCoeffs: MatOfDouble,
     ): Double {
         val projected = MatOfPoint2f()
         Calib3d.projectPoints(objectPoints, rvec, tvec, cameraMatrix, distCoeffs, projected)

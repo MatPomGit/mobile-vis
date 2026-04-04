@@ -4,6 +4,7 @@ import android.util.Log
 import org.opencv.calib3d.Calib3d
 import org.opencv.core.CvType
 import org.opencv.core.Mat
+import org.opencv.core.MatOfDouble
 import org.opencv.core.MatOfPoint2f
 import org.opencv.core.MatOfPoint3f
 import org.opencv.core.Point3
@@ -213,7 +214,7 @@ class CameraCalibrator(
             }
 
             val camMat = Mat.eye(3, 3, CvType.CV_64F)
-            val distCoeffs = Mat.zeros(8, 1, CvType.CV_64F)
+            val distCoeffs = MatOfDouble()
             val rvecs = ArrayList<Mat>()
             val tvecs = ArrayList<Mat>()
 
@@ -293,7 +294,7 @@ class CameraCalibrator(
      */
     data class CalibrationData(
         val cameraMatrix: Mat,
-        val distCoeffs: Mat,
+        val distCoeffs: MatOfDouble,
         val rmsError: Double,
         val frameCount: Int,
         val calibrationImageSize: Size,

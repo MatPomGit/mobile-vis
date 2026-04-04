@@ -995,12 +995,18 @@ class ImageProcessor {
     /**
      * Compute a uniform scale factor so that the X-Z range fits inside
      * ([drawW] × [drawH]) pixels while preserving aspect ratio.
+     *
+     * Individual near-zero ranges are treated as 1 pixel of effective span
+     * to avoid dividing by zero or producing extreme scaling artefacts.
      */
     private fun computeXzScale(bounds: XzBounds, drawW: Int, drawH: Int): Double {
         val rangeX = bounds.maxX - bounds.minX
         val rangeZ = bounds.maxZ - bounds.minZ
-        return if (rangeX < EPSILON_THRESHOLD && rangeZ < EPSILON_THRESHOLD) 1.0
-        else minOf(drawW.toDouble() / maxOf(rangeX, EPSILON_THRESHOLD), drawH.toDouble() / maxOf(rangeZ, EPSILON_THRESHOLD))
+        if (rangeX < EPSILON_THRESHOLD && rangeZ < EPSILON_THRESHOLD) return 1.0
+        // For a near-zero individual axis, fall back to 1 pixel to avoid extreme division
+        val safeRangeX = if (rangeX < EPSILON_THRESHOLD) 1.0 else rangeX
+        val safeRangeZ = if (rangeZ < EPSILON_THRESHOLD) 1.0 else rangeZ
+        return minOf(drawW.toDouble() / safeRangeX, drawH.toDouble() / safeRangeZ)
     }
 
     /** Draw a regular grid of [steps]×[steps] lines on [canvas]. */

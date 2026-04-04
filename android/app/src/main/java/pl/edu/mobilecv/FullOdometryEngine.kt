@@ -5,6 +5,7 @@ import kotlin.math.acos
 import kotlin.math.sqrt
 import org.opencv.calib3d.Calib3d
 import org.opencv.core.Core
+import org.opencv.core.CvException
 import org.opencv.core.CvType
 import org.opencv.core.Mat
 import org.opencv.core.MatOfByte
@@ -71,7 +72,8 @@ class FullOdometryEngine {
 
     companion object {
         private const val TAG = "FullOdometryEngine"
-        private const val MIN_TRACK_COUNT = 8
+        /** Minimum tracked points required before attempting pose estimation. */
+        private const val MIN_TRACK_COUNT = 15
         private const val MAX_TRAJECTORY_POINTS = 500
         private const val MAX_MAP_POINTS = 2000
         private const val MAX_DEPTH = 500.0
@@ -233,7 +235,7 @@ class FullOdometryEngine {
         // --- Essential matrix + relative pose --------------------------------
         val essential = try {
             Calib3d.findEssentialMat(goodPrev, goodNext, k, Calib3d.RANSAC, RANSAC_CONFIDENCE, RANSAC_THRESHOLD)
-        } catch (e: Exception) {
+        } catch (e: CvException) {
             android.util.Log.w(TAG, "findEssentialMat failed (pts=${goodNextList.size}): ${e.message}")
             goodPrev.release(); goodNext.release(); nextPts.release()
             return
@@ -244,7 +246,7 @@ class FullOdometryEngine {
         val poseMask = Mat()
         val inlierCount = try {
             Calib3d.recoverPose(essential, goodPrev, goodNext, k, relR, relT, poseMask)
-        } catch (e: Exception) {
+        } catch (e: CvException) {
             android.util.Log.w(TAG, "recoverPose failed (pts=${goodNextList.size}, essential=${!essential.empty()}): ${e.message}")
             essential.release(); relR.release(); relT.release(); poseMask.release()
             goodPrev.release(); goodNext.release(); nextPts.release()
@@ -328,7 +330,7 @@ class FullOdometryEngine {
         if (inlierPrev.size >= 4) {
             try {
                 triangulateAndAddMapPoints(inlierPrev, inlierNext, k)
-            } catch (e: Exception) {
+            } catch (e: CvException) {
                 android.util.Log.w(TAG, "Triangulation failed (inliers=${inlierPrev.size}, mapSize=${mapPoints.size}): ${e.message}")
             }
         }

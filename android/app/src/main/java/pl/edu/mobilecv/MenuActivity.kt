@@ -44,18 +44,22 @@ class MenuActivity : AppCompatActivity() {
         private const val TAB_ANALYSIS   = 2
         private const val TAB_MODELS     = 3
         private const val TAB_ABOUT      = 4
+
+        /** Multiplier applied to [R.dimen.group_stroke_width] to derive button margins. */
+        private const val BUTTON_MARGIN_MULTIPLIER = 8
     }
 
     private lateinit var binding: ActivityMenuBinding
 
-    /** Single-thread executor used for background model downloads. */
-    private val downloadExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+    /** Single-thread executor used for background model downloads. Lazily created on first use. */
+    private val downloadExecutor: ExecutorService by lazy { Executors.newSingleThreadExecutor() }
 
-    /** Holds references to the UI elements of each model status row. */
+    /** Holds references to the UI elements of each model status row, plus the model group flag. */
     private data class ModelStatusViews(
         val dotView: View,
         val textModelSize: TextView,
         val btnAction: MaterialButton,
+        val isYolo: Boolean,
     )
 
     /** Keyed by model filename (e.g. [MediaPipeProcessor.MODEL_POSE]). */
@@ -304,7 +308,7 @@ class MenuActivity : AppCompatActivity() {
         val btnAction  = row.findViewById<MaterialButton>(R.id.btnModelAction)
 
         textName.text = displayName
-        modelStatusViews[filename] = ModelStatusViews(dotView, textSize, btnAction)
+        modelStatusViews[filename] = ModelStatusViews(dotView, textSize, btnAction, isYolo)
 
         btnAction.setOnClickListener { downloadSingleModel(filename, isYolo) }
         container.addView(row)
@@ -317,7 +321,7 @@ class MenuActivity : AppCompatActivity() {
      * @param isYolo ``true`` for the YOLO section, ``false`` for the MediaPipe section.
      */
     private fun addDownloadAllButton(container: LinearLayout, isYolo: Boolean) {
-        val margin = resources.getDimensionPixelSize(R.dimen.group_stroke_width) * 8
+        val margin = resources.getDimensionPixelSize(R.dimen.group_stroke_width) * BUTTON_MARGIN_MULTIPLIER
         val btn = MaterialButton(this).apply {
             text = getString(R.string.model_download_all)
             layoutParams = LinearLayout.LayoutParams(
@@ -361,9 +365,8 @@ class MenuActivity : AppCompatActivity() {
 
     /** Refreshes all model status rows; called whenever the Models tab is selected. */
     private fun refreshModelStatus() {
-        modelStatusViews.keys.forEach { filename ->
-            val isYolo = ModelDownloadManager.YOLO_MODEL_URLS.containsKey(filename)
-            updateModelRowUi(filename, isYolo)
+        modelStatusViews.entries.forEach { (filename, views) ->
+            updateModelRowUi(filename, views.isYolo)
         }
     }
 
@@ -543,10 +546,13 @@ class MenuActivity : AppCompatActivity() {
      */
     private fun addGroupDescription(container: LinearLayout, text: String) {
         val padding = resources.getDimensionPixelSize(R.dimen.group_stroke_width) * 4
+        val secondaryTextColor = com.google.android.material.color.MaterialColors.getColor(
+            this, com.google.android.material.R.attr.colorOnSurfaceVariant, android.graphics.Color.GRAY
+        )
         val tv = TextView(this).apply {
             this.text = text
             setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium)
-            setTextColor(ContextCompat.getColor(this@MenuActivity, android.R.color.darker_gray))
+            setTextColor(secondaryTextColor)
             setPadding(padding, padding, padding, padding)
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,

@@ -19,6 +19,9 @@ import org.opencv.dnn.Dnn
 import org.opencv.dnn.Net
 import org.opencv.imgproc.Imgproc
 import androidx.core.graphics.createBitmap
+import java.util.Locale
+import kotlin.math.exp
+import kotlin.math.toDegrees
 
 /**
  * Applies YOLO-based detection, segmentation, pose estimation, image classification and
@@ -527,11 +530,17 @@ class YoloProcessor(private val context: Context) {
         val logits = FloatArray(numClasses) { i -> output.get(0, i)[0].toFloat() }
         output.release()
 
-        // Numerical-stable softmax
+        // Numerical-stable softmax – single pass to avoid extra FloatArray allocations
         val maxLogit = logits.maxOrNull() ?: 0f
-        val expLogits = FloatArray(numClasses) { i -> Math.exp((logits[i] - maxLogit).toDouble()).toFloat() }
-        val sumExp = expLogits.sum()
-        val probs = FloatArray(numClasses) { i -> expLogits[i] / sumExp }
+        var sumExp = 0.0
+        val probs = FloatArray(numClasses) { i ->
+            val e = exp((logits[i] - maxLogit).toDouble())
+            sumExp += e
+            e.toFloat()
+        }
+        if (sumExp > 0.0) {
+            for (i in probs.indices) probs[i] = (probs[i] / sumExp).toFloat()
+        }
 
         // Pick top-N by descending probability
         val topIndices = probs.indices.sortedByDescending { probs[it] }.take(CLASSIFY_TOP_N)
@@ -562,7 +571,7 @@ class YoloProcessor(private val context: Context) {
         canvas.drawText("Top-$CLASSIFY_TOP_N (ImageNet-1000):", 24f, 16f + lineH, headerPaint)
 
         topIndices.forEachIndexed { rank, classIdx ->
-            val pct = "%.1f".format(probs[classIdx] * 100)
+            val pct = "%.1f".format(Locale.US, probs[classIdx] * 100)
             canvas.drawText(
                 "${rank + 1}. class $classIdx  $pct%",
                 24f, 16f + lineH * (rank + 2), textPaint,
@@ -630,7 +639,7 @@ class YoloProcessor(private val context: Context) {
             val box = boxes[idx]
             val classId = classIds[idx]
             val score = scores[idx]
-            val angleDeg = Math.toDegrees(angles[idx].toDouble()).toFloat()
+            val angleDeg = angles[idx].toDouble().toDegrees().toFloat()
             val label = DOTA_CLASSES.getOrElse(classId) { classId.toString() }
             val color = CLASS_COLORS[classId % CLASS_COLORS.size]
 

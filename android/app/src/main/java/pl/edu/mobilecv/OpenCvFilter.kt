@@ -193,6 +193,25 @@ enum class OpenCvFilter(val displayName: String) {
      * keypoints with coloured lines.
      */
     YOLO_POSE("YOLO Pose"),
+
+    // ------------------------------------------------------------------
+    // RTMDet object detection
+    // ------------------------------------------------------------------
+
+    /**
+     * Detects objects using RTMDet-nano (OpenMMLab) running on the OpenCV DNN
+     * backend.  Draws axis-aligned bounding boxes with class labels and
+     * confidence scores for all 80 COCO classes.
+     */
+    RTMDET_DETECT("RTMDet Detect"),
+
+    /**
+     * Detects objects with oriented (rotated) bounding boxes using
+     * RTMDet-nano-r (RTMDet-Rotated) running on the OpenCV DNN backend.
+     * Each detection is rendered as a rotated rectangle together with its
+     * class label and rotation angle.
+     */
+    RTMDET_ROTATED("RTMDet Rotated"),
 }
 
 /**
@@ -213,3 +232,11 @@ val OpenCvFilter.isYolo: Boolean
     get() = this == OpenCvFilter.YOLO_DETECT ||
         this == OpenCvFilter.YOLO_SEGMENT ||
         this == OpenCvFilter.YOLO_POSE
+
+/**
+ * Returns ``true`` if this filter requires the RTMDet processing pipeline
+ * backed by the OpenCV DNN module.
+ */
+val OpenCvFilter.isRtmDet: Boolean
+    get() = this == OpenCvFilter.RTMDET_DETECT ||
+        this == OpenCvFilter.RTMDET_ROTATED

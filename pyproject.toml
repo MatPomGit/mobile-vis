@@ -28,6 +28,9 @@ dev = [
 yolo = [
     "ultralytics>=8.0",
 ]
+rtmdet = [
+    "mmdet>=3.0",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

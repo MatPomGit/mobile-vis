@@ -78,6 +78,7 @@ class ImageProcessor {
     var calibrator: CameraCalibrator? = null
     var mediaPipeProcessor: MediaPipeProcessor? = null
     var yoloProcessor: YoloProcessor? = null
+    var rtmDetProcessor: RtmDetProcessor? = null
 
     var labelFrameCountSuffix: String = "klatek"
     var labelBoardNotFound: String = "Brak szachownicy"
@@ -232,6 +233,10 @@ class ImageProcessor {
         }
         if (filter.isYolo) {
             return yoloProcessor?.processFrame(bitmap, filter, onMarkersDetected)
+                ?: bitmap.copy(Bitmap.Config.ARGB_8888, false)
+        }
+        if (filter.isRtmDet) {
+            return rtmDetProcessor?.processFrame(bitmap, filter, onMarkersDetected)
                 ?: bitmap.copy(Bitmap.Config.ARGB_8888, false)
         }
 

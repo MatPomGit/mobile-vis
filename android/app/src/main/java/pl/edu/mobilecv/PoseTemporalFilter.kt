@@ -111,7 +111,9 @@ class PoseTemporalFilter(private var config: PoseTemporalConfig = PoseTemporalCo
         val prevR = state.emaRvec
         val outT = DoubleArray(3) { i -> if (prevT == null) tvec[i] else prevT[i] + alpha * (tvec[i] - prevT[i]) }
         val outR = DoubleArray(3) { i ->
-            if (prevR == null) rvec[i] else prevR[i] + alpha * angleDeltaRad(rvec[i], prevR[i])
+            // Rodrigues rotation-vector components are not independent periodic angles,
+            // so EMA must not wrap them with angleDeltaRad() per component.
+            if (prevR == null) rvec[i] else prevR[i] + alpha * (rvec[i] - prevR[i])
         }
         state.emaTvec = outT
         state.emaRvec = outR

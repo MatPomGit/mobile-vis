@@ -24,6 +24,7 @@ models/*
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 !models/.gitkeep
+!models/yolov8n.pt
 
 # Notatniki Jupyter – checkpointy
 .ipynb_checkpoints/

@@ -43,8 +43,8 @@ HOUGH_THRESHOLD: int = 50
 # parallel (same direction cluster).
 ANGLE_CLUSTER_TOLERANCE: float = 5.0
 
-# Multiplier applied to RANSAC_THRESHOLD when testing whether a line's
-# midpoint lies close enough to a vanishing point to count as an inlier.
+# Multiplier applied to RANSAC_THRESHOLD when testing whether a vanishing
+# point lies close enough to a line to count that line as an inlier.
 # A wider tolerance is used here than for plane fitting because vanishing
 # points can lie far outside the image bounds.
 VP_INLIER_DISTANCE_MULTIPLIER: float = 5.0
@@ -80,6 +80,9 @@ DEFAULT_OVERLAY_ALPHA: float = 0.35
 LABEL_FONT: int = cv2.FONT_HERSHEY_SIMPLEX
 LABEL_FONT_SCALE: float = 0.5
 LABEL_THICKNESS: int = 1
+
+# Epsilon used to guard against division by near-zero segment lengths.
+MIN_SEGMENT_LENGTH_EPSILON: float = 1e-10
 
 
 # ---------------------------------------------------------------------------
@@ -267,8 +270,11 @@ def detect_planes(
 
     planes: list[PlaneDetection] = []
     used_clusters: set[int] = set()
+    vp_threshold = RANSAC_THRESHOLD * VP_INLIER_DISTANCE_MULTIPLIER
 
     for i in range(len(clusters)):
+        if len(planes) >= max_planes:
+            break
         for j in range(i + 1, len(clusters)):
             if len(planes) >= max_planes:
                 break
@@ -280,7 +286,23 @@ def detect_planes(
             if vp1 is None or vp2 is None:
                 continue
 
-            inlier_lines = clusters[i] + clusters[j]
+            # Filter each cluster to only lines that truly converge to its
+            # vanishing point.  Using perpendicular VP-to-line distance
+            # ensures that lines from one plane do not bleed into another.
+            inliers_i = _inlier_lines_for_vp(clusters[i], vp1[0], vp1[1], vp_threshold)
+            inliers_j = _inlier_lines_for_vp(clusters[j], vp2[0], vp2[1], vp_threshold)
+            if not inliers_i:
+                logger.debug(
+                    "No inliers found for cluster %d VP; falling back to full cluster", i
+                )
+                inliers_i = clusters[i]
+            if not inliers_j:
+                logger.debug(
+                    "No inliers found for cluster %d VP; falling back to full cluster", j
+                )
+                inliers_j = clusters[j]
+
+            inlier_lines = inliers_i + inliers_j
             if len(inlier_lines) < min_inliers:
                 continue
 
@@ -307,6 +329,7 @@ def detect_planes(
             used_clusters.add(j)
 
     planes.sort(key=lambda p: p.confidence, reverse=True)
+    planes = _resolve_mask_overlaps(planes)
     logger.debug("Detected %d plane(s)", len(planes))
     return planes[: max_planes]
 
@@ -702,19 +725,98 @@ def _intersect_lines(
     return float(result[0]), float(result[1])
 
 
+def _resolve_mask_overlaps(
+    planes: list[PlaneDetection],
+) -> list[PlaneDetection]:
+    """Remove overlapping pixels from plane masks.
+
+    Planes are assumed to be ordered by descending confidence.  Each
+    pixel is assigned to the first (most confident) plane that claims
+    it; later planes have those pixels cleared from their masks.
+    Bounding boxes and centroids are recomputed after the update.
+    Planes whose mask becomes entirely empty after conflict resolution
+    are dropped from the result.
+
+    Args:
+        planes: List of :class:`PlaneDetection` objects sorted by
+            descending confidence.  Objects with ``mask=None`` are
+            passed through unchanged.
+
+    Returns:
+        New list of :class:`PlaneDetection` objects with non-overlapping
+        masks.
+    """
+    if not planes:
+        return planes
+
+    # Find first mask that is not None to determine image dimensions.
+    ref_mask = next((p.mask for p in planes if p.mask is not None), None)
+    if ref_mask is None:
+        return planes
+
+    h, w = ref_mask.shape[:2]
+    claimed = np.zeros((h, w), dtype=bool)
+    result: list[PlaneDetection] = []
+
+    for plane in planes:
+        if plane.mask is None:
+            result.append(plane)
+            continue
+
+        pmask = plane.mask
+        if pmask.shape[:2] != (h, w):
+            pmask = cv2.resize(pmask, (w, h), interpolation=cv2.INTER_NEAREST)
+
+        # Remove pixels already owned by a more confident plane.
+        new_mask = pmask.copy()
+        new_mask[claimed] = 0
+
+        # Register this plane's remaining pixels as claimed.
+        claimed |= new_mask > 0
+
+        bbox = _mask_to_bbox(new_mask)
+        if bbox is None:
+            # Mask is empty after conflict resolution; drop this plane so
+            # that stale bbox/centroid data does not mislead callers.
+            logger.debug("Dropping plane with empty mask after overlap resolution")
+            continue
+
+        cx = float((bbox[0] + bbox[2]) / 2)
+        cy = float((bbox[1] + bbox[3]) / 2)
+        result.append(
+            PlaneDetection(
+                normal=plane.normal,
+                centroid=(cx, cy),
+                confidence=plane.confidence,
+                mask=new_mask,
+                bbox=bbox,
+                inlier_count=plane.inlier_count,
+            )
+        )
+
+    return result
+
+
 def _inlier_lines_for_vp(
     line_group: list[tuple[int, int, int, int]],
     vx: float,
     vy: float,
     threshold: float,
 ) -> list[tuple[int, int, int, int]]:
-    """Return lines whose midpoint is within *threshold* pixels of the VP.
+    """Return lines that converge toward the vanishing point *vp*.
+
+    A line is considered an inlier when the perpendicular distance from
+    the vanishing point to the infinite line defined by the segment is
+    less than *threshold* pixels.  This is the geometrically correct
+    criterion: a line that truly converges to a VP passes through (or
+    very close to) that VP, so the VP-to-line distance is small.
 
     Args:
         line_group: List of ``(x1, y1, x2, y2)`` tuples.
         vx: Vanishing point x-coordinate.
         vy: Vanishing point y-coordinate.
-        threshold: Maximum midpoint-to-VP distance in pixels.
+        threshold: Maximum perpendicular distance (pixels) from the VP
+            to the line for the line to be accepted as an inlier.
 
     Returns:
         Subset of *line_group* that are inliers.
@@ -722,9 +824,15 @@ def _inlier_lines_for_vp(
     inliers: list[tuple[int, int, int, int]] = []
     for seg in line_group:
         x1, y1, x2, y2 = seg
-        mx = (x1 + x2) / 2.0
-        my = (y1 + y2) / 2.0
-        dist = math.hypot(mx - vx, my - vy)
+        dx = float(x2 - x1)
+        dy = float(y2 - y1)
+        length = math.hypot(dx, dy)
+        if length < MIN_SEGMENT_LENGTH_EPSILON:
+            continue
+        # Perpendicular distance from (vx, vy) to the infinite line
+        # through (x1, y1) in direction (dx, dy):
+        #   dist = |dy*(vx - x1) - dx*(vy - y1)| / length
+        dist = abs(dy * (vx - x1) - dx * (vy - y1)) / length
         if dist < threshold:
             inliers.append(seg)
     return inliers

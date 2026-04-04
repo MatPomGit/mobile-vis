@@ -5,6 +5,7 @@ import android.util.Log
 import org.opencv.android.Utils
 import org.opencv.calib3d.Calib3d
 import org.opencv.core.Core
+import org.opencv.core.CvException
 import org.opencv.core.CvType
 import org.opencv.core.Mat
 import org.opencv.core.MatOfFloat
@@ -27,6 +28,8 @@ import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.hypot
 import kotlin.math.sqrt
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Applies OpenCV image-processing filters to Android [Bitmap] frames.
@@ -184,6 +187,21 @@ class ImageProcessor {
     private val benchmarkAccumulators = mutableMapOf<OpenCvFilter, RuntimeBenchmarkAccumulator>()
     @Volatile
     var benchmarkSampleLimit: Int = 30
+    private val exceptionTelemetry = ConcurrentHashMap<String, AtomicInteger>()
+
+    private fun logExceptionTelemetry(scope: String, category: String, error: Throwable) {
+        val key = "$scope:$category"
+        val count = exceptionTelemetry.getOrPut(key) { AtomicInteger(0) }.incrementAndGet()
+        val ranking = exceptionTelemetry.entries
+            .sortedByDescending { it.value.get() }
+            .take(3)
+            .joinToString { "${it.key}=${it.value.get()}" }
+            .ifBlank { "n/a" }
+        Log.i(
+            TAG,
+            "Exception telemetry key=$key count=$count type=${error::class.java.simpleName} top=$ranking",
+        )
+    }
 
     fun processFrame(bitmap: Bitmap, filter: OpenCvFilter): Bitmap {
         if (filter != OpenCvFilter.VISUAL_ODOMETRY && filter != OpenCvFilter.POINT_CLOUD) {
@@ -1040,7 +1058,18 @@ class ImageProcessor {
                 Imgproc.putText(res, "$labelPlanes: $planeIdx | $labelLines: $totalLines", Point(30.0, 30.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255.0, 255.0, 255.0), 2)
             }
             lines.release()
+        } catch (e: CvException) {
+            logExceptionTelemetry("plane_detection", "opencv", e)
+            Imgproc.putText(res, "$labelGeometryError: OpenCV failure", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255.0, 100.0, 100.0), 2)
+        } catch (e: IllegalArgumentException) {
+            logExceptionTelemetry("plane_detection", "invalid_argument", e)
+            Imgproc.putText(res, "$labelGeometryError: invalid input", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255.0, 100.0, 100.0), 2)
+        } catch (e: IllegalStateException) {
+            logExceptionTelemetry("plane_detection", "state", e)
+            Imgproc.putText(res, "$labelGeometryError: invalid state", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255.0, 100.0, 100.0), 2)
         } catch (e: Exception) {
+            logExceptionTelemetry("plane_detection", "unexpected", e)
+            Log.e(TAG, "Unhandled plane detection error type=${e::class.java.name} message=${e.message}", e)
             Imgproc.putText(res, "$labelGeometryError: ${e.message?.take(30)}", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255.0, 100.0, 100.0), 2)
         } finally {
             gray.release(); clahe.release(); blurred.release(); edges.release()
@@ -1070,8 +1099,15 @@ class ImageProcessor {
             Imgproc.fillConvexPoly(overlay, hullMat, Scalar(color.`val`[0], color.`val`[1], color.`val`[2], 255.0))
             Core.addWeighted(dst, 0.75, overlay, 0.25, 0.0, dst)
             overlay.release(); hullMat.release(); contourMat.release()
+        } catch (e: CvException) {
+            logExceptionTelemetry("plane_overlay", "opencv", e)
+            Log.w(TAG, "Plane overlay rendering failed due to OpenCV error: ${e.message}", e)
+        } catch (e: IllegalArgumentException) {
+            logExceptionTelemetry("plane_overlay", "invalid_argument", e)
+            Log.w(TAG, "Plane overlay rendering failed: invalid convex hull input", e)
         } catch (e: Exception) {
-            Log.w(TAG, "Plane overlay rendering failed: ${e.message}")
+            logExceptionTelemetry("plane_overlay", "unexpected", e)
+            Log.e(TAG, "Unhandled plane overlay error type=${e::class.java.name} message=${e.message}", e)
         }
     }
 
@@ -1177,7 +1213,18 @@ class ImageProcessor {
                 else -> Imgproc.putText(res, "$labelLines: ${lines.rows()} | $labelGroups: ${clusters.size}", Point(30.0, 30.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255.0, 255.0, 255.0), 2)
             }
             lines.release()
+        } catch (e: CvException) {
+            logExceptionTelemetry("vanishing_points", "opencv", e)
+            Imgproc.putText(res, "$labelVpError: OpenCV failure", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255.0, 100.0, 100.0), 2)
+        } catch (e: IllegalArgumentException) {
+            logExceptionTelemetry("vanishing_points", "invalid_argument", e)
+            Imgproc.putText(res, "$labelVpError: invalid input", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255.0, 100.0, 100.0), 2)
+        } catch (e: IllegalStateException) {
+            logExceptionTelemetry("vanishing_points", "state", e)
+            Imgproc.putText(res, "$labelVpError: invalid state", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255.0, 100.0, 100.0), 2)
         } catch (e: Exception) {
+            logExceptionTelemetry("vanishing_points", "unexpected", e)
+            Log.e(TAG, "Unhandled vanishing points error type=${e::class.java.name} message=${e.message}", e)
             Imgproc.putText(res, "$labelVpError: ${e.message?.take(30)}", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255.0, 100.0, 100.0), 2)
         } finally {
             gray.release(); blurred.release(); edges.release()

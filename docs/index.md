@@ -762,6 +762,52 @@ Zasady:
 - Mockuj operacje I/O za pomocą `pytest-mock` lub `unittest.mock`.
 - Parametryzuj przypadki brzegowe: 1-pikselowe obrazy, grayscale, różne typy danych.
 
+### 8.4 Szybka diagnostyka
+
+Poniższe komendy pomagają szybko sprawdzić, czy lokalne środowisko zachowuje się tak samo
+jak workflow CI dla Pythona i Androida.
+
+#### Python
+
+```bash
+python -m pip install --upgrade pip
+pip install -e ".[dev]"
+
+ruff check src/ tests/
+mypy src/
+pytest --cov=src/image_analysis --cov-report=term-missing
+
+python -c 'import importlib; [importlib.import_module(m) for m in [
+"image_analysis",
+"image_analysis.preprocessing",
+"image_analysis.detection",
+"image_analysis.classification",
+"image_analysis.april_tags",
+"image_analysis.qr_detection",
+"image_analysis.utils",
+]]; print("Smoke import OK")'
+
+python scripts/smoke_perf.py --iterations 150 --warmup 30
+```
+
+Wynik `scripts/smoke_perf.py` zawiera metryki:
+- `FRAME_TIME_MS_AVG` – średni czas przetworzenia klatki,
+- `FRAME_TIME_MS_P95` – 95 percentyl czasu klatki,
+- `FPS_AVG` – średni FPS dla scenariusza smoke.
+
+#### Android
+
+```bash
+cd android
+chmod +x gradlew
+
+./gradlew lintDebug --stacktrace
+./gradlew assembleDebug --stacktrace
+
+# Opcjonalnie (wymagany emulator lub urządzenie):
+./gradlew connectedDebugAndroidTest --stacktrace
+```
+
 ---
 
 ## 9. Narzędzia jakości kodu

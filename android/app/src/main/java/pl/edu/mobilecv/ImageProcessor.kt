@@ -64,6 +64,13 @@ class ImageProcessor {
         val stableStaticScene: Boolean,
     )
 
+    private data class MarkerPoseEstimate(
+        val rvec: List<Double>,
+        val tvec: List<Double>,
+        val quality: MarkerDetection.Quality,
+        val metrics: PoseOverlayMetrics,
+    )
+
     var calibrator: CameraCalibrator? = null
     var mediaPipeProcessor: MediaPipeProcessor? = null
     var yoloProcessor: YoloProcessor? = null
@@ -444,15 +451,23 @@ class ImageProcessor {
                 val c = corners[i]
                 val pts = ptsToList(c)
                 val markerId = ids.get(i, 0)[0].toInt()
-                val metrics = drawMarkerPoseOverlay(
+                val poseEstimate = drawMarkerPoseOverlay(
                     res = res,
                     corners = pts,
                     markerKey = "april:$markerId",
                     markerLabel = "AprilTag#$markerId",
                 )
+                val detection = MarkerDetection.AprilTag(
+                    markerId = markerId,
+                    corners = pts,
+                    rvec = poseEstimate?.rvec,
+                    tvec = poseEstimate?.tvec,
+                    quality = poseEstimate?.quality ?: MarkerDetection.Quality(),
+                )
                 drawCornerOutlineWithOrder(res, pts)
-                drawMarkerLabel(res, pts, "ID=$markerId", metrics)
-                detections.add(MarkerDetection.AprilTag(markerId, pts))
+                drawMarkerLabel(res, detection, poseEstimate?.metrics)
+                logMarkerDiagnostics(detection)
+                detections.add(detection)
             }
             onMarkersDetected?.invoke(detections)
         }
@@ -471,15 +486,23 @@ class ImageProcessor {
                 val c = corners[i]
                 val pts = ptsToList(c)
                 val markerId = ids.get(i, 0)[0].toInt()
-                val metrics = drawMarkerPoseOverlay(
+                val poseEstimate = drawMarkerPoseOverlay(
                     res = res,
                     corners = pts,
                     markerKey = "aruco:$markerId",
                     markerLabel = "ArUco#$markerId",
                 )
+                val detection = MarkerDetection.Aruco(
+                    markerId = markerId,
+                    corners = pts,
+                    rvec = poseEstimate?.rvec,
+                    tvec = poseEstimate?.tvec,
+                    quality = poseEstimate?.quality ?: MarkerDetection.Quality(),
+                )
                 drawCornerOutlineWithOrder(res, pts)
-                drawMarkerLabel(res, pts, "ID=$markerId", metrics)
-                detections.add(MarkerDetection.Aruco(markerId, pts))
+                drawMarkerLabel(res, detection, poseEstimate?.metrics)
+                logMarkerDiagnostics(detection)
+                detections.add(detection)
             }
             onMarkersDetected?.invoke(detections)
         }
@@ -522,7 +545,7 @@ class ImageProcessor {
         corners: List<Pair<Float, Float>>,
         markerKey: String,
         markerLabel: String,
-    ): PoseOverlayMetrics? {
+    ): MarkerPoseEstimate? {
         val calib = calibrator?.calibrationResult ?: return null
         if (corners.size != 4) return null
         val imagePoints = MatOfPoint2f(
@@ -609,14 +632,9 @@ class ImageProcessor {
 
         markerPoseStates[markerKey] = PoseState(zAxisCamera = zAxis)
 
-        imagePoints.release()
-        objectPoints.release()
-        rvec.release()
-        tvec.release()
-        rmat.release()
-        filtered.first.release()
-        filtered.second.release()
-        return PoseOverlayMetrics(
+        val poseRvec = List(3) { index -> filtered.second.get(index, 0)[0] }
+        val poseTvec = List(3) { index -> filtered.first.get(index, 0)[0] }
+        val metrics = PoseOverlayMetrics(
             distanceMeters = distance,
             yawDeg = euler[0],
             pitchDeg = euler[1],
@@ -625,19 +643,34 @@ class ImageProcessor {
             confidence = confidence,
             temporalDebug = filtered.third,
         )
+        imagePoints.release()
+        objectPoints.release()
+        rvec.release()
+        tvec.release()
+        rmat.release()
+        filtered.first.release()
+        filtered.second.release()
+        return MarkerPoseEstimate(
+            rvec = poseRvec,
+            tvec = poseTvec,
+            quality = MarkerDetection.Quality(
+                confidence = confidence,
+                reprojectionErrorPx = reprojectionError,
+            ),
+            metrics = metrics,
+        )
     }
 
     private fun drawMarkerLabel(
         res: Mat,
-        corners: List<Pair<Float, Float>>,
-        idLabel: String,
+        detection: MarkerDetection,
         metrics: PoseOverlayMetrics?,
     ) {
-        val anchor = corners.minByOrNull { it.second } ?: Pair(30f, 30f)
+        val anchor = detection.corners.minByOrNull { it.second } ?: Pair(30f, 30f)
         val x = anchor.first.toDouble()
         val y = (anchor.second - 12f).toDouble().coerceAtLeast(30.0)
         val lines = buildList {
-            add(idLabel)
+            add("${detection.type}:${detection.id}")
             if (metrics != null) {
                 add("dist=%.2fm".format(metrics.distanceMeters))
                 add(
@@ -647,7 +680,7 @@ class ImageProcessor {
                         metrics.rollDeg,
                     ),
                 )
-                add("q=%.2f err=%.2fpx".format(metrics.confidence, metrics.reprojectionErrorPx))
+                add(detection.quality.toOverlayString())
                 val debug = metrics.temporalDebug
                 val raw = if (debug.jitterRawTvecMm != null && debug.jitterRawRvecDeg != null) {
                     "raw=%.2fmm/%.2f°".format(debug.jitterRawTvecMm, debug.jitterRawRvecDeg)
@@ -662,7 +695,7 @@ class ImageProcessor {
                 add("mode=${debug.mode.name} ${if (debug.stableStaticScene) "jitter OK" else "jitter HIGH"}")
                 add("$raw | $smooth")
             } else {
-                add("pose: calibration required")
+                add(detection.quality.toOverlayString())
             }
         }
         lines.forEachIndexed { i, line ->
@@ -798,10 +831,19 @@ class ImageProcessor {
                 ptsList.add(p)
                 Imgproc.line(res, p, Point(pts.get((i+1)%pts.rows(), 0)[0], pts.get((i+1)%pts.rows(), 0)[1]), Scalar(255.0, 0.0, 0.0, 255.0), 3)
             }
-            onMarkersDetected?.invoke(listOf(MarkerDetection.QrCode(data, ptsList.map { Pair(it.x.toFloat(), it.y.toFloat()) })))
+            val detection = MarkerDetection.QrCode(
+                text = data,
+                corners = ptsList.map { Pair(it.x.toFloat(), it.y.toFloat()) },
+            )
+            logMarkerDiagnostics(detection)
+            onMarkersDetected?.invoke(listOf(detection))
             pts.release()
         }
         gray.release(); points.release(); return res
+    }
+
+    private fun logMarkerDiagnostics(detection: MarkerDetection) {
+        Log.d(TAG, "marker_detection ${detection.toDiagnosticSummary()}")
     }
 
     private fun applyCCTagDetection(src: Mat): Mat {

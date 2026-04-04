@@ -1,90 +1,114 @@
 package pl.edu.mobilecv
 
+import org.json.JSONArray
+import org.json.JSONObject
+
 /**
- * Sealed hierarchy representing a single visual-marker detection result.
+ * Unified marker result shared across processing, UI overlay, ROS publishing, and diagnostics.
  *
- * Produced by [ImageProcessor] during MARKERS mode frame processing and
- * forwarded to [RosBridgeClient] for publication to ROS2 topics.
- *
- * All corner coordinates are in **image pixels** (origin at top-left corner).
- *
- * @property timestampMs System clock milliseconds at detection time.
- * @property corners     Four corner points of the detected marker [(x, y), …],
- *                       ordered: top-left, top-right, bottom-right, bottom-left.
+ * Corner order convention: top-left, top-right, bottom-right, bottom-left.
  */
 sealed class MarkerDetection {
-    abstract val timestampMs: Long
+    abstract val type: String
+    abstract val id: String
     abstract val corners: List<Pair<Float, Float>>
+    abstract val rvec: List<Double>?
+    abstract val tvec: List<Double>?
+    abstract val quality: Quality
+    abstract val timestamp: Long
 
-    /**
-     * AprilTag (tag36h11 family) detection.
-     *
-     * @param id      AprilTag numeric identifier.
-     * @param corners Four corner pixel coordinates.
-     */
+    data class Quality(
+        val confidence: Double? = null,
+        val reprojectionErrorPx: Double? = null,
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("confidence", confidence)
+            put("reprojection_error_px", reprojectionErrorPx)
+        }
+
+        fun toOverlayString(): String {
+            val conf = confidence?.let { "%.2f".format(it) } ?: "n/a"
+            val err = reprojectionErrorPx?.let { "%.2fpx".format(it) } ?: "n/a"
+            return "q=$conf err=$err"
+        }
+    }
+
+    open fun toCommonJson(): JSONObject = JSONObject().apply {
+        put("type", type)
+        put("id", id)
+        put("corners", cornersToJsonArray(corners))
+        put("rvec", vectorToJsonArray(rvec))
+        put("tvec", vectorToJsonArray(tvec))
+        put("quality", quality.toJson())
+        put("timestamp", timestamp)
+    }
+
+    fun toDiagnosticSummary(): String = buildString {
+        append("type=$type id=$id timestamp=$timestamp")
+        append(" corners=${corners.size}")
+        append(" ${quality.toOverlayString()}")
+        rvec?.let { append(" rvec=${formatVector(it)}") }
+        tvec?.let { append(" tvec=${formatVector(it)}") }
+    }
+
     data class AprilTag(
-        val id: Int,
+        val markerId: Int,
         override val corners: List<Pair<Float, Float>>,
-        override val timestampMs: Long = System.currentTimeMillis(),
-    ) : MarkerDetection()
+        override val rvec: List<Double>? = null,
+        override val tvec: List<Double>? = null,
+        override val quality: Quality = Quality(),
+        override val timestamp: Long = System.currentTimeMillis(),
+    ) : MarkerDetection() {
+        override val type: String = "apriltag"
+        override val id: String = markerId.toString()
+    }
 
-    /**
-     * ArUco marker (4×4_50 dictionary) detection.
-     *
-     * @param id      ArUco marker numeric identifier.
-     * @param corners Four corner pixel coordinates.
-     */
     data class Aruco(
-        val id: Int,
+        val markerId: Int,
         override val corners: List<Pair<Float, Float>>,
-        override val timestampMs: Long = System.currentTimeMillis(),
-    ) : MarkerDetection()
+        override val rvec: List<Double>? = null,
+        override val tvec: List<Double>? = null,
+        override val quality: Quality = Quality(),
+        override val timestamp: Long = System.currentTimeMillis(),
+    ) : MarkerDetection() {
+        override val type: String = "aruco"
+        override val id: String = markerId.toString()
+    }
 
-    /**
-     * QR code detection.
-     *
-     * @param text    Decoded QR code content string.
-     * @param corners Four corner pixel coordinates.
-     */
     data class QrCode(
         val text: String,
         override val corners: List<Pair<Float, Float>>,
-        override val timestampMs: Long = System.currentTimeMillis(),
-    ) : MarkerDetection()
+        override val rvec: List<Double>? = null,
+        override val tvec: List<Double>? = null,
+        override val quality: Quality = Quality(),
+        override val timestamp: Long = System.currentTimeMillis(),
+    ) : MarkerDetection() {
+        override val type: String = "qr"
+        override val id: String = text
+    }
 
-    /**
-     * CCTag (Circular Concentric Tag) detection.
-     *
-     * CCTag markers are concentric black-and-white rings.  The [id] equals
-     * the number of concentric ring boundaries detected (2–5).
-     *
-     * @param id      Ring count used as the tag identifier (2–5).
-     * @param center  Tag centre in image pixels as ``(x, y)``.
-     * @param radius  Radius of the outermost detected ring in pixels.
-     * @param corners Four corners of the bounding box in pixel coordinates,
-     *                ordered: top-left, top-right, bottom-right, bottom-left.
-     */
     data class CCTag(
-        val id: Int,
+        val markerId: Int,
         val center: Pair<Float, Float>,
         val radius: Float,
         override val corners: List<Pair<Float, Float>>,
-        override val timestampMs: Long = System.currentTimeMillis(),
-    ) : MarkerDetection()
+        override val rvec: List<Double>? = null,
+        override val tvec: List<Double>? = null,
+        override val quality: Quality = Quality(),
+        override val timestamp: Long = System.currentTimeMillis(),
+    ) : MarkerDetection() {
+        override val type: String = "cctag"
+        override val id: String = markerId.toString()
 
-    /**
-     * YOLO object detection result.
-     *
-     * Produced by [YoloProcessor] for YOLO_DETECT, YOLO_SEGMENT and
-     * YOLO_POSE filters.  The [corners] field contains the four corners of
-     * the bounding box (top-left, top-right, bottom-right, bottom-left).
-     *
-     * @param label      Predicted class name from the COCO vocabulary.
-     * @param classId    Numeric class index (0-based) in the COCO vocabulary.
-     * @param confidence Detection confidence in ``[0.0, 1.0]``.
-     * @param bbox       Bounding box as ``(x1, y1, x2, y2)`` pixel coordinates.
-     * @param corners    Four corner pixel coordinates derived from [bbox].
-     */
+        override fun toCommonJson(): JSONObject = super.toCommonJson().apply {
+            put("center", JSONObject().apply {
+                put("x", center.first.toDouble())
+                put("y", center.second.toDouble())
+            })
+            put("radius", radius.toDouble())
+        }
+    }
+
     data class YoloObject(
         val label: String,
         val classId: Int,
@@ -96,6 +120,46 @@ sealed class MarkerDetection {
             Pair(bbox.right, bbox.bottom),
             Pair(bbox.left, bbox.bottom),
         ),
-        override val timestampMs: Long = System.currentTimeMillis(),
-    ) : MarkerDetection()
+        override val rvec: List<Double>? = null,
+        override val tvec: List<Double>? = null,
+        override val quality: Quality = Quality(confidence = confidence.toDouble()),
+        override val timestamp: Long = System.currentTimeMillis(),
+    ) : MarkerDetection() {
+        override val type: String = "yolo"
+        override val id: String = "$classId:$label"
+
+        override fun toCommonJson(): JSONObject = super.toCommonJson().apply {
+            put("label", label)
+            put("class_id", classId)
+            put("bbox", JSONObject().apply {
+                put("x1", bbox.left.toDouble())
+                put("y1", bbox.top.toDouble())
+                put("x2", bbox.right.toDouble())
+                put("y2", bbox.bottom.toDouble())
+            })
+        }
+    }
+
+    companion object {
+        private fun cornersToJsonArray(corners: List<Pair<Float, Float>>): JSONArray {
+            val array = JSONArray()
+            for ((x, y) in corners) {
+                array.put(JSONObject().apply {
+                    put("x", x.toDouble())
+                    put("y", y.toDouble())
+                })
+            }
+            return array
+        }
+
+        private fun vectorToJsonArray(vector: List<Double>?): JSONArray {
+            val array = JSONArray()
+            vector?.forEach { array.put(it) }
+            return array
+        }
+
+        private fun formatVector(vector: List<Double>): String {
+            return vector.joinToString(prefix = "[", postfix = "]") { "%.3f".format(it) }
+        }
+    }
 }

@@ -220,6 +220,10 @@
     <!-- Odometry parameter descriptions (for slider hints) -->
     <string name="vo_max_features_hint">Liczba śledzonych punktów charakterystycznych. Więcej = dokładniej, wolniej.</string>
     <string name="vo_min_parallax_hint">Minimalny ruch [px] punktu między klatkami, wymagany do rekonstrukcji głębi.</string>
+    <string name="pose_smoothing_toggle">Wygładzanie pozy</string>
+    <string name="pose_smoothing_one_euro_toggle">Filtr One Euro (zamiast EMA)</string>
+    <string name="pose_raw_vs_smoothed_toggle">Tryb porównawczy: raw vs smoothed</string>
+    <string name="pose_ema_alpha_label">EMA alpha:</string>
 
     <!-- ImageProcessor overlay label strings -->
     <string name="overlay_vo_max_features_desc" tools:keep="@string/overlay_vo_max_features_desc">więcej = dokładniej, wolniej</string>

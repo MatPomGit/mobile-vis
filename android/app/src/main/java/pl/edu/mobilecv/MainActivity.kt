@@ -292,6 +292,42 @@ class MainActivity : AppCompatActivity() {
             override fun onStartTrackingTouch(s: SeekBar) {}
             override fun onStopTrackingTouch(s: SeekBar) {}
         })
+
+        binding.switchPoseSmoothing.isChecked = imageProcessor.poseSmoothingEnabled
+        binding.switchPoseSmoothing.setOnCheckedChangeListener { _, isChecked ->
+            imageProcessor.poseSmoothingEnabled = isChecked
+            if (!binding.switchPoseRawVsSmoothed.isChecked) {
+                imageProcessor.poseOutputMode = if (isChecked) PoseOutputMode.SMOOTHED else PoseOutputMode.RAW
+            }
+        }
+        binding.switchPoseOneEuro.isChecked = imageProcessor.poseTemporalFilterType == PoseTemporalFilterType.ONE_EURO
+        binding.switchPoseOneEuro.setOnCheckedChangeListener { _, isChecked ->
+            imageProcessor.poseTemporalFilterType = if (isChecked) {
+                PoseTemporalFilterType.ONE_EURO
+            } else {
+                PoseTemporalFilterType.EMA
+            }
+        }
+        binding.switchPoseRawVsSmoothed.setOnCheckedChangeListener { _, isChecked ->
+            imageProcessor.poseOutputMode = if (isChecked) {
+                PoseOutputMode.RAW_VS_SMOOTHED
+            } else if (imageProcessor.poseSmoothingEnabled) {
+                PoseOutputMode.SMOOTHED
+            } else {
+                PoseOutputMode.RAW
+            }
+        }
+        binding.seekBarPoseEmaAlpha.progress = (imageProcessor.poseEmaAlpha * 100.0).toInt().coerceIn(5, 95)
+        binding.textViewPoseEmaAlpha.text = "%.2f".format(imageProcessor.poseEmaAlpha)
+        binding.seekBarPoseEmaAlpha.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(s: SeekBar, p: Int, f: Boolean) {
+                val v = (p.coerceIn(5, 95)) / 100.0
+                imageProcessor.poseEmaAlpha = v
+                binding.textViewPoseEmaAlpha.text = "%.2f".format(v)
+            }
+            override fun onStartTrackingTouch(s: SeekBar) {}
+            override fun onStopTrackingTouch(s: SeekBar) {}
+        })
     }
 
     private fun updateKernelSizeLabel(half: Int) {
@@ -380,6 +416,7 @@ class MainActivity : AppCompatActivity() {
         binding.layoutVoMaxFeatures.visibility = if (isOdometry) View.VISIBLE else View.GONE
         binding.layoutVoMinParallax.visibility = if (isOdometry) View.VISIBLE else View.GONE
         binding.layoutVoMesh.visibility = if (isOdometry) View.VISIBLE else View.GONE
+        binding.layoutPoseTemporalControls.visibility = if (mode == AnalysisMode.MARKERS) View.VISIBLE else View.GONE
 
         binding.fabCalibrationMenu.visibility = if (mode == AnalysisMode.CALIBRATION) View.VISIBLE else View.GONE
         binding.fabRobotConnection.visibility = if (mode == AnalysisMode.CALIBRATION) View.GONE else View.VISIBLE

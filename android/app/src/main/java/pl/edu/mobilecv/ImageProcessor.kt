@@ -51,14 +51,20 @@ class ImageProcessor {
         val rollDeg: Double,
         val reprojectionErrorPx: Double,
         val confidence: Double,
+        val temporalDebug: PoseTemporalDebugMetrics,
     )
 
     private data class PoseState(
-        val tvec: Mat,
-        val yawDeg: Double,
-        val pitchDeg: Double,
-        val rollDeg: Double,
         val zAxisCamera: DoubleArray,
+    )
+
+    data class PoseTemporalDebugMetrics(
+        val mode: PoseOutputMode,
+        val jitterRawTvecMm: Double?,
+        val jitterRawRvecDeg: Double?,
+        val jitterSmoothTvecMm: Double?,
+        val jitterSmoothRvecDeg: Double?,
+        val stableStaticScene: Boolean,
     )
 
     private data class MarkerPoseEstimate(
@@ -146,8 +152,6 @@ class ImageProcessor {
         private const val TAG = "ImageProcessor"
         private const val MARKER_SIZE_METERS = 0.06
         private const val AXIS_LENGTH_METERS = MARKER_SIZE_METERS * 0.6
-        private const val ORIENTATION_SMOOTH_ALPHA = 0.35
-        private const val MAX_ANGLE_STEP_DEG = 20.0
         private const val LABEL_LINE_HEIGHT = 24.0
         private const val LABEL_FONT_SCALE = 0.55
         private val OVERLAY_CORNER_COLORS = listOf(
@@ -189,6 +193,17 @@ class ImageProcessor {
     private val benchmarkAccumulators = mutableMapOf<OpenCvFilter, RuntimeBenchmarkAccumulator>()
     @Volatile
     var benchmarkSampleLimit: Int = 30
+    @Volatile
+    var poseSmoothingEnabled: Boolean = true
+    @Volatile
+    var poseTemporalFilterType: PoseTemporalFilterType = PoseTemporalFilterType.EMA
+    @Volatile
+    var poseOutputMode: PoseOutputMode = PoseOutputMode.SMOOTHED
+    @Volatile
+    var poseEmaAlpha: Double = 0.35
+    @Volatile
+    var poseOneEuroBeta: Double = 0.02
+    private val poseTemporalFilter = PoseTemporalFilter()
     private val exceptionTelemetry = ConcurrentHashMap<String, AtomicInteger>()
     @Volatile
     private var lastCalibrationDiagnosticsKey: String? = null
@@ -595,83 +610,68 @@ class ImageProcessor {
             return null
         }
 
+        val filtered = selectPoseForRender(markerKey, tvec, rvec)
         val rmat = Mat()
-        Calib3d.Rodrigues(rvec, rmat)
+        Calib3d.Rodrigues(filtered.second, rmat)
         val zAxis = doubleArrayOf(rmat.get(0, 2)[0], rmat.get(1, 2)[0], rmat.get(2, 2)[0])
-
         val euler = rotationMatrixToEuler(rmat)
-        val prev = markerPoseStates[markerKey]
-        val smoothed = if (prev != null) {
-            val smoothYaw = smoothAngle(prev.yawDeg, euler[0])
-            val smoothPitch = smoothAngle(prev.pitchDeg, euler[1])
-            val smoothRoll = smoothAngle(prev.rollDeg, euler[2])
-            val mixedTvec = Mat()
-            Core.addWeighted(prev.tvec, 1.0 - ORIENTATION_SMOOTH_ALPHA, tvec, ORIENTATION_SMOOTH_ALPHA, 0.0, mixedTvec)
-            PoseState(
-                tvec = mixedTvec,
-                yawDeg = smoothYaw,
-                pitchDeg = smoothPitch,
-                rollDeg = smoothRoll,
-                zAxisCamera = zAxis,
-            )
-        } else {
-            PoseState(tvec.clone(), euler[0], euler[1], euler[2], zAxis)
-        }
-
-        val stableRvec = eulerToRvec(smoothed.yawDeg, smoothed.pitchDeg, smoothed.rollDeg)
         val zAligned = ensureZAxisConsistency(
             markerKey = markerKey,
-            zAxis = smoothed.zAxisCamera,
+            zAxis = zAxis,
             markerLabel = markerLabel,
         )
         if (!zAligned) {
             Log.w(TAG, "Potential axis inconsistency for $markerLabel")
         }
+        if (poseOutputMode == PoseOutputMode.RAW_VS_SMOOTHED) {
+            Calib3d.drawFrameAxes(
+                res,
+                calib.cameraMatrix,
+                calib.distCoeffs,
+                rvec,
+                tvec,
+                (AXIS_LENGTH_METERS * 0.8).toFloat(),
+            )
+        }
         Calib3d.drawFrameAxes(
             res,
             calib.cameraMatrix,
             calib.distCoeffs,
-            stableRvec,
-            smoothed.tvec,
+            filtered.second,
+            filtered.first,
             AXIS_LENGTH_METERS.toFloat(),
         )
         val reprojectionError = computeReprojectionError(
             objectPoints,
             imagePoints,
-            stableRvec,
-            smoothed.tvec,
+            filtered.second,
+            filtered.first,
             calib.cameraMatrix,
             calib.distCoeffs,
         )
-        val distance = norm3(smoothed.tvec)
+        val distance = norm3(filtered.first)
         val confidence = 1.0 / (1.0 + reprojectionError)
 
-        markerPoseStates[markerKey]?.tvec?.release()
-        markerPoseStates[markerKey] = PoseState(
-            smoothed.tvec.clone(),
-            smoothed.yawDeg,
-            smoothed.pitchDeg,
-            smoothed.rollDeg,
-            smoothed.zAxisCamera,
-        )
+        markerPoseStates[markerKey] = PoseState(zAxisCamera = zAxis)
 
-        val poseRvec = List(3) { index -> stableRvec.get(index, 0)[0] }
-        val poseTvec = List(3) { index -> smoothed.tvec.get(index, 0)[0] }
+        val poseRvec = List(3) { index -> filtered.second.get(index, 0)[0] }
+        val poseTvec = List(3) { index -> filtered.first.get(index, 0)[0] }
         val metrics = PoseOverlayMetrics(
             distanceMeters = distance,
-            yawDeg = smoothed.yawDeg,
-            pitchDeg = smoothed.pitchDeg,
-            rollDeg = smoothed.rollDeg,
+            yawDeg = euler[0],
+            pitchDeg = euler[1],
+            rollDeg = euler[2],
             reprojectionErrorPx = reprojectionError,
             confidence = confidence,
+            temporalDebug = filtered.third,
         )
         imagePoints.release()
         objectPoints.release()
         rvec.release()
         tvec.release()
         rmat.release()
-        stableRvec.release()
-        smoothed.tvec.release()
+        filtered.first.release()
+        filtered.second.release()
         return MarkerPoseEstimate(
             rvec = poseRvec,
             tvec = poseTvec,
@@ -703,6 +703,19 @@ class ImageProcessor {
                     ),
                 )
                 add(detection.quality.toOverlayString())
+                val debug = metrics.temporalDebug
+                val raw = if (debug.jitterRawTvecMm != null && debug.jitterRawRvecDeg != null) {
+                    "raw=%.2fmm/%.2f°".format(debug.jitterRawTvecMm, debug.jitterRawRvecDeg)
+                } else {
+                    "raw=--"
+                }
+                val smooth = if (debug.jitterSmoothTvecMm != null && debug.jitterSmoothRvecDeg != null) {
+                    "smooth=%.2fmm/%.2f°".format(debug.jitterSmoothTvecMm, debug.jitterSmoothRvecDeg)
+                } else {
+                    "smooth=--"
+                }
+                add("mode=${debug.mode.name} ${if (debug.stableStaticScene) "jitter OK" else "jitter HIGH"}")
+                add("$raw | $smooth")
             } else {
                 add(detection.quality.toOverlayString())
             }
@@ -767,16 +780,39 @@ class ImageProcessor {
         return sqrt(x * x + y * y + z * z)
     }
 
-    private fun smoothAngle(prevDeg: Double, currentDeg: Double): Double {
-        val delta = normalizeAngle(currentDeg - prevDeg).coerceIn(-MAX_ANGLE_STEP_DEG, MAX_ANGLE_STEP_DEG)
-        return normalizeAngle(prevDeg + ORIENTATION_SMOOTH_ALPHA * delta)
-    }
-
-    private fun normalizeAngle(angleDeg: Double): Double {
-        var out = angleDeg
-        while (out > 180.0) out -= 360.0
-        while (out < -180.0) out += 360.0
-        return out
+    private fun selectPoseForRender(rawKey: String, rawTvec: Mat, rawRvec: Mat): Triple<Mat, Mat, PoseTemporalDebugMetrics> {
+        poseTemporalFilter.updateConfig(
+            PoseTemporalConfig(
+                enabled = poseSmoothingEnabled,
+                filterType = poseTemporalFilterType,
+                emaAlpha = poseEmaAlpha,
+                oneEuroBeta = poseOneEuroBeta,
+            ),
+        )
+        val result = poseTemporalFilter.process(
+            markerKey = rawKey,
+            tvec = doubleArrayOf(rawTvec.get(0, 0)[0], rawTvec.get(1, 0)[0], rawTvec.get(2, 0)[0]),
+            rvec = doubleArrayOf(rawRvec.get(0, 0)[0], rawRvec.get(1, 0)[0], rawRvec.get(2, 0)[0]),
+            timestampNs = System.nanoTime(),
+        )
+        val useRaw = poseOutputMode == PoseOutputMode.RAW
+        val selectedT = if (useRaw) result.rawTvec else result.smoothedTvec
+        val selectedR = if (useRaw) result.rawRvec else result.smoothedRvec
+        val tMat = Mat(3, 1, CvType.CV_64F).apply {
+            put(0, 0, selectedT[0]); put(1, 0, selectedT[1]); put(2, 0, selectedT[2])
+        }
+        val rMat = Mat(3, 1, CvType.CV_64F).apply {
+            put(0, 0, selectedR[0]); put(1, 0, selectedR[1]); put(2, 0, selectedR[2])
+        }
+        val debug = PoseTemporalDebugMetrics(
+            mode = poseOutputMode,
+            jitterRawTvecMm = result.rawJitter?.tvecMm,
+            jitterRawRvecDeg = result.rawJitter?.rvecDeg,
+            jitterSmoothTvecMm = result.smoothedJitter?.tvecMm,
+            jitterSmoothRvecDeg = result.smoothedJitter?.rvecDeg,
+            stableStaticScene = poseTemporalFilter.isStaticSceneStable(result.smoothedJitter),
+        )
+        return Triple(tMat, rMat, debug)
     }
 
     private fun rotationMatrixToEuler(rmat: Mat): DoubleArray {
@@ -803,31 +839,6 @@ class ImageProcessor {
         return doubleArrayOf(yaw, pitch, roll)
     }
 
-    private fun eulerToRvec(yawDeg: Double, pitchDeg: Double, rollDeg: Double): Mat {
-        val y = Math.toRadians(yawDeg)
-        val p = Math.toRadians(pitchDeg)
-        val r = Math.toRadians(rollDeg)
-        val cy = kotlin.math.cos(y)
-        val sy = kotlin.math.sin(y)
-        val cp = kotlin.math.cos(p)
-        val sp = kotlin.math.sin(p)
-        val cr = kotlin.math.cos(r)
-        val sr = kotlin.math.sin(r)
-        val rot = Mat(3, 3, CvType.CV_64F)
-        rot.put(0, 0, cy * cp)
-        rot.put(0, 1, cy * sp * sr - sy * cr)
-        rot.put(0, 2, cy * sp * cr + sy * sr)
-        rot.put(1, 0, sy * cp)
-        rot.put(1, 1, sy * sp * sr + cy * cr)
-        rot.put(1, 2, sy * sp * cr - cy * sr)
-        rot.put(2, 0, -sp)
-        rot.put(2, 1, cp * sr)
-        rot.put(2, 2, cp * cr)
-        val rvec = Mat()
-        Calib3d.Rodrigues(rot, rvec)
-        rot.release()
-        return rvec
-    }
 
     private fun applyQrCodeDetection(src: Mat): Mat {
         val res = src.clone(); val points = Mat()

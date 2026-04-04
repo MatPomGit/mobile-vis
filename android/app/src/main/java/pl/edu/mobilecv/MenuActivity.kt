@@ -123,6 +123,8 @@ class MenuActivity : AppCompatActivity() {
             OpenCvFilter.YOLO_DETECT           to getString(R.string.filter_desc_yolo_detect),
             OpenCvFilter.YOLO_SEGMENT          to getString(R.string.filter_desc_yolo_segment),
             OpenCvFilter.YOLO_POSE             to getString(R.string.filter_desc_yolo_pose),
+            OpenCvFilter.YOLO_CLASSIFY         to getString(R.string.filter_desc_yolo_classify),
+            OpenCvFilter.YOLO_OBB              to getString(R.string.filter_desc_yolo_obb),
             OpenCvFilter.INVERT                to getString(R.string.filter_desc_invert),
             OpenCvFilter.SEPIA                 to getString(R.string.filter_desc_sepia),
             OpenCvFilter.EMBOSS                to getString(R.string.filter_desc_emboss),
@@ -290,9 +292,11 @@ class MenuActivity : AppCompatActivity() {
         addSectionHeader(container, getString(R.string.models_yolo_title))
         addGroupDescription(container, getString(R.string.models_yolo_description))
 
-        addModelRow(container, YoloProcessor.MODEL_DETECT,  getString(R.string.model_name_yolo_detect),  isYolo = true)
-        addModelRow(container, YoloProcessor.MODEL_SEGMENT, getString(R.string.model_name_yolo_segment), isYolo = true)
-        addModelRow(container, YoloProcessor.MODEL_POSE,    getString(R.string.model_name_yolo_pose),    isYolo = true)
+        addModelRow(container, YoloProcessor.MODEL_DETECT,   getString(R.string.model_name_yolo_detect),   isYolo = true)
+        addModelRow(container, YoloProcessor.MODEL_SEGMENT,  getString(R.string.model_name_yolo_segment),  isYolo = true)
+        addModelRow(container, YoloProcessor.MODEL_POSE,     getString(R.string.model_name_yolo_pose),     isYolo = true)
+        addModelRow(container, YoloProcessor.MODEL_CLASSIFY, getString(R.string.model_name_yolo_classify), isYolo = true)
+        addModelRow(container, YoloProcessor.MODEL_OBB,      getString(R.string.model_name_yolo_obb),      isYolo = true)
         addDownloadAllButton(container, isYolo = true)
     }
 

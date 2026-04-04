@@ -202,6 +202,22 @@ class MenuActivity : AppCompatActivity() {
         binding.modeListContainer.addView(card)
     }
 
+    /**
+     * Inflates a card that opens the [OdometryTutorialActivity].
+     * The card is placed in the modes list so the user can learn about visual odometry
+     * before selecting the corresponding camera mode.
+     */
+    private fun buildOdometryTutorialCard() {
+        val card = layoutInflater.inflate(R.layout.item_mode_card, binding.analysisContainer, false)
+        card.findViewById<TextView>(R.id.textModeName).text = getString(R.string.tutorial_card_title)
+        card.findViewById<TextView>(R.id.textModeDescription).text = getString(R.string.tutorial_card_description)
+        applyGroupStroke(card, R.color.group_analysis)
+        card.setOnClickListener {
+            startActivity(Intent(this, OdometryTutorialActivity::class.java))
+        }
+        binding.analysisContainer.addView(card)
+    }
+
     /** Displays a scrollable dialog with the app's usage instructions. */
     private fun showInstructionsDialog() {
         AlertDialog.Builder(this)
@@ -254,6 +270,7 @@ class MenuActivity : AppCompatActivity() {
         modes.forEach { mode ->
             addModeCard(binding.analysisContainer, mode, R.color.group_analysis)
         }
+        buildOdometryTutorialCard()
         buildPointCloudViewerCard()
     }
 

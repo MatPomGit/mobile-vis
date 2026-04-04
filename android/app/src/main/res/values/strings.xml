@@ -281,4 +281,54 @@
     <string name="overlay_groups" tools:keep="@string/overlay_groups">Grupy</string>
     <string name="overlay_geometry_error" tools:keep="@string/overlay_geometry_error">Błąd geometrii</string>
     <string name="overlay_vp_error" tools:keep="@string/overlay_vp_error">Błąd VP</string>
+
+    <!-- Odometry Tutorial Activity -->
+    <string name="tutorial_card_title">Samouczek odometrii wizualnej</string>
+    <string name="tutorial_card_description">Poznaj krok po kroku, jak działa odometria wizyjna</string>
+    <string name="tutorial_title">Odometria wizyjna</string>
+    <string name="tutorial_subtitle">Poznaj pipeline krok po kroku</string>
+    <string name="tutorial_launch_button">Wypróbuj pełną odometrię 3D</string>
+
+    <!-- Tutorial stage labels -->
+    <string name="tutorial_stage_label">Etap %1$d</string>
+
+    <!-- Stage 1: Image Acquisition -->
+    <string name="tutorial_stage1_emoji">📷</string>
+    <string name="tutorial_stage1_title">Pozyskiwanie obrazu</string>
+    <string name="tutorial_stage1_desc">Kamera rejestruje kolejne klatki wideo z zadaną częstotliwością (np. 30 FPS). Każda klatka to macierz pikseli w przestrzeni barw BGR (format OpenCV). Jakość wejścia – rozdzielczość, ekspozycja i ostrość – ma bezpośredni wpływ na precyzję całego procesu odometrii.</string>
+
+    <!-- Stage 2: Feature Detection -->
+    <string name="tutorial_stage2_emoji">🔍</string>
+    <string name="tutorial_stage2_title">Detekcja punktów charakterystycznych</string>
+    <string name="tutorial_stage2_desc">Na każdej klatce wykrywane są punkty charakterystyczne (ang. keypoints) – miejsca o dużym lokalnym kontraście, takie jak narożniki i wyraźne krawędzie. Algorytm Shi-Tomasi lub FAST generuje do kilkuset takich punktów na klatkę. Są one podstawą do śledzenia ruchu w kolejnych etapach.</string>
+
+    <!-- Stage 3: Optical Flow -->
+    <string name="tutorial_stage3_emoji">🔄</string>
+    <string name="tutorial_stage3_title">Śledzenie punktów – Optical Flow</string>
+    <string name="tutorial_stage3_desc">Algorytm optycznego przepływu Lucas-Kanade (KLT) śledzi każdy punkt z poprzedniej klatki, minimalizując lokalny błąd jasności w okienku otaczającym punkt. Wynikiem są pary korespondencyjne: (p[i-1], p[i]) opisujące, gdzie dany punkt przesunął się między klatkami. Punkty z dużym błędem śledzenia są odrzucane.</string>
+
+    <!-- Stage 4: Motion Estimation -->
+    <string name="tutorial_stage4_emoji">🧮</string>
+    <string name="tutorial_stage4_title">Estymacja ruchu – macierz zasadnicza</string>
+    <string name="tutorial_stage4_desc">Z par korespondencyjnych wyznaczana jest macierz zasadnicza E (Essential Matrix) przy użyciu algorytmu RANSAC, który odrzuca błędne pary. Rozkład SVD macierzy E daje macierz rotacji R i wektor translacji t opisujące względny ruch kamery między klatkami. Translacja jest znana tylko do skali (odometria monokularna).</string>
+
+    <!-- Stage 5: Triangulation -->
+    <string name="tutorial_stage5_emoji">📐</string>
+    <string name="tutorial_stage5_title">Triangulacja – rekonstrukcja 3D</string>
+    <string name="tutorial_stage5_desc">Znając macierz wewnętrzną kamery K oraz wyznaczone R i t, każdą parę odpowiadających sobie punktów można triangulować – obliczyć ich przybliżone położenie w przestrzeni 3D. Wynikowe punkty tworzą rzadką chmurę punktów reprezentującą widoczne fragmenty sceny. Skala bezwzględna pozostaje nieznana.</string>
+
+    <!-- Stage 6: Trajectory Accumulation -->
+    <string name="tutorial_stage6_emoji">🗺️</string>
+    <string name="tutorial_stage6_title">Akumulacja trajektorii i mapy</string>
+    <string name="tutorial_stage6_desc">Kolejne estymacje ruchu (R, t) są składane przez mnożenie macierzy przekształcenia: T[n] = T[n-1] · ΔT[n]. Pozwala to śledzić pozycję kamery w czasie i budować narastającą mapę 3D środowiska. Błędy lokalne akumulują się z każdym krokiem – jest to zjawisko zwane dryfem odometrii, które można ograniczać metodami pętli zamkniętej (loop closure).</string>
+
+    <!-- Stage 7: 2D to 3D reprojection -->
+    <string name="tutorial_stage7_emoji">🌐</string>
+    <string name="tutorial_stage7_title">Od piksela do punktu 3D</string>
+    <string name="tutorial_stage7_desc">Każdy piksel (u, v) na ekranie odpowiada promieniowi w przestrzeni 3D, wyznaczonemu przez macierz wewnętrzną kamery K:\n\n  x_n = (u − cx) / fx\n  y_n = (v − cy) / fy\n\ngdzie fx, fy to ogniskowe [px], a (cx, cy) to punkt główny. Tak znormalizowany promień opisuje kierunek patrzenia, ale nie odległość od kamery. Dopiero triangulacja dwóch takich promieni – z dwóch różnych pozycji kamery – pozwala wyznaczyć punkt P w przestrzeni 3D jako przecięcie (lub punkt minimalnej odległości) obu promieni. Im większa paralaksa (kąt między pozycjami kamery), tym precyzyjniejsza rekonstrukcja głębi.</string>
+
+    <!-- Stage 8: Robot control via odometry -->
+    <string name="tutorial_stage8_emoji">🤖</string>
+    <string name="tutorial_stage8_title">Sterowanie robotem na podstawie odometrii</string>
+    <string name="tutorial_stage8_desc">Zgromadzona trajektoria kamery T[n] dostarcza robotowi szacunkowej pozycji i orientacji w czasie rzeczywistym – bez konieczności stosowania GPS ani enkoderów kół.\n\nTyp danych wysyłanych do robota:\n• Pozycja: wektor translacji t_world = [X, Y, Z] – aktualne współrzędne w układzie świata.\n• Orientacja: macierz rotacji R lub kąty Eulera (roll, pitch, yaw).\n• Prędkość liniowa i kątowa: obliczona jako różnica między kolejnymi pozami T[n] i T[n-1] podzielona przez czas klatki Δt.\n\nAplikacja MobileCV przesyła te dane protokołem ROSBridge WebSocket do węzła ROS 2 (temat /mobilecv/detections). Robot, znając aktualną pozę kamery, może:\n1. Planować trasę w zbudowanej mapie 3D.\n2. Unikać przeszkód widocznych w chmurze punktów.\n3. Powracać do punktu startowego (wykrywając pętle zamknięte).\n4. Utrzymywać zadany dystans od śledzonych obiektów.\n\nUwaga: odometria monokularna dostarcza pozycji tylko do skali – robot musi znać skalę bezwzględną (np. z rozmiaru znacznika ArUco) lub korzystać z dodatkowych sensorów (IMU, głębokościowy) do kalibracji skali.</string>
 </resources>

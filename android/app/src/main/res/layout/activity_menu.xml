@@ -3,7 +3,12 @@
     activity_menu.xml
     Main-menu screen displayed when the application launches.
     The user selects an analysis mode before the camera activity is started.
-    Two tabs: "Tryby" (mode cards) and "O aplikacji" (app & effect descriptions).
+    Five tabs:
+      "Przetwarzanie" – basic image-processing modes (FILTERS / EDGES / MORPHOLOGY / EFFECTS)
+      "Detekcja"      – detection modes (MARKERS / YOLO / POSE)
+      "Analiza 3D"    – spatial-analysis modes (ODOMETRY / GEOMETRY / CALIBRATION)
+      "Modele"        – model download status and manual-download buttons
+      "O aplikacji"   – app description and per-filter descriptions
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
@@ -36,13 +41,16 @@
         android:textAppearance="?attr/textAppearanceLabelMedium"
         android:textColor="?attr/colorOnSurfaceVariant" />
 
-    <!-- Tab bar: Tryby | O aplikacji -->
+    <!--
+        Tab bar: Przetwarzanie | Detekcja | Analiza 3D | Modele | O aplikacji
+        scrollable mode because 5 tabs may not fit in a fixed layout on all screen sizes
+    -->
     <com.google.android.material.tabs.TabLayout
         android:id="@+id/tabLayoutMenu"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        app:tabGravity="fill"
-        app:tabMode="fixed"
+        app:tabMode="scrollable"
+        app:tabGravity="start"
         app:tabIndicatorHeight="3dp" />
 
     <!-- Content frame – one child visible at a time based on the selected tab -->
@@ -51,7 +59,7 @@
         android:layout_height="0dp"
         android:layout_weight="1">
 
-        <!-- "Tryby" tab: scrollable list of mode cards -->
+        <!-- "Przetwarzanie" tab: FILTERS, EDGES, MORPHOLOGY, EFFECTS -->
         <ScrollView
             android:id="@+id/scrollViewModes"
             android:layout_width="match_parent"
@@ -64,6 +72,61 @@
                 android:orientation="vertical"
                 android:paddingStart="16dp"
                 android:paddingEnd="16dp"
+                android:paddingTop="8dp"
+                android:paddingBottom="16dp" />
+
+        </ScrollView>
+
+        <!-- "Detekcja" tab: MARKERS, YOLO, POSE -->
+        <ScrollView
+            android:id="@+id/scrollViewDetection"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:id="@+id/detectionContainer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:paddingTop="8dp"
+                android:paddingBottom="16dp" />
+
+        </ScrollView>
+
+        <!-- "Analiza 3D" tab: ODOMETRY, GEOMETRY, CALIBRATION + PointCloudViewer -->
+        <ScrollView
+            android:id="@+id/scrollViewAnalysis"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:id="@+id/analysisContainer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:paddingTop="8dp"
+                android:paddingBottom="16dp" />
+
+        </ScrollView>
+
+        <!-- "Modele" tab: MediaPipe and YOLO model status + download buttons -->
+        <ScrollView
+            android:id="@+id/scrollViewModels"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:id="@+id/modelsContainer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
                 android:paddingTop="8dp"
                 android:paddingBottom="16dp" />
 

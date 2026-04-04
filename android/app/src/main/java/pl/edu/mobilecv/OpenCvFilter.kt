@@ -212,6 +212,31 @@ enum class OpenCvFilter(val displayName: String) {
      * class label and rotation angle.
      */
     RTMDET_ROTATED("RTMDet Rotated"),
+
+    // ------------------------------------------------------------------
+    // Full 3-D odometry
+    // ------------------------------------------------------------------
+
+    /**
+     * Full monocular visual odometry: shows live optical-flow tracks overlaid
+     * on the camera image together with a HUD displaying the accumulated frame
+     * count, RANSAC inlier ratio, and current world-frame pose coordinates.
+     */
+    FULL_ODOMETRY("Pełna odometria"),
+
+    /**
+     * Accumulated camera trajectory visualised as a top-down (X-Z plane)
+     * bird's-eye view on a dark canvas.  Each dot represents a camera position
+     * estimate; the current position is highlighted in red with a cross-hair.
+     */
+    ODOMETRY_TRAJECTORY("Trajektoria 3D"),
+
+    /**
+     * Sparse 3-D map built by triangulating inlier feature correspondences
+     * across frames.  Points are projected onto the X-Z (top-down) plane
+     * together with the current camera position marker.
+     */
+    ODOMETRY_MAP("Mapa 3D"),
 }
 
 /**
@@ -240,3 +265,12 @@ val OpenCvFilter.isYolo: Boolean
 val OpenCvFilter.isRtmDet: Boolean
     get() = this == OpenCvFilter.RTMDET_DETECT ||
         this == OpenCvFilter.RTMDET_ROTATED
+
+/**
+ * Returns ``true`` if this filter belongs to the full 3-D odometry pipeline
+ * and should keep the [FullOdometryEngine] alive between frames.
+ */
+val OpenCvFilter.isFullOdometry: Boolean
+    get() = this == OpenCvFilter.FULL_ODOMETRY ||
+        this == OpenCvFilter.ODOMETRY_TRAJECTORY ||
+        this == OpenCvFilter.ODOMETRY_MAP

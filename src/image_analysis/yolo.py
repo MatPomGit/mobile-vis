@@ -67,6 +67,16 @@ YOLO_DOWNLOAD_MAX_RETRIES: int = 3
 #: as long (exponential back-off: 2 s → 4 s → 8 s).
 YOLO_DOWNLOAD_RETRY_DELAY_SECONDS: float = 2.0
 
+#: Directory where downloaded YOLO model weights are cached between sessions.
+#: On first use the directory is created automatically.  Set the environment variable
+#: ``IMAGE_ANALYSIS_MODELS_DIR`` to override the default location.
+YOLO_MODELS_DIR: Path = Path(
+    os.environ.get(
+        "IMAGE_ANALYSIS_MODELS_DIR",
+        str(Path.home() / ".cache" / "image_analysis" / "yolo"),
+    )
+)
+
 # ---------------------------------------------------------------------------
 # Data types
 # ---------------------------------------------------------------------------
@@ -138,11 +148,18 @@ class YoloDetector:
         Calling this method explicitly is useful to measure load time
         separately from inference time.
 
-        On the first call with a bare model name (e.g. ``"yolov8n.pt"``), the
-        ``ultralytics`` package will attempt to download the weights from the
-        internet.  If the download fails transiently (e.g. due to a brief
-        network outage), it is retried up to :data:`YOLO_DOWNLOAD_MAX_RETRIES`
-        times with exponential back-off before raising.
+        Resolution order for bare model names (e.g. ``"yolov8n.pt"``):
+
+        1. :data:`YOLO_MODELS_DIR` - the application's persistent model cache.
+           If the weights file is already present there, it is loaded directly
+           without any network access.
+        2. Download from *Ultralytics* into :data:`YOLO_MODELS_DIR` so that
+           subsequent calls find the file without re-downloading.  If the
+           download fails transiently, it is retried up to
+           :data:`YOLO_DOWNLOAD_MAX_RETRIES` times with exponential back-off.
+
+        For explicit paths (absolute or containing path separators) the file
+        must exist on disk; no download is attempted.
 
         Raises:
             FileNotFoundError: If *model_path* is an explicit path that does
@@ -155,11 +172,25 @@ class YoloDetector:
         from ultralytics import YOLO  # deferred import
 
         str_path = str(self._model_path)
-        if not self._model_path.exists() and "/" not in str_path and "\\" not in str_path:
-            # Let ultralytics resolve the name (e.g. "yolov8n.pt"), retrying on
-            # transient network errors.
-            logger.info("Loading YOLO model %s (may download weights)", str_path)
-            self._model = _load_with_retry(YOLO, str_path)
+        is_bare_name = self._model_path.parent == Path(".")
+
+        if is_bare_name:
+            # Bare model name - check the application models cache first so that
+            # previously downloaded weights are reused without network access.
+            cached_path = _get_models_dir() / self._model_path.name
+            if cached_path.exists():
+                logger.info("Loading YOLO model from cache: %s", cached_path)
+                self._model = YOLO(str(cached_path))
+            else:
+                # Not in cache; pass the full target path to ultralytics so it
+                # downloads the weights directly into the application models
+                # directory and they are available on the next run.
+                logger.info(
+                    "YOLO model '%s' not found in cache, downloading to %s",
+                    str_path,
+                    cached_path,
+                )
+                self._model = _load_with_retry(YOLO, str(cached_path))
         elif not self._model_path.exists():
             raise FileNotFoundError(f"YOLO model not found: {self._model_path}")
         else:
@@ -475,6 +506,16 @@ _PALETTE: list[tuple[int, int, int]] = [
     (157, 148, 255),
     (189, 151, 255),
 ]
+
+
+def _get_models_dir() -> Path:
+    """Return the application YOLO models cache directory, creating it if needed.
+
+    Returns:
+        Absolute path to :data:`YOLO_MODELS_DIR` after ensuring it exists.
+    """
+    YOLO_MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    return YOLO_MODELS_DIR
 
 
 def _class_color(class_id: int) -> tuple[int, int, int]:

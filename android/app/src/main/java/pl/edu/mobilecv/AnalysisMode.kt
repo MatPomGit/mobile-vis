@@ -91,6 +91,20 @@ enum class AnalysisMode(val displayName: String, val filters: List<OpenCvFilter>
     ),
 
     /**
+     * Full monocular visual-odometry pipeline as implemented in practice:
+     * Essential-matrix estimation, pose recovery, accumulated world-frame
+     * trajectory, and sparse 3-D map built via point triangulation.
+     */
+    FULL_ODOMETRY_3D(
+        "Pełna Odometria 3D",
+        listOf(
+            OpenCvFilter.FULL_ODOMETRY,
+            OpenCvFilter.ODOMETRY_TRAJECTORY,
+            OpenCvFilter.ODOMETRY_MAP,
+        )
+    ),
+
+    /**
      * 3-D geometry analysis: plane detection, vanishing-point extraction,
      * and point-cloud visualisation.
      */

@@ -73,6 +73,22 @@ object ModelDownloadManager {
             "https://github.com/MatPomGit/mobile-vis/releases/download/models/yolov8n_pose.onnx",
     )
 
+    /**
+     * Fallback download URLs for YOLO ONNX models from the official Ultralytics assets.
+     *
+     * These are used when the primary [YOLO_MODEL_URLS] download fails (e.g. models have
+     * not yet been uploaded to the project's GitHub Releases).  The files are the
+     * official YOLOv8-nano ONNX exports published by Ultralytics.
+     */
+    val YOLO_ULTRALYTICS_URLS: Map<String, String> = mapOf(
+        YoloProcessor.MODEL_DETECT to
+            "https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8n.onnx",
+        YoloProcessor.MODEL_SEGMENT to
+            "https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8n-seg.onnx",
+        YoloProcessor.MODEL_POSE to
+            "https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8n-pose.onnx",
+    )
+
     private const val YOLO_DIR = "yolo"
 
     /**
@@ -266,6 +282,11 @@ object ModelDownloadManager {
     /**
      * Download all missing YOLO model files.
      *
+     * For each missing model, the primary URL from [YOLO_MODEL_URLS] is tried first.
+     * If that fails, the official Ultralytics ONNX asset from [YOLO_ULTRALYTICS_URLS]
+     * is used as a fallback.  Downloaded files are saved to [getYoloModelPath] so they
+     * are found immediately on subsequent calls without re-downloading.
+     *
      * This is a blocking call; run it on a background thread.
      *
      * @param context Application or activity context.
@@ -284,9 +305,16 @@ object ModelDownloadManager {
         var downloaded = 0
         val total = missing.size
 
-        for ((filename, url) in missing) {
+        for ((filename, primaryUrl) in missing) {
             val dest = yoloModelFile(context, filename)
-            val success = downloadModel(context, filename, url, dest)
+            val fallbackUrl = YOLO_ULTRALYTICS_URLS[filename]
+
+            var success = downloadModel(context, filename, primaryUrl, dest)
+            if (!success && fallbackUrl != null) {
+                Log.i(TAG, "Primary download failed for $filename, trying Ultralytics fallback")
+                success = downloadModel(context, filename, fallbackUrl, dest)
+            }
+
             if (success) {
                 downloaded++
                 onProgress?.invoke(downloaded, total)

@@ -20,4 +20,13 @@
     <color name="robot_disconnected" tools:keep="@color/robot_disconnected">#FF757575</color>
     <color name="robot_error">#FFE53935</color>
     <color name="background_color">#292a3a</color>
+
+    <!-- Mode-group card stroke colours (one per processing stage) -->
+    <color name="group_processing">#FF00695C</color>  <!-- Teal 800 – preprocessing -->
+    <color name="group_detection">#FFE65100</color>   <!-- Deep Orange 900 – detection -->
+    <color name="group_analysis">#FF4A148C</color>    <!-- Purple 900 – 3-D analysis -->
+
+    <!-- Model status dot colours in the Models tab -->
+    <color name="model_status_ready">#FF43A047</color>   <!-- Green 600 – model is present -->
+    <color name="model_status_missing">#FF9E9E9E</color> <!-- Grey 500 – model not downloaded -->
 </resources>

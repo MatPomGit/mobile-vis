@@ -11,6 +11,7 @@ from image_analysis.yolo import (
     YOLO_CONFIDENCE_THRESHOLD,
     YOLO_DOWNLOAD_MAX_RETRIES,
     YOLO_DOWNLOAD_RETRY_DELAY_SECONDS,
+    YOLO_MODELS_DIR,
     YOLO_NMS_IOU_THRESHOLD,
     YoloDetection,
     YoloDetector,
@@ -514,3 +515,123 @@ def test_download_max_retries_is_positive() -> None:
 
 def test_download_retry_delay_is_non_negative() -> None:
     assert YOLO_DOWNLOAD_RETRY_DELAY_SECONDS >= 0.0
+
+
+# ---------------------------------------------------------------------------
+# YOLO_MODELS_DIR and _get_models_dir
+# ---------------------------------------------------------------------------
+
+
+def test_yolo_models_dir_is_path_instance() -> None:
+    from pathlib import Path
+
+    assert isinstance(YOLO_MODELS_DIR, Path)
+
+
+def test_get_models_dir_returns_path(tmp_path) -> None:
+    """_get_models_dir should return the YOLO_MODELS_DIR path after creation."""
+    import image_analysis.yolo as yolo_mod
+
+    with patch.object(yolo_mod, "YOLO_MODELS_DIR", tmp_path / "yolo_cache"):
+        result = yolo_mod._get_models_dir()
+        assert result == tmp_path / "yolo_cache"
+
+
+def test_get_models_dir_creates_directory(tmp_path) -> None:
+    """_get_models_dir should create the directory if it does not exist."""
+    import image_analysis.yolo as yolo_mod
+
+    new_dir = tmp_path / "nested" / "yolo"
+    assert not new_dir.exists()
+    with patch.object(yolo_mod, "YOLO_MODELS_DIR", new_dir):
+        yolo_mod._get_models_dir()
+    assert new_dir.is_dir()
+
+
+# ---------------------------------------------------------------------------
+# YoloDetector.initialize - cache-first resolution
+# ---------------------------------------------------------------------------
+
+
+class TestYoloDetectorCacheResolution:
+    """Verify that initialize() checks YOLO_MODELS_DIR before downloading."""
+
+    def test_loads_from_cache_when_model_exists(self, tmp_path) -> None:
+        """If the model file is already in the cache dir it is loaded directly."""
+        import importlib
+
+        import image_analysis.yolo as yolo_mod
+
+        cached_model = tmp_path / "yolov8n.pt"
+        cached_model.write_bytes(b"fake-weights")
+
+        mock_yolo_cls = MagicMock()
+        mock_ultralytics = MagicMock()
+        mock_ultralytics.YOLO = mock_yolo_cls
+
+        try:
+            with patch.dict("sys.modules", {"ultralytics": mock_ultralytics}):
+                importlib.reload(yolo_mod)
+                with patch.object(yolo_mod, "YOLO_MODELS_DIR", tmp_path):
+                    detector = yolo_mod.YoloDetector.__new__(yolo_mod.YoloDetector)
+                    detector._model_path = yolo_mod.Path("yolov8n.pt")
+                    detector._model = None
+                    detector.confidence_threshold = YOLO_CONFIDENCE_THRESHOLD
+                    detector.iou_threshold = YOLO_NMS_IOU_THRESHOLD
+                    detector.initialize()
+
+            # YOLO should have been called with the cached path, not the bare name.
+            mock_yolo_cls.assert_called_once_with(str(tmp_path / "yolov8n.pt"))
+        finally:
+            importlib.reload(yolo_mod)
+
+    def test_downloads_to_cache_when_model_missing(self, tmp_path) -> None:
+        """If the model is absent from cache, _load_with_retry receives the cache path."""
+        import importlib
+
+        import image_analysis.yolo as yolo_mod
+
+        mock_yolo_cls = MagicMock()
+        mock_ultralytics = MagicMock()
+        mock_ultralytics.YOLO = mock_yolo_cls
+
+        try:
+            with patch.dict("sys.modules", {"ultralytics": mock_ultralytics}):
+                importlib.reload(yolo_mod)
+                with patch.object(yolo_mod, "YOLO_MODELS_DIR", tmp_path):
+                    with patch.object(yolo_mod, "_load_with_retry") as mock_retry:
+                        mock_retry.return_value = MagicMock()
+                        detector = yolo_mod.YoloDetector.__new__(yolo_mod.YoloDetector)
+                        detector._model_path = yolo_mod.Path("yolov8n.pt")
+                        detector._model = None
+                        detector.confidence_threshold = YOLO_CONFIDENCE_THRESHOLD
+                        detector.iou_threshold = YOLO_NMS_IOU_THRESHOLD
+                        detector.initialize()
+
+                        # The retry helper must receive the full path inside the cache dir.
+                        expected_path = str(tmp_path / "yolov8n.pt")
+                        mock_retry.assert_called_once_with(mock_yolo_cls, expected_path)
+        finally:
+            importlib.reload(yolo_mod)
+
+    def test_explicit_path_still_raises_file_not_found(self, tmp_path) -> None:
+        """An explicit (slash-containing) path that does not exist must raise."""
+        import importlib
+
+        import image_analysis.yolo as yolo_mod
+
+        mock_ultralytics = MagicMock()
+
+        try:
+            with patch.dict("sys.modules", {"ultralytics": mock_ultralytics}):
+                importlib.reload(yolo_mod)
+                detector = yolo_mod.YoloDetector.__new__(yolo_mod.YoloDetector)
+                detector._model_path = tmp_path / "nonexistent.pt"
+                detector._model = None
+                detector.confidence_threshold = YOLO_CONFIDENCE_THRESHOLD
+                detector.iou_threshold = YOLO_NMS_IOU_THRESHOLD
+
+                with pytest.raises(FileNotFoundError):
+                    detector.initialize()
+        finally:
+            importlib.reload(yolo_mod)

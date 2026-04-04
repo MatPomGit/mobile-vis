@@ -703,3 +703,173 @@ class TestMaskToBbox:
         mask[20:60, 30:80] = 255
         bbox = _mask_to_bbox(mask)
         assert bbox == (30, 20, 79, 59)
+
+
+# ---------------------------------------------------------------------------
+# PlaneDetection.precision field
+# ---------------------------------------------------------------------------
+
+
+class TestPlaneDetectionPrecision:
+    def test_default_precision_is_zero(self) -> None:
+        pd = PlaneDetection(
+            normal=(0.0, 0.0, 1.0),
+            centroid=(50.0, 50.0),
+            confidence=0.5,
+            mask=None,
+            bbox=(0, 0, 100, 100),
+            inlier_count=5,
+        )
+        assert pd.precision == pytest.approx(0.0)
+
+    def test_explicit_precision_stored(self) -> None:
+        pd = PlaneDetection(
+            normal=(0.0, 0.0, 1.0),
+            centroid=(50.0, 50.0),
+            confidence=0.5,
+            mask=None,
+            bbox=(0, 0, 100, 100),
+            inlier_count=5,
+            precision=0.75,
+        )
+        assert pd.precision == pytest.approx(0.75)
+
+    def test_precision_in_unit_interval_from_detect_planes(self) -> None:
+        """detect_planes must populate precision in [0, 1] for each plane."""
+        img = np.zeros((400, 600, 3), dtype=np.uint8)
+        vp1 = (300, 100)
+        vp2 = (0, 250)
+        for bx in range(50, 600, 60):
+            cv2.line(img, (bx, 400), vp1, (255, 255, 255), 2)
+        for by in range(50, 400, 50):
+            cv2.line(img, (600, by), vp2, (180, 180, 180), 2)
+        planes = detect_planes(img, max_planes=3)
+        for plane in planes:
+            assert 0.0 <= plane.precision <= 1.0
+
+    def test_precision_preserved_after_mask_overlap_resolution(self) -> None:
+        """_resolve_mask_overlaps must carry precision through to output planes."""
+        h, w = 100, 100
+        mask1 = np.zeros((h, w), dtype=np.uint8)
+        mask1[10:50, 10:90] = 255
+        mask2 = np.zeros((h, w), dtype=np.uint8)
+        mask2[60:90, 10:90] = 255
+
+        from image_analysis.planes import _resolve_mask_overlaps
+
+        plane1 = PlaneDetection(
+            normal=(0.0, 0.0, 1.0),
+            centroid=(50.0, 30.0),
+            confidence=0.8,
+            mask=mask1,
+            bbox=(10, 10, 90, 50),
+            inlier_count=10,
+            precision=0.9,
+        )
+        plane2 = PlaneDetection(
+            normal=(1.0, 0.0, 0.0),
+            centroid=(50.0, 75.0),
+            confidence=0.6,
+            mask=mask2,
+            bbox=(10, 60, 90, 90),
+            inlier_count=8,
+            precision=0.7,
+        )
+        result = _resolve_mask_overlaps([plane1, plane2])
+        assert len(result) == 2
+        assert result[0].precision == pytest.approx(0.9)
+        assert result[1].precision == pytest.approx(0.7)
+
+
+# ---------------------------------------------------------------------------
+# _select_lines_for_vp helper
+# ---------------------------------------------------------------------------
+
+
+class TestSelectLinesForVp:
+    def test_empty_input_returns_empty(self) -> None:
+        from image_analysis.planes import _select_lines_for_vp
+
+        lines, prec = _select_lines_for_vp([], 50.0, 50.0, 15.0)
+        assert lines == []
+        assert prec == pytest.approx(0.0)
+
+    def test_exact_inlier_line_yields_high_precision(self) -> None:
+        """A line exactly through the VP has zero perpendicular distance → prec = 1."""
+        from image_analysis.planes import _select_lines_for_vp
+
+        # Horizontal line on y=0; VP at (50, 0) lies on the line.
+        lines = [(0, 0, 100, 0)]
+        selected, prec = _select_lines_for_vp(lines, 50.0, 0.0, 15.0)
+        assert len(selected) == 1
+        assert prec == pytest.approx(1.0)
+
+    def test_far_line_excluded_by_threshold(self) -> None:
+        """A line whose VP distance exceeds the threshold is not an inlier."""
+        from image_analysis.planes import _select_lines_for_vp
+
+        # Horizontal line on y=0; VP at (50, 30) → perpendicular dist = 30.
+        lines = [(0, 0, 100, 0)]
+        selected, prec = _select_lines_for_vp(lines, 50.0, 30.0, 15.0)
+        assert selected == []
+        assert prec == pytest.approx(0.0)
+
+    def test_respects_max_lines_cap(self) -> None:
+        """At most max_lines lines should be returned."""
+        from image_analysis.planes import _select_lines_for_vp
+
+        # 10 horizontal lines all passing through y=0 VP vicinity.
+        lines = [(0, 0, 100, 0)] * 10
+        selected, _ = _select_lines_for_vp(lines, 50.0, 0.0, 15.0, max_lines=3)
+        assert len(selected) <= 3
+
+    def test_early_stop_when_precision_threshold_met(self) -> None:
+        """Selection stops once running precision >= precision_threshold."""
+        from image_analysis.planes import _select_lines_for_vp
+
+        # Lines very close to y=0, VP at (50, 0); precision should be high fast.
+        lines = [(i * 10, 0, i * 10 + 10, 0) for i in range(20)]
+        # With a high threshold (loose geometry), precision = 1 after the first line.
+        selected, prec = _select_lines_for_vp(
+            lines, 50.0, 0.0, 100.0, precision_threshold=0.95
+        )
+        assert prec >= 0.95
+        # Must have stopped early; not all 20 lines used.
+        assert len(selected) < len(lines)
+
+    def test_precision_in_unit_interval(self) -> None:
+        """precision must always be in [0, 1]."""
+        from image_analysis.planes import _select_lines_for_vp
+
+        lines = [(i, i, i + 50, i + 50) for i in range(10)]
+        _, prec = _select_lines_for_vp(lines, 25.0, 25.0, 15.0)
+        assert 0.0 <= prec <= 1.0
+
+    def test_lines_sorted_closest_first(self) -> None:
+        """Closer lines should be selected before farther ones."""
+        from image_analysis.planes import _select_lines_for_vp
+
+        # Two lines: one at y=1 (close to VP at y=0), one at y=5.
+        close_line = (0, 1, 100, 1)
+        far_line = (0, 5, 100, 5)
+        selected, _ = _select_lines_for_vp(
+            [far_line, close_line], 50.0, 0.0, 15.0, max_lines=1
+        )
+        assert len(selected) == 1
+        assert selected[0] == close_line
+
+    def test_draw_planes_label_contains_precision(self) -> None:
+        """draw_planes label must include the precision value."""
+        img = np.zeros((200, 200, 3), dtype=np.uint8)
+        plane = PlaneDetection(
+            normal=(0.0, 0.0, 1.0),
+            centroid=(100.0, 100.0),
+            confidence=0.8,
+            mask=None,
+            bbox=(50, 50, 150, 150),
+            inlier_count=10,
+            precision=0.75,
+        )
+        # draw_planes should not raise and should annotate the image.
+        result = draw_planes(img, [plane])
+        assert result.shape == img.shape

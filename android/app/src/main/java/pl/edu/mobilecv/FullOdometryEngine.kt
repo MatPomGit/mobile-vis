@@ -1,7 +1,7 @@
 package pl.edu.mobilecv
 
+import kotlin.math.abs
 import kotlin.math.acos
-import kotlin.math.min
 import kotlin.math.sqrt
 import org.opencv.calib3d.Calib3d
 import org.opencv.core.Core
@@ -80,6 +80,15 @@ class FullOdometryEngine {
         private const val RANSAC_CONFIDENCE = 0.999
         private const val RANSAC_THRESHOLD = 1.0
         private const val MIN_HOMOGENEOUS_COORDINATE = 1e-8
+        private const val MIN_TRANSLATION_NORM = 1e-6
+    }
+
+    /** Computes the L2 norm of a 3×1 or 1×3 [Mat] column vector. */
+    private fun mat3x1Norm(v: Mat): Double {
+        val x = v.get(0, 0)[0]
+        val y = v.get(1, 0)[0]
+        val z = v.get(2, 0)[0]
+        return sqrt(x * x + y * y + z * z)
     }
 
     // ---------------------------------------------------------------
@@ -259,13 +268,9 @@ class FullOdometryEngine {
 
         // --- Pose accumulation -----------------------------------------------
         // Scale translation to unit length (monocular VO has no metric scale).
-        val tNorm = sqrt(
-            relT.get(0, 0)[0].let { it * it } +
-                relT.get(1, 0)[0].let { it * it } +
-                relT.get(2, 0)[0].let { it * it },
-        )
+        val tNorm = mat3x1Norm(relT)
 
-        if (tNorm > 1e-6) {
+        if (tNorm > MIN_TRANSLATION_NORM) {
             // Normalise translation to unit step
             val scaledRelT = Mat()
             Core.multiply(relT, org.opencv.core.Scalar(1.0 / tNorm), scaledRelT)
@@ -302,7 +307,8 @@ class FullOdometryEngine {
         rT.release()
 
         val trace = globalR.get(0, 0)[0] + globalR.get(1, 1)[0] + globalR.get(2, 2)[0]
-        val rotDeg = Math.toDegrees(acos(min(1.0, maxOf(-1.0, (trace - 1.0) / 2.0))))
+        val cosAngle = ((trace - 1.0) / 2.0).coerceIn(-1.0, 1.0)
+        val rotDeg = Math.toDegrees(acos(cosAngle))
         val inlierRatio = if (goodNextList.isNotEmpty()) inlierCount.toDouble() / goodNextList.size else 0.0
 
         frameCount++
@@ -361,7 +367,7 @@ class FullOdometryEngine {
         synchronized(this) {
             for (i in 0 until pts4d.cols()) {
                 val w = pts4d.get(3, i)[0]
-                if (kotlin.math.abs(w) < MIN_HOMOGENEOUS_COORDINATE) continue
+                if (abs(w) < MIN_HOMOGENEOUS_COORDINATE) continue
                 val x = pts4d.get(0, i)[0] / w
                 val y = pts4d.get(1, i)[0] / w
                 val z = pts4d.get(2, i)[0] / w

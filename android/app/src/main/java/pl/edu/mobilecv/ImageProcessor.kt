@@ -182,6 +182,7 @@ class ImageProcessor {
         private const val PIXELATE_BLOCK_SIZE = 16
         private const val FULL_ODOMETRY_HUD_X = 20.0
         private const val FULL_ODOMETRY_HUD_LINE_HEIGHT = 28.0
+        private const val EPSILON_THRESHOLD = 1e-6
     }
 
     // Reusable mats for the hottest filters to reduce per-frame allocations.
@@ -1034,19 +1035,23 @@ class ImageProcessor {
         }
 
         // Determine bounding box (X-Z plane) for scaling
-        var minX = Double.MAX_VALUE; var maxX = -Double.MAX_VALUE
-        var minZ = Double.MAX_VALUE; var maxZ = -Double.MAX_VALUE
+        var minX = Double.MAX_VALUE
+        var maxX = -Double.MAX_VALUE
+        var minZ = Double.MAX_VALUE
+        var maxZ = -Double.MAX_VALUE
         for (p in positions) {
-            if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x
-            if (p.z < minZ) minZ = p.z; if (p.z > maxZ) maxZ = p.z
+            if (p.x < minX) minX = p.x
+            if (p.x > maxX) maxX = p.x
+            if (p.z < minZ) minZ = p.z
+            if (p.z > maxZ) maxZ = p.z
         }
         val margin = 40
         val drawW = res.cols() - 2 * margin
         val drawH = res.rows() - 2 * margin - 50
         val rangeX = maxX - minX
         val rangeZ = maxZ - minZ
-        val scale = if (rangeX < 1e-6 && rangeZ < 1e-6) 1.0 else
-            minOf(drawW.toDouble() / maxOf(rangeX, 1e-6), drawH.toDouble() / maxOf(rangeZ, 1e-6))
+        val scale = if (rangeX < EPSILON_THRESHOLD && rangeZ < EPSILON_THRESHOLD) 1.0 else
+            minOf(drawW.toDouble() / maxOf(rangeX, EPSILON_THRESHOLD), drawH.toDouble() / maxOf(rangeZ, EPSILON_THRESHOLD))
 
         fun toScreen(p: Point3): Point {
             val sx = margin + ((p.x - minX) * scale).toInt()
@@ -1111,16 +1116,22 @@ class ImageProcessor {
         }
 
         // Bounding box over X-Z plane
-        var minX = Double.MAX_VALUE; var maxX = -Double.MAX_VALUE
-        var minZ = Double.MAX_VALUE; var maxZ = -Double.MAX_VALUE
+        var minX = Double.MAX_VALUE
+        var maxX = -Double.MAX_VALUE
+        var minZ = Double.MAX_VALUE
+        var maxZ = -Double.MAX_VALUE
         for (p in points) {
-            if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x
-            if (p.z < minZ) minZ = p.z; if (p.z > maxZ) maxZ = p.z
+            if (p.x < minX) minX = p.x
+            if (p.x > maxX) maxX = p.x
+            if (p.z < minZ) minZ = p.z
+            if (p.z > maxZ) maxZ = p.z
         }
         val camPos = mapState.cameraPosition
         if (camPos != null) {
-            if (camPos.x < minX) minX = camPos.x; if (camPos.x > maxX) maxX = camPos.x
-            if (camPos.z < minZ) minZ = camPos.z; if (camPos.z > maxZ) maxZ = camPos.z
+            if (camPos.x < minX) minX = camPos.x
+            if (camPos.x > maxX) maxX = camPos.x
+            if (camPos.z < minZ) minZ = camPos.z
+            if (camPos.z > maxZ) maxZ = camPos.z
         }
 
         val margin = 40
@@ -1128,8 +1139,8 @@ class ImageProcessor {
         val drawH = res.rows() - 2 * margin - 50
         val rangeX = maxX - minX
         val rangeZ = maxZ - minZ
-        val scale = if (rangeX < 1e-6 && rangeZ < 1e-6) 1.0 else
-            minOf(drawW.toDouble() / maxOf(rangeX, 1e-6), drawH.toDouble() / maxOf(rangeZ, 1e-6))
+        val scale = if (rangeX < EPSILON_THRESHOLD && rangeZ < EPSILON_THRESHOLD) 1.0 else
+            minOf(drawW.toDouble() / maxOf(rangeX, EPSILON_THRESHOLD), drawH.toDouble() / maxOf(rangeZ, EPSILON_THRESHOLD))
 
         fun toScreen(x: Double, z: Double): Point {
             val sx = margin + ((x - minX) * scale).toInt()

@@ -95,6 +95,16 @@ class ImageProcessor {
     var labelGroups: String = "Grupy"
     var labelGeometryError: String = "Błąd geometrii"
     var labelVpError: String = "Błąd VP"
+    var labelFullOdometryTracks: String = "Tory"
+    var labelFullOdometryInliers: String = "Inlierów"
+    var labelFullOdometryFrames: String = "Klatki"
+    var labelFullOdometrySteps: String = "Kroki"
+    var labelFullOdometryPos: String = "Poz"
+    var labelTrajectory: String = "Trajektoria"
+    var labelMap3D: String = "Mapa 3D"
+    var labelOdometryPoints: String = "Punkty"
+    var labelCollectingData: String = "Zbieranie danych..."
+    var labelCollectingPoints: String = "Zbieranie punktów..."
 
     var onMarkersDetected: ((List<MarkerDetection>) -> Unit)? = null
     var isActiveVisionEnabled: Boolean = false
@@ -125,6 +135,10 @@ class ImageProcessor {
         it.maxFeatures = voMaxFeatures
         it.minParallax = voMinParallax
         it.isMeshEnabled = isVoMeshEnabled
+    }
+    private val fullOdometryEngine = FullOdometryEngine().also {
+        it.maxFeatures = voMaxFeatures
+        it.minParallax = voMinParallax
     }
 
     private val detectorParameters by lazy {
@@ -166,6 +180,9 @@ class ImageProcessor {
         private const val POINT_CLOUD_CIRCLE_RADIUS = 3
         private const val POINT_CLOUD_MESH_THICKNESS = 1
         private const val PIXELATE_BLOCK_SIZE = 16
+        private const val FULL_ODOMETRY_HUD_X = 20.0
+        private const val FULL_ODOMETRY_HUD_LINE_HEIGHT = 28.0
+        private const val EPSILON_THRESHOLD = 1e-6
     }
 
     // Reusable mats for the hottest filters to reduce per-frame allocations.
@@ -226,6 +243,9 @@ class ImageProcessor {
     fun processFrame(bitmap: Bitmap, filter: OpenCvFilter): Bitmap {
         if (filter != OpenCvFilter.VISUAL_ODOMETRY && filter != OpenCvFilter.POINT_CLOUD) {
             visualOdometryEngine.reset()
+        }
+        if (!filter.isFullOdometry) {
+            fullOdometryEngine.reset()
         }
         if (filter.isMediaPipe) {
             return mediaPipeProcessor?.processFrame(bitmap, filter) ?: bitmap.copy(Bitmap.Config.ARGB_8888, false)
@@ -292,6 +312,9 @@ class ImageProcessor {
             OpenCvFilter.EMBOSS -> Triple(applyEmboss(baseFrame), true, 0L)
             OpenCvFilter.PIXELATE -> Triple(applyPixelate(baseFrame), true, 0L)
             OpenCvFilter.CARTOON -> Triple(applyCartoon(baseFrame), true, 0L)
+            OpenCvFilter.FULL_ODOMETRY -> Triple(applyFullOdometry(baseFrame), true, 0L)
+            OpenCvFilter.ODOMETRY_TRAJECTORY -> Triple(applyOdometryTrajectory(baseFrame), true, 0L)
+            OpenCvFilter.ODOMETRY_MAP -> Triple(applyOdometryMap(baseFrame), true, 0L)
             else -> Triple(baseFrame.clone(), true, 0L)
         }
         val processed = processedPair.first
@@ -941,6 +964,222 @@ class ImageProcessor {
             Imgproc.putText(res, "$labelPointCloud: ${cloud.points.size}", Point(30.0, 30.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.7, Scalar(255.0, 255.0, 255.0, 255.0), 2)
         }
         geometryInput.release()
+        return res
+    }
+
+    // ------------------------------------------------------------------
+    // Full 3-D odometry filters
+    // ------------------------------------------------------------------
+
+    /** Bounding box for a set of 3-D points projected onto the X-Z plane. */
+    private data class XzBounds(
+        val minX: Double, val maxX: Double,
+        val minZ: Double, val maxZ: Double,
+    )
+
+    /** Compute the X-Z bounding box over a list of [Point3] values. */
+    private fun computeXzBounds(points: List<org.opencv.core.Point3>): XzBounds {
+        var minX = Double.MAX_VALUE
+        var maxX = -Double.MAX_VALUE
+        var minZ = Double.MAX_VALUE
+        var maxZ = -Double.MAX_VALUE
+        for (p in points) {
+            if (p.x < minX) minX = p.x
+            if (p.x > maxX) maxX = p.x
+            if (p.z < minZ) minZ = p.z
+            if (p.z > maxZ) maxZ = p.z
+        }
+        return XzBounds(minX, maxX, minZ, maxZ)
+    }
+
+    /**
+     * Compute a uniform scale factor so that the X-Z range fits inside
+     * ([drawW] × [drawH]) pixels while preserving aspect ratio.
+     *
+     * Individual near-zero ranges are treated as 1 pixel of effective span
+     * to avoid dividing by zero or producing extreme scaling artefacts.
+     */
+    private fun computeXzScale(bounds: XzBounds, drawW: Int, drawH: Int): Double {
+        val rangeX = bounds.maxX - bounds.minX
+        val rangeZ = bounds.maxZ - bounds.minZ
+        if (rangeX < EPSILON_THRESHOLD && rangeZ < EPSILON_THRESHOLD) return 1.0
+        // For a near-zero individual axis, fall back to 1 pixel to avoid extreme division
+        val safeRangeX = if (rangeX < EPSILON_THRESHOLD) 1.0 else rangeX
+        val safeRangeZ = if (rangeZ < EPSILON_THRESHOLD) 1.0 else rangeZ
+        return minOf(drawW.toDouble() / safeRangeX, drawH.toDouble() / safeRangeZ)
+    }
+
+    /** Draw a regular grid of [steps]×[steps] lines on [canvas]. */
+    private fun drawMapGrid(canvas: Mat, margin: Int, drawW: Int, drawH: Int, steps: Int = 4) {
+        val gridColor = Scalar(40.0, 40.0, 40.0, 255.0)
+        for (g in 0..steps) {
+            val gx = margin + g * drawW / steps
+            val gy = margin + 50 + g * drawH / steps
+            Imgproc.line(canvas, Point(gx.toDouble(), (margin + 50).toDouble()), Point(gx.toDouble(), (margin + 50 + drawH).toDouble()), gridColor, 1)
+            Imgproc.line(canvas, Point(margin.toDouble(), gy.toDouble()), Point((margin + drawW).toDouble(), gy.toDouble()), gridColor, 1)
+        }
+    }
+
+    /** Draw X / Z axis labels at the edges of the drawing area. */
+    private fun drawXzAxisLabels(canvas: Mat, margin: Int, drawW: Int, drawH: Int) {
+        val axisColor = Scalar(100.0, 220.0, 100.0, 255.0)
+        Imgproc.putText(canvas, "X", Point((margin + drawW + 4).toDouble(), (margin + 50 + drawH / 2).toDouble()), Imgproc.FONT_HERSHEY_SIMPLEX, 0.5, axisColor, 1)
+        Imgproc.putText(canvas, "Z", Point((margin + drawW / 2).toDouble(), (margin + 50 - 6).toDouble()), Imgproc.FONT_HERSHEY_SIMPLEX, 0.5, axisColor, 1)
+    }
+
+    /**
+     * Full odometry view: camera image with optical-flow tracks overlaid and a
+     * HUD showing the accumulated pose statistics (frame count, inlier ratio,
+     * world-frame camera position).
+     */
+    private fun applyFullOdometry(src: Mat): Mat {
+        val geometryInput = prepareGeometryInput(src, "full_odometry")
+        val res = src.clone()
+        fullOdometryEngine.processFrameRgba(geometryInput, calibrator)
+        val tracks = fullOdometryEngine.currentTracks
+        for (track in tracks) {
+            if (track.size < 2) continue
+            for (i in 0 until track.size - 1) {
+                Imgproc.line(res, track[i], track[i + 1], Scalar(0.0, 255.0, 0.0, 255.0), 1)
+            }
+            Imgproc.circle(res, track.last(), 3, Scalar(255.0, 80.0, 0.0, 255.0), -1)
+        }
+        val state = fullOdometryEngine.lastOdometryState
+        val x = FULL_ODOMETRY_HUD_X
+        var y = 40.0
+        val color = Scalar(255.0, 255.0, 255.0, 255.0)
+        val font = Imgproc.FONT_HERSHEY_SIMPLEX
+        Imgproc.putText(res, "$labelFullOdometryTracks: ${tracks.size}", Point(x, y), font, 0.65, color, 2)
+        if (state != null) {
+            y += FULL_ODOMETRY_HUD_LINE_HEIGHT
+            Imgproc.putText(res, "$labelFullOdometryInliers: ${state.inliersCount}/${state.tracksCount}", Point(x, y), font, 0.65, color, 2)
+            y += FULL_ODOMETRY_HUD_LINE_HEIGHT
+            Imgproc.putText(res, "$labelFullOdometryFrames: ${state.frameCount}  $labelFullOdometrySteps: ${state.totalSteps}", Point(x, y), font, 0.65, color, 2)
+            val pose = state.currentPose
+            if (pose != null) {
+                y += FULL_ODOMETRY_HUD_LINE_HEIGHT
+                val px = "%.2f".format(pose.position.x)
+                val py = "%.2f".format(pose.position.y)
+                val pz = "%.2f".format(pose.position.z)
+                Imgproc.putText(res, "$labelFullOdometryPos: ($px, $py, $pz)", Point(x, y), font, 0.55, color, 2)
+                y += FULL_ODOMETRY_HUD_LINE_HEIGHT
+                Imgproc.putText(res, "R: ${"%.1f".format(pose.rotationDeg)}°  inlier: ${"%.0f".format(pose.inlierRatio * 100)}%", Point(x, y), font, 0.55, color, 2)
+            }
+        }
+        geometryInput.release()
+        return res
+    }
+
+    /**
+     * Accumulated camera trajectory visualised as a top-down (X-Z) bird's-eye
+     * view on a dark canvas.  Past positions are drawn as white dots; the
+     * current position is shown as a red dot with a cross-hair.
+     */
+    private fun applyOdometryTrajectory(src: Mat): Mat {
+        val geometryInput = prepareGeometryInput(src, "odometry_trajectory")
+        fullOdometryEngine.processFrameRgba(geometryInput, calibrator)
+        geometryInput.release()
+        val res = Mat.zeros(src.rows(), src.cols(), src.type())
+        val trajectory = fullOdometryEngine.currentTrajectory
+        val positions = trajectory.positions
+        val label = "$labelTrajectory: ${positions.size}"
+        Imgproc.putText(res, label, Point(FULL_ODOMETRY_HUD_X, 36.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.65, Scalar(200.0, 200.0, 200.0, 255.0), 2)
+
+        if (positions.size < 2) {
+            Imgproc.putText(res, labelCollectingData, Point(FULL_ODOMETRY_HUD_X, 72.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.55, Scalar(150.0, 150.0, 150.0, 255.0), 1)
+            return res
+        }
+
+        val bounds = computeXzBounds(positions)
+        val margin = 40
+        val drawW = res.cols() - 2 * margin
+        val drawH = res.rows() - 2 * margin - 50
+        val scale = computeXzScale(bounds, drawW, drawH)
+
+        fun toScreen(p: org.opencv.core.Point3): Point {
+            val sx = margin + ((p.x - bounds.minX) * scale).toInt()
+            val sy = margin + 50 + ((p.z - bounds.minZ) * scale).toInt()
+            return Point(sx.toDouble(), sy.toDouble())
+        }
+
+        drawMapGrid(res, margin, drawW, drawH)
+
+        // Draw trajectory path
+        for (i in 1 until positions.size) {
+            val p1 = toScreen(positions[i - 1])
+            val p2 = toScreen(positions[i])
+            Imgproc.line(res, p1, p2, Scalar(180.0, 180.0, 180.0, 255.0), 1)
+        }
+
+        // Draw past positions as small white dots
+        for (i in 0 until positions.size - 1) {
+            Imgproc.circle(res, toScreen(positions[i]), 2, Scalar(255.0, 255.0, 255.0, 255.0), -1)
+        }
+
+        // Draw current position (red, larger)
+        val current = trajectory.currentPosition
+        if (current != null) {
+            val sc = toScreen(current)
+            Imgproc.circle(res, sc, 6, Scalar(0.0, 0.0, 255.0, 255.0), -1)
+            Imgproc.line(res, Point(sc.x - 10.0, sc.y), Point(sc.x + 10.0, sc.y), Scalar(0.0, 0.0, 255.0, 255.0), 2)
+            Imgproc.line(res, Point(sc.x, sc.y - 10.0), Point(sc.x, sc.y + 10.0), Scalar(0.0, 0.0, 255.0, 255.0), 2)
+        }
+
+        drawXzAxisLabels(res, margin, drawW, drawH)
+        return res
+    }
+
+    /**
+     * Sparse 3-D map built from triangulated inlier correspondences, projected
+     * onto the X-Z (top-down) plane together with the current camera position.
+     */
+    private fun applyOdometryMap(src: Mat): Mat {
+        val geometryInput = prepareGeometryInput(src, "odometry_map")
+        fullOdometryEngine.processFrameRgba(geometryInput, calibrator)
+        geometryInput.release()
+        val res = Mat.zeros(src.rows(), src.cols(), src.type())
+        val mapState = fullOdometryEngine.currentMap
+        val points = mapState.points3d
+
+        Imgproc.putText(res, "$labelMap3D: ${points.size} $labelOdometryPoints", Point(FULL_ODOMETRY_HUD_X, 36.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.65, Scalar(200.0, 200.0, 200.0, 255.0), 2)
+
+        if (points.isEmpty()) {
+            Imgproc.putText(res, labelCollectingPoints, Point(FULL_ODOMETRY_HUD_X, 72.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.55, Scalar(150.0, 150.0, 150.0, 255.0), 1)
+            return res
+        }
+
+        // Combine map points and camera position for bounding box
+        val camPos = mapState.cameraPosition
+        val allPoints = if (camPos != null) points + camPos else points
+        val bounds = computeXzBounds(allPoints)
+
+        val margin = 40
+        val drawW = res.cols() - 2 * margin
+        val drawH = res.rows() - 2 * margin - 50
+        val scale = computeXzScale(bounds, drawW, drawH)
+
+        fun toScreen(x: Double, z: Double): Point {
+            val sx = margin + ((x - bounds.minX) * scale).toInt()
+            val sy = margin + 50 + ((z - bounds.minZ) * scale).toInt()
+            return Point(sx.toDouble(), sy.toDouble())
+        }
+
+        drawMapGrid(res, margin, drawW, drawH)
+
+        // Draw map points (cyan)
+        for (p in points) {
+            Imgproc.circle(res, toScreen(p.x, p.z), 2, Scalar(0.0, 220.0, 220.0, 255.0), -1)
+        }
+
+        // Draw camera position (orange cross-hair)
+        if (camPos != null) {
+            val sc = toScreen(camPos.x, camPos.z)
+            Imgproc.circle(res, sc, 7, Scalar(255.0, 80.0, 0.0, 255.0), 2)
+            Imgproc.line(res, Point(sc.x - 12.0, sc.y), Point(sc.x + 12.0, sc.y), Scalar(255.0, 80.0, 0.0, 255.0), 2)
+            Imgproc.line(res, Point(sc.x, sc.y - 12.0), Point(sc.x, sc.y + 12.0), Scalar(255.0, 80.0, 0.0, 255.0), 2)
+        }
+
+        drawXzAxisLabels(res, margin, drawW, drawH)
         return res
     }
 

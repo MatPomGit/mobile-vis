@@ -337,7 +337,7 @@ class TestDrawRtmDetDetections:
         result = draw_rtmdet_detections(bgr_image, sample_detections)
         assert result.shape == bgr_image.shape
 
-    def test_raises_for_empty_detections(self, bgr_image: np.ndarray) -> None:
+    def test_handles_empty_detections(self, bgr_image: np.ndarray) -> None:
         result = draw_rtmdet_detections(bgr_image, [])
         assert result.shape == bgr_image.shape
 

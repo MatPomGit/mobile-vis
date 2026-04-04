@@ -572,6 +572,7 @@ def _class_color(class_id: int) -> tuple[int, int, int]:
 def _is_dark_color(bgr: tuple[int, int, int]) -> bool:
     """Return ``True`` when *bgr* has low perceptual brightness."""
     b, g, r = bgr
+    # ITU-R BT.601 luma coefficients for perceptual brightness
     luminance = 0.114 * b + 0.587 * g + 0.299 * r
     return luminance < 128
 

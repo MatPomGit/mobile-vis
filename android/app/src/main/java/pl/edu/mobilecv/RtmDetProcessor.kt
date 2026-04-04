@@ -209,7 +209,8 @@ class RtmDetProcessor(private val context: Context) {
         for (ignored in outputNames) outputs.add(Mat())
         net.setInput(blob)
         net.forward(outputs, outputNames)
-        src.release(); blob.release()
+        src.release()
+        blob.release()
 
         // Locate dets and labels tensors by iterating output names
         val dets = findTensor(outputs, outputNames, "dets") ?: outputs.getOrNull(0)
@@ -299,7 +300,8 @@ class RtmDetProcessor(private val context: Context) {
         for (ignored in outputNames) outputs.add(Mat())
         net.setInput(blob)
         net.forward(outputs, outputNames)
-        src.release(); blob.release()
+        src.release()
+        blob.release()
 
         val dets = findTensor(outputs, outputNames, "dets") ?: outputs.getOrNull(0)
         val labels = findTensor(outputs, outputNames, "labels") ?: outputs.getOrNull(1)
@@ -423,7 +425,9 @@ class RtmDetProcessor(private val context: Context) {
         val indices = MatOfInt()
         Dnn.NMSBoxes(matBoxes, matScores, CONFIDENCE_THRESHOLD, NMS_THRESHOLD, indices)
         val result = indices.toArray().toList()
-        matBoxes.release(); matScores.release(); indices.release()
+        matBoxes.release()
+        matScores.release()
+        indices.release()
         return result
     }
 

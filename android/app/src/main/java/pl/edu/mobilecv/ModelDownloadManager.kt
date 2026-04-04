@@ -91,6 +91,23 @@ object ModelDownloadManager {
 
     private const val YOLO_DIR = "yolo"
 
+    /**
+     * Remote download URLs for RTMDet-nano ONNX models hosted on GitHub Releases.
+     *
+     * The models are exported from the official OpenMMLab RTMDet weights via
+     * mmdeploy and stored in the project's GitHub Releases under the ``models`` tag.
+     * Replace these URLs with your own CDN or GitHub Releases links if you host
+     * the models elsewhere.
+     */
+    val RTMDET_MODEL_URLS: Map<String, String> = mapOf(
+        RtmDetProcessor.MODEL_DETECT to
+            "https://github.com/MatPomGit/mobile-vis/releases/download/models/rtmdet_nano_det.onnx",
+        RtmDetProcessor.MODEL_ROTATED to
+            "https://github.com/MatPomGit/mobile-vis/releases/download/models/rtmdet_nano_rotated.onnx",
+    )
+
+    private const val RTMDET_DIR = "rtmdet"
+
     private val httpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
             .connectTimeout(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
@@ -321,6 +338,76 @@ object ModelDownloadManager {
     }
 
     // ------------------------------------------------------------------
+    // RTMDet model management
+    // ------------------------------------------------------------------
+
+    /**
+     * Return the absolute path to an RTMDet model file if it exists in
+     * internal storage, or ``null`` if it has not been downloaded yet.
+     *
+     * @param context Application or activity context.
+     * @param modelFilename Filename such as [RtmDetProcessor.MODEL_DETECT].
+     */
+    fun getRtmDetModelPath(context: Context, modelFilename: String): String? {
+        val file = rtmdetModelFile(context, modelFilename)
+        return if (file.exists() && file.length() > 0) file.absolutePath else null
+    }
+
+    /**
+     * Return ``true`` if **all** RTMDet model files are present and non-empty.
+     *
+     * @param context Application or activity context.
+     */
+    fun areRtmDetModelsReady(context: Context): Boolean =
+        RTMDET_MODEL_URLS.keys.all { getRtmDetModelPath(context, it) != null }
+
+    /**
+     * Download all missing RTMDet model files.
+     *
+     * This is a blocking call; run it on a background thread.
+     *
+     * @param context Application or activity context.
+     * @param onProgress Optional callback invoked with current and total file count.
+     * @return ``true`` if all RTMDet models are now available; ``false`` if any download failed.
+     */
+    fun downloadMissingRtmDetModels(
+        context: Context,
+        onProgress: ((downloaded: Int, total: Int) -> Unit)? = null,
+    ): Boolean {
+        val missing = RTMDET_MODEL_URLS.filter { (filename, _) ->
+            getRtmDetModelPath(context, filename) == null
+        }
+        if (missing.isEmpty()) return true
+
+        var downloaded = 0
+        val total = missing.size
+
+        for ((filename, url) in missing) {
+            val dest = rtmdetModelFile(context, filename)
+            val success = downloadModel(context, filename, url, dest)
+            if (success) {
+                downloaded++
+                onProgress?.invoke(downloaded, total)
+            } else {
+                Log.e(TAG, "Failed to download RTMDet model: $filename")
+                return false
+            }
+        }
+        return true
+    }
+
+    /**
+     * Delete all downloaded RTMDet model files from internal storage.
+     *
+     * @param context Application or activity context.
+     */
+    fun deleteAllRtmDetModels(context: Context) {
+        val dir = rtmdetDir(context)
+        dir.listFiles()?.forEach { it.delete() }
+        Log.i(TAG, "All RTMDet models deleted")
+    }
+
+    // ------------------------------------------------------------------
     // Internal helpers
     // ------------------------------------------------------------------
 
@@ -335,4 +422,10 @@ object ModelDownloadManager {
 
     private fun yoloModelFile(context: Context, filename: String): File =
         File(yoloDir(context), filename)
+
+    private fun rtmdetDir(context: Context): File =
+        File(context.filesDir, RTMDET_DIR).also { it.mkdirs() }
+
+    private fun rtmdetModelFile(context: Context, filename: String): File =
+        File(rtmdetDir(context), filename)
 }

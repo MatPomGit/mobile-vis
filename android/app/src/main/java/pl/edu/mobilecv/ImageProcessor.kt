@@ -971,6 +971,56 @@ class ImageProcessor {
     // Full 3-D odometry filters
     // ------------------------------------------------------------------
 
+    /** Bounding box for a set of 3-D points projected onto the X-Z plane. */
+    private data class XzBounds(
+        val minX: Double, val maxX: Double,
+        val minZ: Double, val maxZ: Double,
+    )
+
+    /** Compute the X-Z bounding box over a list of [Point3] values. */
+    private fun computeXzBounds(points: List<org.opencv.core.Point3>): XzBounds {
+        var minX = Double.MAX_VALUE
+        var maxX = -Double.MAX_VALUE
+        var minZ = Double.MAX_VALUE
+        var maxZ = -Double.MAX_VALUE
+        for (p in points) {
+            if (p.x < minX) minX = p.x
+            if (p.x > maxX) maxX = p.x
+            if (p.z < minZ) minZ = p.z
+            if (p.z > maxZ) maxZ = p.z
+        }
+        return XzBounds(minX, maxX, minZ, maxZ)
+    }
+
+    /**
+     * Compute a uniform scale factor so that the X-Z range fits inside
+     * ([drawW] × [drawH]) pixels while preserving aspect ratio.
+     */
+    private fun computeXzScale(bounds: XzBounds, drawW: Int, drawH: Int): Double {
+        val rangeX = bounds.maxX - bounds.minX
+        val rangeZ = bounds.maxZ - bounds.minZ
+        return if (rangeX < EPSILON_THRESHOLD && rangeZ < EPSILON_THRESHOLD) 1.0
+        else minOf(drawW.toDouble() / maxOf(rangeX, EPSILON_THRESHOLD), drawH.toDouble() / maxOf(rangeZ, EPSILON_THRESHOLD))
+    }
+
+    /** Draw a regular grid of [steps]×[steps] lines on [canvas]. */
+    private fun drawMapGrid(canvas: Mat, margin: Int, drawW: Int, drawH: Int, steps: Int = 4) {
+        val gridColor = Scalar(40.0, 40.0, 40.0, 255.0)
+        for (g in 0..steps) {
+            val gx = margin + g * drawW / steps
+            val gy = margin + 50 + g * drawH / steps
+            Imgproc.line(canvas, Point(gx.toDouble(), (margin + 50).toDouble()), Point(gx.toDouble(), (margin + 50 + drawH).toDouble()), gridColor, 1)
+            Imgproc.line(canvas, Point(margin.toDouble(), gy.toDouble()), Point((margin + drawW).toDouble(), gy.toDouble()), gridColor, 1)
+        }
+    }
+
+    /** Draw X / Z axis labels at the edges of the drawing area. */
+    private fun drawXzAxisLabels(canvas: Mat, margin: Int, drawW: Int, drawH: Int) {
+        val axisColor = Scalar(100.0, 220.0, 100.0, 255.0)
+        Imgproc.putText(canvas, "X", Point((margin + drawW + 4).toDouble(), (margin + 50 + drawH / 2).toDouble()), Imgproc.FONT_HERSHEY_SIMPLEX, 0.5, axisColor, 1)
+        Imgproc.putText(canvas, "Z", Point((margin + drawW / 2).toDouble(), (margin + 50 - 6).toDouble()), Imgproc.FONT_HERSHEY_SIMPLEX, 0.5, axisColor, 1)
+    }
+
     /**
      * Full odometry view: camera image with optical-flow tracks overlaid and a
      * HUD showing the accumulated pose statistics (frame count, inlier ratio,
@@ -1034,40 +1084,19 @@ class ImageProcessor {
             return res
         }
 
-        // Determine bounding box (X-Z plane) for scaling
-        var minX = Double.MAX_VALUE
-        var maxX = -Double.MAX_VALUE
-        var minZ = Double.MAX_VALUE
-        var maxZ = -Double.MAX_VALUE
-        for (p in positions) {
-            if (p.x < minX) minX = p.x
-            if (p.x > maxX) maxX = p.x
-            if (p.z < minZ) minZ = p.z
-            if (p.z > maxZ) maxZ = p.z
-        }
+        val bounds = computeXzBounds(positions)
         val margin = 40
         val drawW = res.cols() - 2 * margin
         val drawH = res.rows() - 2 * margin - 50
-        val rangeX = maxX - minX
-        val rangeZ = maxZ - minZ
-        val scale = if (rangeX < EPSILON_THRESHOLD && rangeZ < EPSILON_THRESHOLD) 1.0 else
-            minOf(drawW.toDouble() / maxOf(rangeX, EPSILON_THRESHOLD), drawH.toDouble() / maxOf(rangeZ, EPSILON_THRESHOLD))
+        val scale = computeXzScale(bounds, drawW, drawH)
 
-        fun toScreen(p: Point3): Point {
-            val sx = margin + ((p.x - minX) * scale).toInt()
-            val sy = margin + 50 + ((p.z - minZ) * scale).toInt()
+        fun toScreen(p: org.opencv.core.Point3): Point {
+            val sx = margin + ((p.x - bounds.minX) * scale).toInt()
+            val sy = margin + 50 + ((p.z - bounds.minZ) * scale).toInt()
             return Point(sx.toDouble(), sy.toDouble())
         }
 
-        // Draw grid lines
-        val gridColor = Scalar(40.0, 40.0, 40.0, 255.0)
-        val gridSteps = 4
-        for (g in 0..gridSteps) {
-            val gx = margin + g * drawW / gridSteps
-            val gy = margin + 50 + g * drawH / gridSteps
-            Imgproc.line(res, Point(gx.toDouble(), (margin + 50).toDouble()), Point(gx.toDouble(), (margin + 50 + drawH).toDouble()), gridColor, 1)
-            Imgproc.line(res, Point(margin.toDouble(), gy.toDouble()), Point((margin + drawW).toDouble(), gy.toDouble()), gridColor, 1)
-        }
+        drawMapGrid(res, margin, drawW, drawH)
 
         // Draw trajectory path
         for (i in 1 until positions.size) {
@@ -1090,9 +1119,7 @@ class ImageProcessor {
             Imgproc.line(res, Point(sc.x, sc.y - 10.0), Point(sc.x, sc.y + 10.0), Scalar(0.0, 0.0, 255.0, 255.0), 2)
         }
 
-        // Axis labels
-        Imgproc.putText(res, "X", Point((margin + drawW + 4).toDouble(), (margin + 50 + drawH / 2).toDouble()), Imgproc.FONT_HERSHEY_SIMPLEX, 0.5, Scalar(100.0, 220.0, 100.0, 255.0), 1)
-        Imgproc.putText(res, "Z", Point((margin + drawW / 2).toDouble(), (margin + 50 - 6).toDouble()), Imgproc.FONT_HERSHEY_SIMPLEX, 0.5, Scalar(100.0, 220.0, 100.0, 255.0), 1)
+        drawXzAxisLabels(res, margin, drawW, drawH)
         return res
     }
 
@@ -1115,54 +1142,30 @@ class ImageProcessor {
             return res
         }
 
-        // Bounding box over X-Z plane
-        var minX = Double.MAX_VALUE
-        var maxX = -Double.MAX_VALUE
-        var minZ = Double.MAX_VALUE
-        var maxZ = -Double.MAX_VALUE
-        for (p in points) {
-            if (p.x < minX) minX = p.x
-            if (p.x > maxX) maxX = p.x
-            if (p.z < minZ) minZ = p.z
-            if (p.z > maxZ) maxZ = p.z
-        }
+        // Combine map points and camera position for bounding box
         val camPos = mapState.cameraPosition
-        if (camPos != null) {
-            if (camPos.x < minX) minX = camPos.x
-            if (camPos.x > maxX) maxX = camPos.x
-            if (camPos.z < minZ) minZ = camPos.z
-            if (camPos.z > maxZ) maxZ = camPos.z
-        }
+        val allPoints = if (camPos != null) points + camPos else points
+        val bounds = computeXzBounds(allPoints)
 
         val margin = 40
         val drawW = res.cols() - 2 * margin
         val drawH = res.rows() - 2 * margin - 50
-        val rangeX = maxX - minX
-        val rangeZ = maxZ - minZ
-        val scale = if (rangeX < EPSILON_THRESHOLD && rangeZ < EPSILON_THRESHOLD) 1.0 else
-            minOf(drawW.toDouble() / maxOf(rangeX, EPSILON_THRESHOLD), drawH.toDouble() / maxOf(rangeZ, EPSILON_THRESHOLD))
+        val scale = computeXzScale(bounds, drawW, drawH)
 
         fun toScreen(x: Double, z: Double): Point {
-            val sx = margin + ((x - minX) * scale).toInt()
-            val sy = margin + 50 + ((z - minZ) * scale).toInt()
+            val sx = margin + ((x - bounds.minX) * scale).toInt()
+            val sy = margin + 50 + ((z - bounds.minZ) * scale).toInt()
             return Point(sx.toDouble(), sy.toDouble())
         }
 
-        // Draw grid
-        val gridColor = Scalar(40.0, 40.0, 40.0, 255.0)
-        for (g in 0..4) {
-            val gx = margin + g * drawW / 4
-            val gy = margin + 50 + g * drawH / 4
-            Imgproc.line(res, Point(gx.toDouble(), (margin + 50).toDouble()), Point(gx.toDouble(), (margin + 50 + drawH).toDouble()), gridColor, 1)
-            Imgproc.line(res, Point(margin.toDouble(), gy.toDouble()), Point((margin + drawW).toDouble(), gy.toDouble()), gridColor, 1)
-        }
+        drawMapGrid(res, margin, drawW, drawH)
 
-        // Draw map points (yellow)
+        // Draw map points (cyan)
         for (p in points) {
             Imgproc.circle(res, toScreen(p.x, p.z), 2, Scalar(0.0, 220.0, 220.0, 255.0), -1)
         }
 
-        // Draw camera position (blue cross-hair)
+        // Draw camera position (orange cross-hair)
         if (camPos != null) {
             val sc = toScreen(camPos.x, camPos.z)
             Imgproc.circle(res, sc, 7, Scalar(255.0, 80.0, 0.0, 255.0), 2)
@@ -1170,9 +1173,7 @@ class ImageProcessor {
             Imgproc.line(res, Point(sc.x, sc.y - 12.0), Point(sc.x, sc.y + 12.0), Scalar(255.0, 80.0, 0.0, 255.0), 2)
         }
 
-        // Axis labels
-        Imgproc.putText(res, "X", Point((margin + drawW + 4).toDouble(), (margin + 50 + drawH / 2).toDouble()), Imgproc.FONT_HERSHEY_SIMPLEX, 0.5, Scalar(100.0, 220.0, 100.0, 255.0), 1)
-        Imgproc.putText(res, "Z", Point((margin + drawW / 2).toDouble(), (margin + 50 - 6).toDouble()), Imgproc.FONT_HERSHEY_SIMPLEX, 0.5, Scalar(100.0, 220.0, 100.0, 255.0), 1)
+        drawXzAxisLabels(res, margin, drawW, drawH)
         return res
     }
 

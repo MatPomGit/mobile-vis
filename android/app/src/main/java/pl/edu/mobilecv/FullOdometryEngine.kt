@@ -83,8 +83,8 @@ class FullOdometryEngine {
         private const val MIN_TRANSLATION_NORM = 1e-6
     }
 
-    /** Computes the L2 norm of a 3×1 or 1×3 [Mat] column vector. */
-    private fun mat3x1Norm(v: Mat): Double {
+    /** Computes the L2 norm of a 3×1 column-vector [Mat]. */
+    private fun vectorNorm(v: Mat): Double {
         val x = v.get(0, 0)[0]
         val y = v.get(1, 0)[0]
         val z = v.get(2, 0)[0]
@@ -234,7 +234,7 @@ class FullOdometryEngine {
         val essential = try {
             Calib3d.findEssentialMat(goodPrev, goodNext, k, Calib3d.RANSAC, RANSAC_CONFIDENCE, RANSAC_THRESHOLD)
         } catch (e: Exception) {
-            android.util.Log.w(TAG, "findEssentialMat failed: ${e.message}")
+            android.util.Log.w(TAG, "findEssentialMat failed (pts=${goodNextList.size}): ${e.message}")
             goodPrev.release(); goodNext.release(); nextPts.release()
             return
         }
@@ -245,7 +245,7 @@ class FullOdometryEngine {
         val inlierCount = try {
             Calib3d.recoverPose(essential, goodPrev, goodNext, k, relR, relT, poseMask)
         } catch (e: Exception) {
-            android.util.Log.w(TAG, "recoverPose failed: ${e.message}")
+            android.util.Log.w(TAG, "recoverPose failed (pts=${goodNextList.size}, essential=${!essential.empty()}): ${e.message}")
             essential.release(); relR.release(); relT.release(); poseMask.release()
             goodPrev.release(); goodNext.release(); nextPts.release()
             return
@@ -268,7 +268,7 @@ class FullOdometryEngine {
 
         // --- Pose accumulation -----------------------------------------------
         // Scale translation to unit length (monocular VO has no metric scale).
-        val tNorm = mat3x1Norm(relT)
+        val tNorm = vectorNorm(relT)
 
         if (tNorm > MIN_TRANSLATION_NORM) {
             // Normalise translation to unit step
@@ -329,7 +329,7 @@ class FullOdometryEngine {
             try {
                 triangulateAndAddMapPoints(inlierPrev, inlierNext, k)
             } catch (e: Exception) {
-                android.util.Log.w(TAG, "Triangulation failed: ${e.message}")
+                android.util.Log.w(TAG, "Triangulation failed (inliers=${inlierPrev.size}, mapSize=${mapPoints.size}): ${e.message}")
             }
         }
 

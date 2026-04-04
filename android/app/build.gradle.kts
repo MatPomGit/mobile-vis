@@ -72,5 +72,5 @@ dependencies {
     implementation(libs.opencv)
     implementation(libs.okhttp)
     implementation(libs.mediapipe.tasks.vision)
-    testImplementation("junit:junit:4.13.2")
+    testImplementation(libs.junit)
 }

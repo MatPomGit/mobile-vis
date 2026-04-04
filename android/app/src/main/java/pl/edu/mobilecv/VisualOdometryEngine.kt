@@ -36,6 +36,7 @@ class VisualOdometryEngine {
     )
 
     companion object {
+        private const val TAG = "VisualOdometryEngine"
         private const val MIN_TRACK_COUNT = 10
         private const val PERSPECTIVE_FACTOR = 0.5
         private const val MAX_MESH_EDGE_DIST_SQ = 50000.0
@@ -140,7 +141,26 @@ class VisualOdometryEngine {
         val goodPrev = MatOfPoint2f(*goodPrevList.toTypedArray())
         val goodNext = MatOfPoint2f(*goodNextList.toTypedArray())
 
-        val (state, points) = estimateMotionAndPoints(goodPrev, goodNext)
+        val calibrationProfile = calibrator?.getCalibrationProfile(gray.size())
+        if (calibrationProfile != null && !calibrationProfile.isCompatible) {
+            android.util.Log.w(
+                TAG,
+                "Skipping 3D estimation due to incompatible calibration profile " +
+                    "active=${gray.cols()}x${gray.rows()} " +
+                    "calibrated=${calibrationProfile.calibration.calibrationImageSize.width.toInt()}x" +
+                    "${calibrationProfile.calibration.calibrationImageSize.height.toInt()} " +
+                    "rms=%.4f".format(calibrationProfile.calibration.rmsError),
+            )
+            gray.copyTo(prevGray)
+            goodNext.copyTo(prevPts)
+            lastPointCloud = null
+            nextPts.release()
+            goodPrev.release()
+            goodNext.release()
+            return null to null
+        }
+
+        val (state, points) = estimateMotionAndPoints(goodPrev, goodNext, calibrationProfile)
         lastPointCloud = points
 
         gray.copyTo(prevGray)
@@ -168,8 +188,12 @@ class VisualOdometryEngine {
         corners.release()
     }
 
-    private fun estimateMotionAndPoints(prev: MatOfPoint2f, next: MatOfPoint2f): Pair<OdometryState, PointCloudState> {
-        val k = calibrator?.calibrationResult?.cameraMatrix ?: Mat.eye(3, 3, CvType.CV_64F)
+    private fun estimateMotionAndPoints(
+        prev: MatOfPoint2f,
+        next: MatOfPoint2f,
+        calibrationProfile: CameraCalibrator.CalibrationProfile?,
+    ): Pair<OdometryState, PointCloudState> {
+        val k = calibrationProfile?.calibration?.cameraMatrix ?: Mat.eye(3, 3, CvType.CV_64F)
         val essential = Calib3d.findEssentialMat(prev, next, k, Calib3d.RANSAC, 0.999, 1.0)
         val r = Mat()
         val t = Mat()

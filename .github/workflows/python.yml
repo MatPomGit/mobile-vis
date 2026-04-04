@@ -1,0 +1,79 @@
+name: Python CI
+
+on:
+  push:
+    branches: ["main", "master"]
+  pull_request:
+    branches: ["main", "master"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint-type-test-smoke:
+    name: Lint + Type + Test + Smoke
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Lint (ruff)
+        run: ruff check src/ tests/
+
+      - name: Type check (mypy)
+        run: mypy src/
+
+      - name: Run tests (pytest + coverage)
+        run: pytest --cov=src/image_analysis --cov-report=term-missing
+
+      - name: Smoke import image_analysis modules
+        run: |
+          python - <<'PY'
+          import importlib
+
+          modules = [
+              "image_analysis",
+              "image_analysis.preprocessing",
+              "image_analysis.detection",
+              "image_analysis.classification",
+              "image_analysis.april_tags",
+              "image_analysis.qr_detection",
+              "image_analysis.utils",
+          ]
+          for module in modules:
+              importlib.import_module(module)
+              print(f"[OK] imported {module}")
+          PY
+
+      - name: Smoke performance metrics (frame time / FPS)
+        run: |
+          python scripts/smoke_perf.py --iterations 150 --warmup 30 | tee smoke_metrics.txt
+
+          {
+            echo "## Smoke performance"
+            echo ""
+            echo "Metryki scenariusza smoke (syntetyczna klatka 640x480):"
+            echo ""
+            grep -E "^(FRAME_TIME_MS_AVG|FRAME_TIME_MS_P95|FPS_AVG|SMOKE_ITERATIONS)=" smoke_metrics.txt \
+              | sed 's/^/- `/' \
+              | sed 's/$/`/'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload smoke metrics artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-smoke-metrics
+          path: smoke_metrics.txt

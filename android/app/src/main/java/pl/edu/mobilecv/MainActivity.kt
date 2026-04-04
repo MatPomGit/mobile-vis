@@ -38,7 +38,9 @@ import com.google.android.material.chip.Chip
 import com.google.android.material.tabs.TabLayout
 import org.opencv.android.OpenCVLoader
 import pl.edu.mobilecv.databinding.ActivityMainBinding
+import java.io.IOException
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
@@ -105,6 +107,21 @@ class MainActivity : AppCompatActivity() {
     private lateinit var backgroundExecutor: ExecutorService
     @Volatile private var cameraStartTimeMs: Long = 0
     private val firstFrameRenderedLogged = AtomicBoolean(false)
+    private val exceptionTelemetry = ConcurrentHashMap<String, AtomicInteger>()
+
+    private fun logExceptionTelemetry(scope: String, category: String, error: Throwable) {
+        val key = "$scope:$category"
+        val count = exceptionTelemetry.getOrPut(key) { AtomicInteger(0) }.incrementAndGet()
+        val ranking = exceptionTelemetry.entries
+            .sortedByDescending { it.value.get() }
+            .take(3)
+            .joinToString { "${it.key}=${it.value.get()}" }
+            .ifBlank { "n/a" }
+        Log.i(
+            TAG,
+            "Exception telemetry key=$key count=$count type=${error::class.java.simpleName} top=$ranking",
+        )
+    }
 
     private val permissionsLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
         if (results[Manifest.permission.CAMERA] == true) startCamera()
@@ -173,8 +190,27 @@ class MainActivity : AppCompatActivity() {
                                 Toast.makeText(this, getString(R.string.yolo_models_download_failed), Toast.LENGTH_LONG).show()
                         }
                     }
+                } catch (e: IOException) {
+                    logExceptionTelemetry("startup_yolo_download", "model_io", e)
+                    Log.e(TAG, "Startup YOLO download failed: model I/O error", e)
+                    runOnUiThread {
+                        if (!isDestroyed && !isFinishing)
+                            Toast.makeText(this, getString(R.string.yolo_models_download_failed), Toast.LENGTH_LONG).show()
+                    }
+                } catch (e: IllegalStateException) {
+                    logExceptionTelemetry("startup_yolo_download", "state", e)
+                    Log.e(TAG, "Startup YOLO download failed: invalid app/model state", e)
+                    runOnUiThread {
+                        if (!isDestroyed && !isFinishing)
+                            Toast.makeText(this, getString(R.string.yolo_models_download_failed), Toast.LENGTH_LONG).show()
+                    }
                 } catch (e: Exception) {
-                    Log.e(TAG, "Background YOLO model download failed", e)
+                    logExceptionTelemetry("startup_yolo_download", "unexpected", e)
+                    Log.e(
+                        TAG,
+                        "Unhandled startup YOLO download error type=${e::class.java.name} message=${e.message}",
+                        e,
+                    )
                     runOnUiThread {
                         if (!isDestroyed && !isFinishing)
                             Toast.makeText(this, getString(R.string.yolo_models_download_failed), Toast.LENGTH_LONG).show()
@@ -432,8 +468,27 @@ class MainActivity : AppCompatActivity() {
                             Toast.makeText(this, getString(R.string.yolo_models_download_failed), Toast.LENGTH_LONG).show()
                     }
                 }
+            } catch (e: IOException) {
+                logExceptionTelemetry("yolo_download", "model_io", e)
+                Log.e(TAG, "YOLO model download failed: model I/O error", e)
+                runOnUiThread {
+                    if (!isDestroyed && !isFinishing)
+                        Toast.makeText(this, getString(R.string.yolo_models_download_failed), Toast.LENGTH_LONG).show()
+                }
+            } catch (e: IllegalStateException) {
+                logExceptionTelemetry("yolo_download", "state", e)
+                Log.e(TAG, "YOLO model download failed: invalid processor state", e)
+                runOnUiThread {
+                    if (!isDestroyed && !isFinishing)
+                        Toast.makeText(this, getString(R.string.yolo_models_download_failed), Toast.LENGTH_LONG).show()
+                }
             } catch (e: Exception) {
-                Log.e(TAG, "YOLO model download failed", e)
+                logExceptionTelemetry("yolo_download", "unexpected", e)
+                Log.e(
+                    TAG,
+                    "Unhandled YOLO model download error type=${e::class.java.name} message=${e.message}",
+                    e,
+                )
                 runOnUiThread {
                     if (!isDestroyed && !isFinishing)
                         Toast.makeText(this, getString(R.string.yolo_models_download_failed), Toast.LENGTH_LONG).show()
@@ -515,8 +570,25 @@ class MainActivity : AppCompatActivity() {
                 }
                 writeToDownloads("pointcloud_$timestamp.csv", "text/csv", content)
             }
+        } catch (e: IOException) {
+            logExceptionTelemetry("save_point_cloud", "io", e)
+            Log.e(TAG, "Failed to save point cloud: storage I/O", e)
+            Toast.makeText(this, R.string.point_cloud_save_error, Toast.LENGTH_SHORT).show()
+        } catch (e: SecurityException) {
+            logExceptionTelemetry("save_point_cloud", "permission", e)
+            Log.e(TAG, "Failed to save point cloud: missing storage permission", e)
+            Toast.makeText(this, R.string.point_cloud_save_error, Toast.LENGTH_SHORT).show()
+        } catch (e: IllegalStateException) {
+            logExceptionTelemetry("save_point_cloud", "state", e)
+            Log.e(TAG, "Failed to save point cloud: invalid storage state", e)
+            Toast.makeText(this, R.string.point_cloud_save_error, Toast.LENGTH_SHORT).show()
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to save point cloud", e)
+            logExceptionTelemetry("save_point_cloud", "unexpected", e)
+            Log.e(
+                TAG,
+                "Unhandled point cloud save error type=${e::class.java.name} message=${e.message}",
+                e,
+            )
             Toast.makeText(this, R.string.point_cloud_save_error, Toast.LENGTH_SHORT).show()
         }
     }
@@ -595,7 +667,21 @@ class MainActivity : AppCompatActivity() {
         firstFrameRenderedLogged.set(false)
         val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
         cameraProviderFuture.addListener({
-            cameraProvider = try { cameraProviderFuture.get() } catch (_: Exception) { null }
+            cameraProvider = try {
+                cameraProviderFuture.get()
+            } catch (e: IllegalStateException) {
+                logExceptionTelemetry("camera_provider", "state", e)
+                Log.e(TAG, "Camera provider unavailable: invalid lifecycle state", e)
+                null
+            } catch (e: Exception) {
+                logExceptionTelemetry("camera_provider", "unexpected", e)
+                Log.e(
+                    TAG,
+                    "Unhandled camera provider acquisition error type=${e::class.java.name} message=${e.message}",
+                    e,
+                )
+                null
+            }
             bindUseCases()
         }, ContextCompat.getMainExecutor(this))
     }
@@ -606,7 +692,24 @@ class MainActivity : AppCompatActivity() {
         val resolutionSelector = ResolutionSelector.Builder().setResolutionStrategy(ResolutionStrategy(currentResolution.size, ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER)).build()
         val imageAnalysis = ImageAnalysis.Builder().setResolutionSelector(resolutionSelector).setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST).setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888).build().also { it.setAnalyzer(cameraAnalysisExecutor) { proxy -> processFrame(proxy) } }
         imageCapture = ImageCapture.Builder().setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY).build()
-        try { provider.unbindAll(); fpsCounter.reset(); provider.bindToLifecycle(this, cameraSelector, imageAnalysis, imageCapture) } catch (e: Exception) { Log.e(TAG, "Binding failed", e) }
+        try {
+            provider.unbindAll()
+            fpsCounter.reset()
+            provider.bindToLifecycle(this, cameraSelector, imageAnalysis, imageCapture)
+        } catch (e: IllegalArgumentException) {
+            logExceptionTelemetry("camera_bind", "invalid_argument", e)
+            Log.e(TAG, "Camera bind failed: invalid CameraX configuration", e)
+        } catch (e: IllegalStateException) {
+            logExceptionTelemetry("camera_bind", "state", e)
+            Log.e(TAG, "Camera bind failed: camera lifecycle state mismatch", e)
+        } catch (e: Exception) {
+            logExceptionTelemetry("camera_bind", "unexpected", e)
+            Log.e(
+                TAG,
+                "Unhandled camera bind error type=${e::class.java.name} message=${e.message}",
+                e,
+            )
+        }
     }
 
     private fun processFrame(imageProxy: ImageProxy) {
@@ -668,8 +771,25 @@ class MainActivity : AppCompatActivity() {
             // Recycle the oriented bitmap as it's no longer needed (processed is a copy).
             oriented.recycle()
             
-        } catch (e: Exception) { 
-            Log.e(TAG, "Process error", e) 
+        } catch (e: org.opencv.core.CvException) {
+            logExceptionTelemetry("frame_processing", "opencv", e)
+            currentFilter = OpenCvFilter.ORIGINAL
+            Log.e(TAG, "Frame processing failed in OpenCV. Fallback to ORIGINAL filter.", e)
+        } catch (e: IllegalArgumentException) {
+            logExceptionTelemetry("frame_processing", "invalid_argument", e)
+            currentFilter = OpenCvFilter.ORIGINAL
+            Log.e(TAG, "Frame processing failed due to invalid arguments. Fallback to ORIGINAL.", e)
+        } catch (e: IllegalStateException) {
+            logExceptionTelemetry("frame_processing", "ui_state", e)
+            isActiveVisionVisualizationEnabled = false
+            Log.e(TAG, "Frame processing failed due to UI/state issue. Visualization disabled.", e)
+        } catch (e: Exception) {
+            logExceptionTelemetry("frame_processing", "unexpected", e)
+            Log.e(
+                TAG,
+                "Unhandled frame processing error type=${e::class.java.name} message=${e.message}",
+                e,
+            )
         } finally { 
             imageProxy.close() 
         }

@@ -222,7 +222,13 @@ class CameraCalibrator(
                     objectPoints, imagePoints, lastImageSize,
                     camMat, distCoeffs, rvecs, tvecs,
                 )
-                val data = CalibrationData(camMat, distCoeffs, rms, imagePoints.size)
+                val data = CalibrationData(
+                    cameraMatrix = camMat,
+                    distCoeffs = distCoeffs,
+                    rmsError = rms,
+                    frameCount = imagePoints.size,
+                    calibrationImageSize = lastImageSize,
+                )
                 calibrationResult = data
                 Log.i(TAG, "Calibration done: RMS=%.4f using %d frames".format(rms, data.frameCount))
                 data
@@ -231,6 +237,28 @@ class CameraCalibrator(
                 null
             }
         }
+    }
+
+    /**
+     * Resolve camera intrinsics for an active frame resolution.
+     *
+     * This is the single point of calibration-parameter retrieval for runtime
+     * consumers such as visual odometry and plane detection.
+     *
+     * @param imageSize Active frame resolution.
+     * @return [CalibrationProfile] with compatibility diagnostics, or ``null``
+     *         when no calibration exists.
+     */
+    fun getCalibrationProfile(imageSize: Size): CalibrationProfile? {
+        val current = calibrationResult ?: return null
+        val calibrationSize = current.calibrationImageSize
+        val isCompatible = calibrationSize.width.toInt() == imageSize.width.toInt() &&
+            calibrationSize.height.toInt() == imageSize.height.toInt()
+        return CalibrationProfile(
+            calibration = current,
+            activeImageSize = imageSize,
+            isCompatible = isCompatible,
+        )
     }
 
     /**
@@ -261,12 +289,14 @@ class CameraCalibrator(
      * @property distCoeffs     Distortion coefficients.
      * @property rmsError       Root-mean-square reprojection error in pixels.
      * @property frameCount     Number of frames used for calibration.
+     * @property calibrationImageSize Resolution used during calibration.
      */
     data class CalibrationData(
         val cameraMatrix: Mat,
         val distCoeffs: Mat,
         val rmsError: Double,
         val frameCount: Int,
+        val calibrationImageSize: Size,
     ) {
         /** Human-readable summary of the focal lengths and principal point. */
         fun summary(): String {
@@ -277,4 +307,17 @@ class CameraCalibrator(
             return "fx=%.1f, fy=%.1f\ncx=%.1f, cy=%.1f\nRMS=%.4f".format(fx, fy, cx, cy, rmsError)
         }
     }
+
+    /**
+     * Runtime calibration profile for the currently active frame size.
+     *
+     * @property calibration Persisted intrinsic and distortion parameters.
+     * @property activeImageSize Active stream resolution.
+     * @property isCompatible ``true`` when active and calibration resolution match.
+     */
+    data class CalibrationProfile(
+        val calibration: CalibrationData,
+        val activeImageSize: Size,
+        val isCompatible: Boolean,
+    )
 }

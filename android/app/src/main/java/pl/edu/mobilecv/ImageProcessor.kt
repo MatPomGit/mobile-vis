@@ -5,6 +5,7 @@ import android.util.Log
 import org.opencv.android.Utils
 import org.opencv.calib3d.Calib3d
 import org.opencv.core.Core
+import org.opencv.core.CvException
 import org.opencv.core.CvType
 import org.opencv.core.Mat
 import org.opencv.core.MatOfFloat
@@ -27,6 +28,8 @@ import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.hypot
 import kotlin.math.sqrt
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Applies OpenCV image-processing filters to Android [Bitmap] frames.
@@ -113,6 +116,8 @@ class ImageProcessor {
     @Volatile
     var isVoMeshEnabled: Boolean = false
         set(value) { field = value; visualOdometryEngine.isMeshEnabled = value }
+    @Volatile
+    var debugUndistortBeforeGeometry: Boolean = false
 
     private val activeVisionOptimizer = ActiveVisionOptimizer()
     private val visualOdometryEngine = VisualOdometryEngine().also {
@@ -199,6 +204,23 @@ class ImageProcessor {
     @Volatile
     var poseOneEuroBeta: Double = 0.02
     private val poseTemporalFilter = PoseTemporalFilter()
+    private val exceptionTelemetry = ConcurrentHashMap<String, AtomicInteger>()
+    @Volatile
+    private var lastCalibrationDiagnosticsKey: String? = null
+
+    private fun logExceptionTelemetry(scope: String, category: String, error: Throwable) {
+        val key = "$scope:$category"
+        val count = exceptionTelemetry.getOrPut(key) { AtomicInteger(0) }.incrementAndGet()
+        val ranking = exceptionTelemetry.entries
+            .sortedByDescending { it.value.get() }
+            .take(3)
+            .joinToString { "${it.key}=${it.value.get()}" }
+            .ifBlank { "n/a" }
+        Log.i(
+            TAG,
+            "Exception telemetry key=$key count=$count type=${error::class.java.simpleName} top=$ranking",
+        )
+    }
 
     fun processFrame(bitmap: Bitmap, filter: OpenCvFilter): Bitmap {
         if (filter != OpenCvFilter.VISUAL_ODOMETRY && filter != OpenCvFilter.POINT_CLOUD) {
@@ -867,10 +889,16 @@ class ImageProcessor {
     }
 
     private fun applyUndistort(src: Mat): Mat {
+        val profile = calibrator?.getCalibrationProfile(src.size())
+        logCalibrationDiagnostics(profile, "undistort")
         val res = Mat()
-        val calib = calibrator?.calibrationResult
-        if (calib != null) {
-            Calib3d.undistort(src, res, calib.cameraMatrix, calib.distCoeffs)
+        if (profile?.isCompatible == true) {
+            Calib3d.undistort(
+                src,
+                res,
+                profile.calibration.cameraMatrix,
+                profile.calibration.distCoeffs,
+            )
         } else {
             src.copyTo(res)
             Imgproc.putText(res, labelNoCalibration, Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 1.0, Scalar(255.0, 0.0, 0.0, 255.0), 2)
@@ -879,8 +907,9 @@ class ImageProcessor {
     }
 
     private fun applyVisualOdometry(src: Mat): Mat {
+        val geometryInput = prepareGeometryInput(src, "vo")
         val res = src.clone()
-        visualOdometryEngine.processFrameRgba(src, calibrator)
+        visualOdometryEngine.processFrameRgba(geometryInput, calibrator)
         val tracks = visualOdometryEngine.currentTracks
         for (track in tracks) {
             if (track.size < 2) continue
@@ -890,11 +919,13 @@ class ImageProcessor {
             Imgproc.circle(res, track.last(), 3, Scalar(0.0, 0.0, 255.0, 255.0), -1)
         }
         Imgproc.putText(res, "$labelOdometryTracks: ${tracks.size}", Point(30.0, 30.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.7, Scalar(255.0, 255.0, 255.0), 2)
+        geometryInput.release()
         return res
     }
 
     private fun applyPointCloud(src: Mat): Mat {
-        visualOdometryEngine.processFrameRgba(src, calibrator)
+        val geometryInput = prepareGeometryInput(src, "point_cloud")
+        visualOdometryEngine.processFrameRgba(geometryInput, calibrator)
         val res = Mat.zeros(src.rows(), src.cols(), src.type())
         val cloud = visualOdometryEngine.lastPointCloud
         if (cloud != null) {
@@ -908,6 +939,7 @@ class ImageProcessor {
             }
             Imgproc.putText(res, "$labelPointCloud: ${cloud.points.size}", Point(30.0, 30.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.7, Scalar(255.0, 255.0, 255.0, 255.0), 2)
         }
+        geometryInput.release()
         return res
     }
 
@@ -922,10 +954,26 @@ class ImageProcessor {
      * - Confidence label (percentage of lines belonging to the plane).
      */
     private fun applyPlaneDetection(src: Mat): Mat {
-        val res = src.clone()
+        val geometryInput = prepareGeometryInput(src, "plane_detection")
+        val profile = calibrator?.getCalibrationProfile(geometryInput.size())
+        if (profile != null && !profile.isCompatible) {
+            val blocked = src.clone()
+            Imgproc.putText(
+                blocked,
+                labelNoCalibration,
+                Point(30.0, 50.0),
+                Imgproc.FONT_HERSHEY_SIMPLEX,
+                1.0,
+                Scalar(255.0, 0.0, 0.0, 255.0),
+                2,
+            )
+            geometryInput.release()
+            return blocked
+        }
+        val res = geometryInput.clone()
         val gray = Mat(); val clahe = Mat(); val blurred = Mat(); val edges = Mat()
         try {
-            Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
+            Imgproc.cvtColor(geometryInput, gray, Imgproc.COLOR_RGBA2GRAY)
 
             // CLAHE – contrast-limited adaptive histogram equalization for even-lighting robustness
             val claheObj = Imgproc.createCLAHE(2.0, Size(8.0, 8.0))
@@ -1051,12 +1099,64 @@ class ImageProcessor {
                 Imgproc.putText(res, "$labelPlanes: $planeIdx | $labelLines: $totalLines", Point(30.0, 30.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255.0, 255.0, 255.0), 2)
             }
             lines.release()
+        } catch (e: CvException) {
+            logExceptionTelemetry("plane_detection", "opencv", e)
+            Imgproc.putText(res, "$labelGeometryError: OpenCV failure", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255.0, 100.0, 100.0), 2)
+        } catch (e: IllegalArgumentException) {
+            logExceptionTelemetry("plane_detection", "invalid_argument", e)
+            Imgproc.putText(res, "$labelGeometryError: invalid input", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255.0, 100.0, 100.0), 2)
+        } catch (e: IllegalStateException) {
+            logExceptionTelemetry("plane_detection", "state", e)
+            Imgproc.putText(res, "$labelGeometryError: invalid state", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255.0, 100.0, 100.0), 2)
         } catch (e: Exception) {
+            logExceptionTelemetry("plane_detection", "unexpected", e)
+            Log.e(TAG, "Unhandled plane detection error type=${e::class.java.name} message=${e.message}", e)
             Imgproc.putText(res, "$labelGeometryError: ${e.message?.take(30)}", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255.0, 100.0, 100.0), 2)
         } finally {
+            geometryInput.release()
             gray.release(); clahe.release(); blurred.release(); edges.release()
         }
         return res
+    }
+
+    private fun prepareGeometryInput(src: Mat, stage: String): Mat {
+        val profile = calibrator?.getCalibrationProfile(src.size())
+        logCalibrationDiagnostics(profile, stage)
+        if (!debugUndistortBeforeGeometry || profile?.isCompatible != true) {
+            return src.clone()
+        }
+        val undistorted = Mat()
+        Calib3d.undistort(
+            src,
+            undistorted,
+            profile.calibration.cameraMatrix,
+            profile.calibration.distCoeffs,
+        )
+        return undistorted
+    }
+
+    private fun logCalibrationDiagnostics(
+        profile: CameraCalibrator.CalibrationProfile?,
+        stage: String,
+    ) {
+        val activeW = profile?.activeImageSize?.width?.toInt() ?: -1
+        val activeH = profile?.activeImageSize?.height?.toInt() ?: -1
+        val calibW = profile?.calibration?.calibrationImageSize?.width?.toInt() ?: -1
+        val calibH = profile?.calibration?.calibrationImageSize?.height?.toInt() ?: -1
+        val rms = profile?.calibration?.rmsError ?: Double.NaN
+        val key = "$stage|$activeW|$activeH|$calibW|$calibH|${profile?.isCompatible}|$rms"
+        if (lastCalibrationDiagnosticsKey == key) return
+        lastCalibrationDiagnosticsKey = key
+        if (profile == null) {
+            Log.d(TAG, "Calibration diagnostics stage=$stage active=${activeW}x${activeH} profile=none")
+            return
+        }
+        Log.d(
+            TAG,
+            "Calibration diagnostics stage=$stage active=${activeW}x${activeH} " +
+                "profile=${calibW}x${calibH} compatible=${profile.isCompatible} " +
+                "rms=%.4f".format(profile.calibration.rmsError),
+        )
     }
 
     /**
@@ -1081,8 +1181,15 @@ class ImageProcessor {
             Imgproc.fillConvexPoly(overlay, hullMat, Scalar(color.`val`[0], color.`val`[1], color.`val`[2], 255.0))
             Core.addWeighted(dst, 0.75, overlay, 0.25, 0.0, dst)
             overlay.release(); hullMat.release(); contourMat.release()
+        } catch (e: CvException) {
+            logExceptionTelemetry("plane_overlay", "opencv", e)
+            Log.w(TAG, "Plane overlay rendering failed due to OpenCV error: ${e.message}", e)
+        } catch (e: IllegalArgumentException) {
+            logExceptionTelemetry("plane_overlay", "invalid_argument", e)
+            Log.w(TAG, "Plane overlay rendering failed: invalid convex hull input", e)
         } catch (e: Exception) {
-            Log.w(TAG, "Plane overlay rendering failed: ${e.message}")
+            logExceptionTelemetry("plane_overlay", "unexpected", e)
+            Log.e(TAG, "Unhandled plane overlay error type=${e::class.java.name} message=${e.message}", e)
         }
     }
 
@@ -1188,7 +1295,18 @@ class ImageProcessor {
                 else -> Imgproc.putText(res, "$labelLines: ${lines.rows()} | $labelGroups: ${clusters.size}", Point(30.0, 30.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255.0, 255.0, 255.0), 2)
             }
             lines.release()
+        } catch (e: CvException) {
+            logExceptionTelemetry("vanishing_points", "opencv", e)
+            Imgproc.putText(res, "$labelVpError: OpenCV failure", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255.0, 100.0, 100.0), 2)
+        } catch (e: IllegalArgumentException) {
+            logExceptionTelemetry("vanishing_points", "invalid_argument", e)
+            Imgproc.putText(res, "$labelVpError: invalid input", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255.0, 100.0, 100.0), 2)
+        } catch (e: IllegalStateException) {
+            logExceptionTelemetry("vanishing_points", "state", e)
+            Imgproc.putText(res, "$labelVpError: invalid state", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255.0, 100.0, 100.0), 2)
         } catch (e: Exception) {
+            logExceptionTelemetry("vanishing_points", "unexpected", e)
+            Log.e(TAG, "Unhandled vanishing points error type=${e::class.java.name} message=${e.message}", e)
             Imgproc.putText(res, "$labelVpError: ${e.message?.take(30)}", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255.0, 100.0, 100.0), 2)
         } finally {
             gray.release(); blurred.release(); edges.release()

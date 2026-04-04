@@ -99,6 +99,7 @@ class MenuActivity : AppCompatActivity() {
         setContentView(binding.root)
         showAppVersion()
         buildInstructionsCard()
+        buildOdometryTutorialCard()
         buildModeCards()
         buildPointCloudViewerCard()
         buildAboutContent()
@@ -139,6 +140,21 @@ class MenuActivity : AppCompatActivity() {
         card.findViewById<TextView>(R.id.textModeName).text = getString(R.string.instructions_card_title)
         card.findViewById<TextView>(R.id.textModeDescription).text = getString(R.string.instructions_card_description)
         card.setOnClickListener { showInstructionsDialog() }
+        binding.modeListContainer.addView(card)
+    }
+
+    /**
+     * Inflates a card that opens the [OdometryTutorialActivity].
+     * The card is placed in the modes list so the user can learn about visual odometry
+     * before selecting the corresponding camera mode.
+     */
+    private fun buildOdometryTutorialCard() {
+        val card = layoutInflater.inflate(R.layout.item_mode_card, binding.modeListContainer, false)
+        card.findViewById<TextView>(R.id.textModeName).text = getString(R.string.tutorial_card_title)
+        card.findViewById<TextView>(R.id.textModeDescription).text = getString(R.string.tutorial_card_description)
+        card.setOnClickListener {
+            startActivity(Intent(this, OdometryTutorialActivity::class.java))
+        }
         binding.modeListContainer.addView(card)
     }
 

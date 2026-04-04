@@ -75,6 +75,11 @@ class FullOdometryEngine {
         private const val MAX_TRAJECTORY_POINTS = 500
         private const val MAX_MAP_POINTS = 2000
         private const val MAX_DEPTH = 500.0
+        private const val FEATURE_QUALITY_LEVEL = 0.01
+        private const val FEATURE_MIN_DISTANCE = 10.0
+        private const val RANSAC_CONFIDENCE = 0.999
+        private const val RANSAC_THRESHOLD = 1.0
+        private const val MIN_HOMOGENEOUS_COORDINATE = 1e-8
     }
 
     // ---------------------------------------------------------------
@@ -218,7 +223,7 @@ class FullOdometryEngine {
 
         // --- Essential matrix + relative pose --------------------------------
         val essential = try {
-            Calib3d.findEssentialMat(goodPrev, goodNext, k, Calib3d.RANSAC, 0.999, 1.0)
+            Calib3d.findEssentialMat(goodPrev, goodNext, k, Calib3d.RANSAC, RANSAC_CONFIDENCE, RANSAC_THRESHOLD)
         } catch (e: Exception) {
             android.util.Log.w(TAG, "findEssentialMat failed: ${e.message}")
             goodPrev.release(); goodNext.release(); nextPts.release()
@@ -356,7 +361,7 @@ class FullOdometryEngine {
         synchronized(this) {
             for (i in 0 until pts4d.cols()) {
                 val w = pts4d.get(3, i)[0]
-                if (kotlin.math.abs(w) < 1e-8) continue
+                if (kotlin.math.abs(w) < MIN_HOMOGENEOUS_COORDINATE) continue
                 val x = pts4d.get(0, i)[0] / w
                 val y = pts4d.get(1, i)[0] / w
                 val z = pts4d.get(2, i)[0] / w
@@ -407,7 +412,7 @@ class FullOdometryEngine {
 
     private fun detectNewFeatures(gray: Mat) {
         val corners = MatOfPoint()
-        Imgproc.goodFeaturesToTrack(gray, corners, maxFeatures, 0.01, 10.0)
+        Imgproc.goodFeaturesToTrack(gray, corners, maxFeatures, FEATURE_QUALITY_LEVEL, FEATURE_MIN_DISTANCE)
         if (!corners.empty()) {
             val corners2f = MatOfPoint2f(*corners.toArray())
             prevPts.release()

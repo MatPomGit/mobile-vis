@@ -103,6 +103,8 @@ class ImageProcessor {
     var labelTrajectory: String = "Trajektoria"
     var labelMap3D: String = "Mapa 3D"
     var labelOdometryPoints: String = "Punkty"
+    var labelCollectingData: String = "Zbieranie danych..."
+    var labelCollectingPoints: String = "Zbieranie punktów..."
 
     var onMarkersDetected: ((List<MarkerDetection>) -> Unit)? = null
     var isActiveVisionEnabled: Boolean = false
@@ -178,6 +180,8 @@ class ImageProcessor {
         private const val POINT_CLOUD_CIRCLE_RADIUS = 3
         private const val POINT_CLOUD_MESH_THICKNESS = 1
         private const val PIXELATE_BLOCK_SIZE = 16
+        private const val FULL_ODOMETRY_HUD_X = 20.0
+        private const val FULL_ODOMETRY_HUD_LINE_HEIGHT = 28.0
     }
 
     // Reusable mats for the hottest filters to reduce per-frame allocations.
@@ -984,25 +988,24 @@ class ImageProcessor {
             Imgproc.circle(res, track.last(), 3, Scalar(255.0, 80.0, 0.0, 255.0), -1)
         }
         val state = fullOdometryEngine.lastOdometryState
-        val lineH = 28.0
-        val x = 20.0
+        val x = FULL_ODOMETRY_HUD_X
         var y = 40.0
         val color = Scalar(255.0, 255.0, 255.0, 255.0)
         val font = Imgproc.FONT_HERSHEY_SIMPLEX
         Imgproc.putText(res, "$labelFullOdometryTracks: ${tracks.size}", Point(x, y), font, 0.65, color, 2)
         if (state != null) {
-            y += lineH
+            y += FULL_ODOMETRY_HUD_LINE_HEIGHT
             Imgproc.putText(res, "$labelFullOdometryInliers: ${state.inliersCount}/${state.tracksCount}", Point(x, y), font, 0.65, color, 2)
-            y += lineH
+            y += FULL_ODOMETRY_HUD_LINE_HEIGHT
             Imgproc.putText(res, "$labelFullOdometryFrames: ${state.frameCount}  $labelFullOdometrySteps: ${state.totalSteps}", Point(x, y), font, 0.65, color, 2)
             val pose = state.currentPose
             if (pose != null) {
-                y += lineH
+                y += FULL_ODOMETRY_HUD_LINE_HEIGHT
                 val px = "%.2f".format(pose.position.x)
                 val py = "%.2f".format(pose.position.y)
                 val pz = "%.2f".format(pose.position.z)
                 Imgproc.putText(res, "$labelFullOdometryPos: ($px, $py, $pz)", Point(x, y), font, 0.55, color, 2)
-                y += lineH
+                y += FULL_ODOMETRY_HUD_LINE_HEIGHT
                 Imgproc.putText(res, "R: ${"%.1f".format(pose.rotationDeg)}°  inlier: ${"%.0f".format(pose.inlierRatio * 100)}%", Point(x, y), font, 0.55, color, 2)
             }
         }
@@ -1023,10 +1026,10 @@ class ImageProcessor {
         val trajectory = fullOdometryEngine.currentTrajectory
         val positions = trajectory.positions
         val label = "$labelTrajectory: ${positions.size}"
-        Imgproc.putText(res, label, Point(20.0, 36.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.65, Scalar(200.0, 200.0, 200.0, 255.0), 2)
+        Imgproc.putText(res, label, Point(FULL_ODOMETRY_HUD_X, 36.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.65, Scalar(200.0, 200.0, 200.0, 255.0), 2)
 
         if (positions.size < 2) {
-            Imgproc.putText(res, "Zbieranie danych...", Point(20.0, 72.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.55, Scalar(150.0, 150.0, 150.0, 255.0), 1)
+            Imgproc.putText(res, labelCollectingData, Point(FULL_ODOMETRY_HUD_X, 72.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.55, Scalar(150.0, 150.0, 150.0, 255.0), 1)
             return res
         }
 
@@ -1100,10 +1103,10 @@ class ImageProcessor {
         val mapState = fullOdometryEngine.currentMap
         val points = mapState.points3d
 
-        Imgproc.putText(res, "$labelMap3D: ${points.size} $labelOdometryPoints", Point(20.0, 36.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.65, Scalar(200.0, 200.0, 200.0, 255.0), 2)
+        Imgproc.putText(res, "$labelMap3D: ${points.size} $labelOdometryPoints", Point(FULL_ODOMETRY_HUD_X, 36.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.65, Scalar(200.0, 200.0, 200.0, 255.0), 2)
 
         if (points.isEmpty()) {
-            Imgproc.putText(res, "Zbieranie punktów...", Point(20.0, 72.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.55, Scalar(150.0, 150.0, 150.0, 255.0), 1)
+            Imgproc.putText(res, labelCollectingPoints, Point(FULL_ODOMETRY_HUD_X, 72.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.55, Scalar(150.0, 150.0, 150.0, 255.0), 1)
             return res
         }
 

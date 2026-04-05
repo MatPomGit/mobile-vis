@@ -21,7 +21,6 @@ import org.opencv.imgproc.Imgproc
 import androidx.core.graphics.createBitmap
 import java.util.Locale
 import kotlin.math.exp
-import kotlin.math.toDegrees
 
 /**
  * Applies YOLO-based detection, segmentation, pose estimation, image classification and
@@ -643,7 +642,7 @@ class YoloProcessor(private val context: Context) {
             val box = boxes[idx]
             val classId = classIds[idx]
             val score = scores[idx]
-            val angleDeg = angles[idx].toDouble().toDegrees().toFloat()
+            val angleDeg = Math.toDegrees(angles[idx].toDouble()).toFloat()
             val label = DOTA_CLASSES.getOrElse(classId) { classId.toString() }
             val color = CLASS_COLORS[classId % CLASS_COLORS.size]
 

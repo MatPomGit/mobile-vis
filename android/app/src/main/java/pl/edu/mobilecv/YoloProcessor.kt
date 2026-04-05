@@ -47,12 +47,18 @@ class YoloProcessor(private val context: Context) {
     companion object {
         private const val TAG = "YoloProcessor"
 
-        /** PyTorch model filenames stored in internal storage by [ModelDownloadManager]. */
-        const val MODEL_DETECT = "yolov8n.pt"
-        const val MODEL_SEGMENT = "yolov8n-seg.pt"
-        const val MODEL_POSE = "yolov8n-pose.pt"
-        const val MODEL_CLASSIFY = "yolov8n-cls.pt"
-        const val MODEL_OBB = "yolov8n-obb.pt"
+        /** TorchScript model filenames stored in internal storage by [ModelDownloadManager].
+         *
+         * These files are exported from the official Ultralytics YOLOv8-nano ``*.pt`` weights
+         * using the Python ``export_yolo_to_torchscript()`` utility.  The base ``*.pt`` weights
+         * can be downloaded from Ultralytics via [ModelDownloadManager.YOLO_MODEL_URLS] and
+         * must be converted to TorchScript format before being placed in device storage.
+         */
+        const val MODEL_DETECT = "yolov8n.torchscript"
+        const val MODEL_SEGMENT = "yolov8n-seg.torchscript"
+        const val MODEL_POSE = "yolov8n-pose.torchscript"
+        const val MODEL_CLASSIFY = "yolov8n-cls.torchscript"
+        const val MODEL_OBB = "yolov8n-obb.torchscript"
 
         /** YOLOv8 inference input size (square) for detection/segmentation/pose/OBB. */
         private const val INPUT_SIZE = 640

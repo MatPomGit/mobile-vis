@@ -1,21 +1,25 @@
 package pl.edu.mobilecv
 
+import kotlin.math.acos
+import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.sqrt
 import org.opencv.calib3d.Calib3d
+import org.opencv.core.Core
 import org.opencv.core.CvType
+import org.opencv.core.DMatch
+import org.opencv.core.KeyPoint
 import org.opencv.core.Mat
-import org.opencv.core.MatOfByte
-import org.opencv.core.MatOfFloat
+import org.opencv.core.MatOfDMatch
 import org.opencv.core.MatOfFloat4
 import org.opencv.core.MatOfPoint2f
-import org.opencv.core.MatOfPoint
 import org.opencv.core.Point
 import org.opencv.core.Rect
+import org.opencv.features2d.AKAZE
+import org.opencv.features2d.BFMatcher
+import org.opencv.features2d.ORB
 import org.opencv.imgproc.Imgproc
 import org.opencv.imgproc.Subdiv2D
-import org.opencv.video.Video
-import kotlin.math.acos
-import kotlin.math.sqrt
 
 /**
  * Tracks sparse visual odometry signals and creates a lightweight pseudo point cloud.
@@ -37,19 +41,30 @@ class VisualOdometryEngine {
 
     companion object {
         private const val TAG = "VisualOdometryEngine"
-        private const val MIN_TRACK_COUNT = 10
+        private const val MIN_MATCH_COUNT = 25
+        private const val MIN_INLIERS_COUNT = 18
+        private const val MIN_SPATIAL_BINS = 4
+        private const val GRID_ROWS = 3
+        private const val GRID_COLS = 3
+        private const val RATIO_TEST_THRESHOLD = 0.75f
+        private const val RANSAC_REPROJECTION_THRESHOLD = 1.5
         private const val PERSPECTIVE_FACTOR = 0.5
         private const val MAX_MESH_EDGE_DIST_SQ = 50000.0
     }
 
+    private enum class FeatureDetectorType {
+        ORB,
+        AKAZE,
+    }
+
     private var prevGray = Mat()
-    private var prevPts = MatOfPoint2f()
     private var calibrator: CameraCalibrator? = null
     private var lastTracks = mutableListOf<List<Point>>()
 
-    var maxFeatures = 50
+    var maxFeatures = 300
     var minParallax = 2.0
     var isMeshEnabled = false
+    var featureDetectorType: FeatureDetectorType = FeatureDetectorType.ORB
 
     var lastPointCloud: PointCloudState? = null
         private set
@@ -99,47 +114,41 @@ class VisualOdometryEngine {
     private fun processFrameInternal(gray: Mat): Pair<OdometryState?, PointCloudState?> {
         if (prevGray.empty()) {
             gray.copyTo(prevGray)
-            detectNewFeatures(gray)
             return null to null
         }
 
-        val nextPts = MatOfPoint2f()
-        val status = MatOfByte()
-        val err = MatOfFloat()
+        val prevKeyPoints = mutableListOf<KeyPoint>()
+        val currKeyPoints = mutableListOf<KeyPoint>()
+        val prevDescriptors = Mat()
+        val currDescriptors = Mat()
 
-        Video.calcOpticalFlowPyrLK(prevGray, gray, prevPts, nextPts, status, err)
+        detectAndCompute(prevGray, prevKeyPoints, prevDescriptors)
+        detectAndCompute(gray, currKeyPoints, currDescriptors)
 
-        val statusArr = status.toArray()
-        val prevPtsArr = prevPts.toArray()
-        val nextPtsArr = nextPts.toArray()
-
-        val goodPrevList = mutableListOf<Point>()
-        val goodNextList = mutableListOf<Point>()
-
-        for (i in statusArr.indices) {
-            if (statusArr[i].toInt() == 1) {
-                goodPrevList.add(prevPtsArr[i])
-                goodNextList.add(nextPtsArr[i])
-            }
+        if (prevDescriptors.empty() || currDescriptors.empty()) {
+            releaseTrackingMats(prevDescriptors, currDescriptors)
+            return trackingLost(gray, "tracking lost / reinit needed: empty descriptors")
         }
 
-        status.release()
-        err.release()
+        val goodMatches = findSymmetricMatches(prevDescriptors, currDescriptors)
+        if (goodMatches.size < MIN_MATCH_COUNT) {
+            releaseTrackingMats(prevDescriptors, currDescriptors)
+            return trackingLost(gray, "tracking lost / reinit needed: not enough matches")
+        }
 
-        if (goodNextList.size < MIN_TRACK_COUNT) {
-            gray.copyTo(prevGray)
-            detectNewFeatures(gray)
-            nextPts.release()
-            synchronized(this) { lastTracks.clear() }
-            return null to null
+        val prevMatched = mutableListOf<Point>()
+        val currMatched = mutableListOf<Point>()
+        for (match in goodMatches) {
+            prevMatched.add(prevKeyPoints[match.queryIdx].pt)
+            currMatched.add(currKeyPoints[match.trainIdx].pt)
         }
 
         synchronized(this) {
-            lastTracks = goodNextList.indices.map { i -> listOf(goodPrevList[i], goodNextList[i]) }.toMutableList()
+            lastTracks = prevMatched.indices.map { i -> listOf(prevMatched[i], currMatched[i]) }.toMutableList()
         }
 
-        val goodPrev = MatOfPoint2f(*goodPrevList.toTypedArray())
-        val goodNext = MatOfPoint2f(*goodNextList.toTypedArray())
+        val prevPoints = MatOfPoint2f(*prevMatched.toTypedArray())
+        val currPoints = MatOfPoint2f(*currMatched.toTypedArray())
 
         val calibrationProfile = calibrator?.getCalibrationProfile(gray.size())
         if (calibrationProfile != null && !calibrationProfile.isCompatible) {
@@ -151,41 +160,172 @@ class VisualOdometryEngine {
                     "${calibrationProfile.calibration.calibrationImageSize.height.toInt()} " +
                     "rms=%.4f".format(calibrationProfile.calibration.rmsError),
             )
+            prevPoints.release()
+            currPoints.release()
+            releaseTrackingMats(prevDescriptors, currDescriptors)
             gray.copyTo(prevGray)
-            goodNext.copyTo(prevPts)
             lastPointCloud = null
-            nextPts.release()
-            goodPrev.release()
-            goodNext.release()
             return null to null
         }
 
-        val (state, points) = estimateMotionAndPoints(goodPrev, goodNext, calibrationProfile)
-        lastPointCloud = points
+        val inlierPair = filterInliersWithRansac(prevPoints, currPoints, calibrationProfile)
+        val inlierPrev = inlierPair.first
+        val inlierCurr = inlierPair.second
 
-        gray.copyTo(prevGray)
-        goodNext.copyTo(prevPts)
+        val thresholdsMet =
+            inlierPrev.rows() >= MIN_INLIERS_COUNT &&
+                hasSufficientSpatialDistribution(inlierCurr, gray.cols(), gray.rows()) &&
+                meanParallax(inlierPrev, inlierCurr) >= minParallax
 
-        if (goodNextList.size < maxFeatures / 2) {
-            detectNewFeatures(gray)
+        prevPoints.release()
+        currPoints.release()
+        releaseTrackingMats(prevDescriptors, currDescriptors)
+
+        if (!thresholdsMet) {
+            inlierPrev.release()
+            inlierCurr.release()
+            return trackingLost(gray, "tracking lost / reinit needed: thresholds not met")
         }
 
-        nextPts.release()
-        goodPrev.release()
-        goodNext.release()
+        val (state, points) = estimateMotionAndPoints(inlierPrev, inlierCurr, calibrationProfile)
+        inlierPrev.release()
+        inlierCurr.release()
 
+        lastPointCloud = points
+        gray.copyTo(prevGray)
         return state to points
     }
 
-    private fun detectNewFeatures(gray: Mat) {
-        val corners = MatOfPoint()
-        Imgproc.goodFeaturesToTrack(gray, corners, maxFeatures, 0.01, 10.0)
-        if (!corners.empty()) {
-            val corners2f = MatOfPoint2f(*corners.toArray())
-            prevPts.release()
-            prevPts = corners2f
+    private fun trackingLost(gray: Mat, reason: String): Pair<OdometryState?, PointCloudState?> {
+        android.util.Log.w(TAG, reason)
+        gray.copyTo(prevGray)
+        lastPointCloud = null
+        synchronized(this) { lastTracks.clear() }
+        return null to null
+    }
+
+    private fun detectAndCompute(gray: Mat, keypoints: MutableList<KeyPoint>, descriptors: Mat) {
+        when (featureDetectorType) {
+            FeatureDetectorType.ORB -> {
+                val detector = ORB.create(maxFeatures)
+                detector.detectAndCompute(gray, Mat(), keypoints, descriptors)
+            }
+            FeatureDetectorType.AKAZE -> {
+                val detector = AKAZE.create()
+                detector.detectAndCompute(gray, Mat(), keypoints, descriptors)
+            }
         }
-        corners.release()
+    }
+
+    private fun findSymmetricMatches(prevDescriptors: Mat, currDescriptors: Mat): List<DMatch> {
+        val matcher = BFMatcher.create(Core.NORM_HAMMING, false)
+        val forward = ArrayList<MatOfDMatch>()
+        val backward = ArrayList<MatOfDMatch>()
+        matcher.knnMatch(prevDescriptors, currDescriptors, forward, 2)
+        matcher.knnMatch(currDescriptors, prevDescriptors, backward, 2)
+
+        val forwardBest = bestMatchesAfterRatioTest(forward)
+        val backwardBest = bestMatchesAfterRatioTest(backward)
+
+        val symmetricMatches = mutableListOf<DMatch>()
+        for ((queryIdx, match) in forwardBest) {
+            val reverse = backwardBest[match.trainIdx]
+            if (reverse != null && reverse.trainIdx == queryIdx) {
+                symmetricMatches.add(match)
+            }
+        }
+
+        for (mat in forward) mat.release()
+        for (mat in backward) mat.release()
+
+        return symmetricMatches
+    }
+
+    private fun bestMatchesAfterRatioTest(knnMatches: List<MatOfDMatch>): Map<Int, DMatch> {
+        val accepted = mutableMapOf<Int, DMatch>()
+        for (entry in knnMatches) {
+            val candidates = entry.toArray()
+            if (candidates.size < 2) continue
+            val best = candidates[0]
+            val second = candidates[1]
+            if (best.distance < RATIO_TEST_THRESHOLD * second.distance) {
+                accepted[best.queryIdx] = best
+            }
+        }
+        return accepted
+    }
+
+    private fun filterInliersWithRansac(
+        prev: MatOfPoint2f,
+        next: MatOfPoint2f,
+        calibrationProfile: CameraCalibrator.CalibrationProfile?,
+    ): Pair<MatOfPoint2f, MatOfPoint2f> {
+        val mask = Mat()
+        val model = if (calibrationProfile != null) {
+            val k = calibrationProfile.calibration.cameraMatrix
+            Calib3d.findEssentialMat(prev, next, k, Calib3d.RANSAC, 0.999, RANSAC_REPROJECTION_THRESHOLD, mask)
+        } else {
+            Calib3d.findFundamentalMat(prev, next, Calib3d.FM_RANSAC, 3.0, 0.99, mask)
+        }
+
+        if (model.empty() || mask.empty()) {
+            mask.release()
+            model.release()
+            return MatOfPoint2f() to MatOfPoint2f()
+        }
+
+        val prevArr = prev.toArray()
+        val nextArr = next.toArray()
+        val maskArr = ByteArray(mask.rows() * mask.cols())
+        mask.get(0, 0, maskArr)
+
+        val inlierPrev = mutableListOf<Point>()
+        val inlierNext = mutableListOf<Point>()
+        for (i in maskArr.indices) {
+            if (maskArr[i].toInt() != 0) {
+                inlierPrev.add(prevArr[i])
+                inlierNext.add(nextArr[i])
+            }
+        }
+
+        mask.release()
+        model.release()
+
+        return MatOfPoint2f(*inlierPrev.toTypedArray()) to MatOfPoint2f(*inlierNext.toTypedArray())
+    }
+
+    private fun hasSufficientSpatialDistribution(points: MatOfPoint2f, width: Int, height: Int): Boolean {
+        if (points.empty() || width <= 0 || height <= 0) {
+            return false
+        }
+
+        val occupied = HashSet<Int>()
+        val cellWidth = width.toDouble() / GRID_COLS
+        val cellHeight = height.toDouble() / GRID_ROWS
+
+        for (point in points.toArray()) {
+            val col = min(GRID_COLS - 1, max(0, (point.x / cellWidth).toInt()))
+            val row = min(GRID_ROWS - 1, max(0, (point.y / cellHeight).toInt()))
+            occupied.add(row * GRID_COLS + col)
+        }
+
+        return occupied.size >= MIN_SPATIAL_BINS
+    }
+
+    private fun meanParallax(prev: MatOfPoint2f, next: MatOfPoint2f): Double {
+        if (prev.empty() || next.empty()) return 0.0
+
+        val prevArr = prev.toArray()
+        val nextArr = next.toArray()
+        var parallaxSum = 0.0
+
+        for (i in prevArr.indices) {
+            val dx = nextArr[i].x - prevArr[i].x
+            val dy = nextArr[i].y - prevArr[i].y
+            parallaxSum += sqrt(dx * dx + dy * dy)
+        }
+
+        return parallaxSum / prevArr.size
     }
 
     private fun estimateMotionAndPoints(
@@ -207,10 +347,15 @@ class VisualOdometryEngine {
             for (v in maskData) if (v.toInt() != 0) inlierCount++
         }
 
-        val transNorm = android.opengl.Matrix.length(t.get(0,0)[0].toFloat(), t.get(1,0)[0].toFloat(), t.get(2,0)[0].toFloat()).toDouble()
-        
-        val trace = r.get(0,0)[0] + r.get(1,1)[0] + r.get(2,2)[0]
-        val rotDeg = Math.toDegrees(acos(min(1.0, maxOf(-1.0, (trace - 1.0) / 2.0))))
+        val transNorm =
+            android.opengl.Matrix.length(
+                t.get(0, 0)[0].toFloat(),
+                t.get(1, 0)[0].toFloat(),
+                t.get(2, 0)[0].toFloat(),
+            ).toDouble()
+
+        val trace = r.get(0, 0)[0] + r.get(1, 1)[0] + r.get(2, 2)[0]
+        val rotDeg = Math.toDegrees(acos(min(1.0, max(-1.0, (trace - 1.0) / 2.0))))
 
         val state = OdometryState(prev.rows(), inlierCount, transNorm, rotDeg)
 
@@ -218,7 +363,6 @@ class VisualOdometryEngine {
         val prevArr = prev.toArray()
         val nextArr = next.toArray()
         var parallaxSum = 0.0
-        var validCount = 0
 
         for (i in nextArr.indices) {
             val prevPt = prevArr[i]
@@ -227,40 +371,52 @@ class VisualOdometryEngine {
             val dy = nextPt.y - prevPt.y
             val dist = sqrt(dx * dx + dy * dy)
             parallaxSum += dist
-            validCount++
 
             val zScale = if (dist < minParallax) 0.0 else (dist - minParallax) / 10.0
             cloudPoints.add(Point(nextPt.x, nextPt.y - zScale * PERSPECTIVE_FACTOR))
         }
 
-        val meanParallax = if (validCount == 0) 0.0 else parallaxSum / validCount
+        val meanParallax = if (nextArr.isEmpty()) 0.0 else parallaxSum / nextArr.size
         val meshEdges = mutableListOf<Pair<Point, Point>>()
 
         if (isMeshEnabled && cloudPoints.size >= 3) {
             try {
-                var minX = Double.MAX_VALUE; var minY = Double.MAX_VALUE
-                var maxX = Double.MIN_VALUE; var maxY = Double.MIN_VALUE
+                var minX = Double.MAX_VALUE
+                var minY = Double.MAX_VALUE
+                var maxX = Double.MIN_VALUE
+                var maxY = Double.MIN_VALUE
                 for (p in cloudPoints) {
-                    if (p.x < minX) minX = p.x; if (p.y < minY) minY = p.y
-                    if (p.x > maxX) maxX = p.x; if (p.y > maxY) maxY = p.y
+                    if (p.x < minX) minX = p.x
+                    if (p.y < minY) minY = p.y
+                    if (p.x > maxX) maxX = p.x
+                    if (p.y > maxY) maxY = p.y
                 }
-                val rect = Rect((minX - 1).toInt(), (minY - 1).toInt(), (maxX - minX + 2).toInt(), (maxY - minY + 2).toInt())
+                val rect = Rect(
+                    (minX - 1).toInt(),
+                    (minY - 1).toInt(),
+                    (maxX - minX + 2).toInt(),
+                    (maxY - minY + 2).toInt(),
+                )
                 val subdivide = Subdiv2D(rect)
                 for (p in cloudPoints) subdivide.insert(p)
-                
+
                 val edgeList = MatOfFloat4()
                 subdivide.getEdgeList(edgeList)
                 val edges = edgeList.toArray()
                 for (i in 0 until edges.size step 4) {
-                    val p1 = Point(edges[i].toDouble(), edges[i+1].toDouble())
-                    val p2 = Point(edges[i+2].toDouble(), edges[i+3].toDouble())
+                    val p1 = Point(edges[i].toDouble(), edges[i + 1].toDouble())
+                    val p2 = Point(edges[i + 2].toDouble(), edges[i + 3].toDouble())
                     if (rect.contains(p1) && rect.contains(p2)) {
                         val d2 = (p1.x - p2.x) * (p1.x - p2.x) + (p1.y - p2.y) * (p1.y - p2.y)
-                        if (d2 < MAX_MESH_EDGE_DIST_SQ) meshEdges.add(Pair(p1, p2))
+                        if (d2 < MAX_MESH_EDGE_DIST_SQ) {
+                            meshEdges.add(Pair(p1, p2))
+                        }
                     }
                 }
                 edgeList.release()
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                android.util.Log.w(TAG, "Mesh generation failed", e)
+            }
         }
 
         essential.release()
@@ -271,12 +427,16 @@ class VisualOdometryEngine {
         return state to PointCloudState(cloudPoints, meshEdges, meanParallax)
     }
 
+    private fun releaseTrackingMats(vararg mats: Mat) {
+        for (mat in mats) {
+            mat.release()
+        }
+    }
+
     fun reset() {
         synchronized(this) {
             prevGray.release()
-            prevPts.release()
             prevGray = Mat()
-            prevPts = MatOfPoint2f()
             lastPointCloud = null
             lastTracks.clear()
         }

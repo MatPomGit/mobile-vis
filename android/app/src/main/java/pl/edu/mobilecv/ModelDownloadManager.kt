@@ -57,44 +57,24 @@ object ModelDownloadManager {
     )
 
     /**
-     * Remote download URLs for YOLOv8-nano ONNX models hosted on GitHub Releases.
+     * Remote download URLs for YOLOv8-nano PyTorch models hosted on Ultralytics GitHub releases.
      *
-     * The models are exported from the official ``ultralytics/ultralytics`` YOLOv8
-     * weights and stored in the project's GitHub Releases under the ``models`` tag.
-     * Replace these URLs with your own CDN or GitHub Releases links if you host
-     * the models elsewhere.
+     * Models are the official pretrained weights published by the Ultralytics team and are
+     * downloaded directly from the producer.  Pass the downloaded ``*.pt`` files through the
+     * Python ``export_yolo_to_torchscript()`` utility to produce TorchScript files before
+     * deploying to the device.
      */
     val YOLO_MODEL_URLS: Map<String, String> = mapOf(
         YoloProcessor.MODEL_DETECT to
-            "https://github.com/MatPomGit/mobile-vis/releases/download/models/yolov8n_det.onnx",
+            "https://github.com/ultralytics/assets/releases/download/v8.3.0/yolov8n.pt",
         YoloProcessor.MODEL_SEGMENT to
-            "https://github.com/MatPomGit/mobile-vis/releases/download/models/yolov8n_seg.onnx",
+            "https://github.com/ultralytics/assets/releases/download/v8.3.0/yolov8n-seg.pt",
         YoloProcessor.MODEL_POSE to
-            "https://github.com/MatPomGit/mobile-vis/releases/download/models/yolov8n_pose.onnx",
+            "https://github.com/ultralytics/assets/releases/download/v8.3.0/yolov8n-pose.pt",
         YoloProcessor.MODEL_CLASSIFY to
-            "https://github.com/MatPomGit/mobile-vis/releases/download/models/yolov8n_cls.onnx",
+            "https://github.com/ultralytics/assets/releases/download/v8.3.0/yolov8n-cls.pt",
         YoloProcessor.MODEL_OBB to
-            "https://github.com/MatPomGit/mobile-vis/releases/download/models/yolov8n_obb.onnx",
-    )
-
-    /**
-     * Fallback download URLs for YOLO ONNX models from the official Ultralytics assets.
-     *
-     * These are used when the primary [YOLO_MODEL_URLS] download fails (e.g. models have
-     * not yet been uploaded to the project's GitHub Releases).  The files are the
-     * official YOLOv8-nano ONNX exports published by Ultralytics.
-     */
-    val YOLO_ULTRALYTICS_URLS: Map<String, String> = mapOf(
-        YoloProcessor.MODEL_DETECT to
-            "https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8n.onnx",
-        YoloProcessor.MODEL_SEGMENT to
-            "https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8n-seg.onnx",
-        YoloProcessor.MODEL_POSE to
-            "https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8n-pose.onnx",
-        YoloProcessor.MODEL_CLASSIFY to
-            "https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8n-cls.onnx",
-        YoloProcessor.MODEL_OBB to
-            "https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8n-obb.onnx",
+            "https://github.com/ultralytics/assets/releases/download/v8.3.0/yolov8n-obb.pt",
     )
 
     private const val YOLO_DIR = "yolo"
@@ -290,10 +270,9 @@ object ModelDownloadManager {
     /**
      * Download all missing YOLO model files.
      *
-     * For each missing model, the primary URL from [YOLO_MODEL_URLS] is tried first.
-     * If that fails, the official Ultralytics ONNX asset from [YOLO_ULTRALYTICS_URLS]
-     * is used as a fallback.  Downloaded files are saved to [getYoloModelPath] so they
-     * are found immediately on subsequent calls without re-downloading.
+     * Models are downloaded directly from the Ultralytics GitHub releases ([YOLO_MODEL_URLS]).
+     * Downloaded files are saved to [getYoloModelPath] so they are found immediately on
+     * subsequent calls without re-downloading.
      *
      * This is a blocking call; run it on a background thread.
      *
@@ -313,15 +292,9 @@ object ModelDownloadManager {
         var downloaded = 0
         val total = missing.size
 
-        for ((filename, primaryUrl) in missing) {
+        for ((filename, url) in missing) {
             val dest = yoloModelFile(context, filename)
-            val fallbackUrl = YOLO_ULTRALYTICS_URLS[filename]
-
-            var success = downloadModel(context, filename, primaryUrl, dest)
-            if (!success && fallbackUrl != null) {
-                Log.i(TAG, "Primary download failed for $filename, trying Ultralytics fallback")
-                success = downloadModel(context, filename, fallbackUrl, dest)
-            }
+            val success = downloadModel(context, filename, url, dest)
 
             if (success) {
                 downloaded++

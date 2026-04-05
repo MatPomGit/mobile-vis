@@ -68,16 +68,18 @@ class MenuActivity : AppCompatActivity() {
     /** Lazily built map of [AnalysisMode] to its Polish description string. */
     private val modeDescriptions: Map<AnalysisMode, String> by lazy {
         mapOf(
-            AnalysisMode.FILTERS    to getString(R.string.mode_desc_filters),
-            AnalysisMode.EDGES      to getString(R.string.mode_desc_edges),
-            AnalysisMode.MORPHOLOGY to getString(R.string.mode_desc_morphology),
-            AnalysisMode.MARKERS    to getString(R.string.mode_desc_markers),
-            AnalysisMode.POSE       to getString(R.string.mode_desc_pose),
-            AnalysisMode.ODOMETRY   to getString(R.string.mode_desc_odometry),
-            AnalysisMode.GEOMETRY   to getString(R.string.mode_desc_geometry),
-            AnalysisMode.CALIBRATION to getString(R.string.mode_desc_calibration),
-            AnalysisMode.YOLO       to getString(R.string.mode_desc_yolo),
-            AnalysisMode.EFFECTS    to getString(R.string.mode_desc_effects),
+            AnalysisMode.FILTERS         to getString(R.string.mode_desc_filters),
+            AnalysisMode.EDGES           to getString(R.string.mode_desc_edges),
+            AnalysisMode.MORPHOLOGY      to getString(R.string.mode_desc_morphology),
+            AnalysisMode.MARKERS         to getString(R.string.mode_desc_markers),
+            AnalysisMode.POSE            to getString(R.string.mode_desc_pose),
+            AnalysisMode.ODOMETRY        to getString(R.string.mode_desc_odometry),
+            AnalysisMode.FULL_ODOMETRY_3D to getString(R.string.mode_desc_full_odometry_3d),
+            AnalysisMode.GEOMETRY        to getString(R.string.mode_desc_geometry),
+            AnalysisMode.CALIBRATION     to getString(R.string.mode_desc_calibration),
+            AnalysisMode.YOLO            to getString(R.string.mode_desc_yolo),
+            AnalysisMode.RTMDET          to getString(R.string.mode_desc_rtmdet),
+            AnalysisMode.EFFECTS         to getString(R.string.mode_desc_effects),
         )
     }
 
@@ -125,6 +127,11 @@ class MenuActivity : AppCompatActivity() {
             OpenCvFilter.YOLO_POSE             to getString(R.string.filter_desc_yolo_pose),
             OpenCvFilter.YOLO_CLASSIFY         to getString(R.string.filter_desc_yolo_classify),
             OpenCvFilter.YOLO_OBB              to getString(R.string.filter_desc_yolo_obb),
+            OpenCvFilter.RTMDET_DETECT         to getString(R.string.filter_desc_rtmdet_detect),
+            OpenCvFilter.RTMDET_ROTATED        to getString(R.string.filter_desc_rtmdet_rotated),
+            OpenCvFilter.FULL_ODOMETRY         to getString(R.string.filter_desc_full_odometry),
+            OpenCvFilter.ODOMETRY_TRAJECTORY   to getString(R.string.filter_desc_odometry_trajectory),
+            OpenCvFilter.ODOMETRY_MAP          to getString(R.string.filter_desc_odometry_map),
             OpenCvFilter.INVERT                to getString(R.string.filter_desc_invert),
             OpenCvFilter.SEPIA                 to getString(R.string.filter_desc_sepia),
             OpenCvFilter.EMBOSS                to getString(R.string.filter_desc_emboss),
@@ -249,14 +256,14 @@ class MenuActivity : AppCompatActivity() {
      */
     private fun buildDetectionCards() {
         addGroupDescription(binding.detectionContainer, getString(R.string.group_desc_detection))
-        val modes = listOf(AnalysisMode.MARKERS, AnalysisMode.YOLO, AnalysisMode.POSE)
+        val modes = listOf(AnalysisMode.MARKERS, AnalysisMode.YOLO, AnalysisMode.RTMDET, AnalysisMode.POSE)
         modes.forEach { mode ->
             addModeCard(binding.detectionContainer, mode, R.color.group_detection)
         }
     }
 
     // ------------------------------------------------------------------
-    // "Analiza 3D" tab – ODOMETRY, GEOMETRY, CALIBRATION + PointCloudViewer
+    // "Analiza 3D" tab – ODOMETRY, FULL_ODOMETRY_3D, GEOMETRY, CALIBRATION + PointCloudViewer
     // ------------------------------------------------------------------
 
     /**
@@ -266,7 +273,7 @@ class MenuActivity : AppCompatActivity() {
      */
     private fun buildAnalysisCards() {
         addGroupDescription(binding.analysisContainer, getString(R.string.group_desc_analysis))
-        val modes = listOf(AnalysisMode.ODOMETRY, AnalysisMode.GEOMETRY, AnalysisMode.CALIBRATION)
+        val modes = listOf(AnalysisMode.ODOMETRY, AnalysisMode.FULL_ODOMETRY_3D, AnalysisMode.GEOMETRY, AnalysisMode.CALIBRATION)
         modes.forEach { mode ->
             addModeCard(binding.analysisContainer, mode, R.color.group_analysis)
         }

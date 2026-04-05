@@ -199,6 +199,17 @@
     <string name="mode_desc_calibration">Kalibracja kamery wzorcem szachownicy</string>
     <string name="mode_desc_effects">Artystyczne efekty wizualne: inwersja, sepia, tłoczenie, pikselizacja i styl kreskówki</string>
 
+    <!-- About tab – filter descriptions (RTMDET mode) -->
+    <string name="filter_desc_rtmdet_detect">Detekcja obiektów RTMDet-nano: wykrywa obiekty w czasie rzeczywistym, rysuje ramki z etykietami klas i poziomem pewności (format end2end ONNX).</string>
+    <string name="filter_desc_rtmdet_rotated">Detekcja z obróconymi ramkami RTMDet-nano (RTMDet-R): wykrywa obiekty i rysuje zorientowane prostokąty zgodne z osią obiektu.</string>
+    <string name="mode_desc_rtmdet">Detekcja obiektów z ramkami prostopadłymi i zorientowanymi z użyciem RTMDet-nano (OpenMMLab)</string>
+
+    <!-- About tab – filter descriptions (FULL_ODOMETRY_3D mode) -->
+    <string name="filter_desc_full_odometry">Pełna odometria 3D: estymuje pozę kamery metodą macierzy zasadniczej, akumuluje trajektorię i wyświetla HUD ze statystykami ruchu.</string>
+    <string name="filter_desc_odometry_trajectory">Trajektoria ruchu kamery: nakłada skumulowaną ścieżkę jako linię łamaną w widoku z góry w lewym górnym rogu ekranu.</string>
+    <string name="filter_desc_odometry_map">Mapa 3D: wyświetla trójwymiarową chmurę punktów pozyskaną przez triangulację cech między kolejnymi klatkami.</string>
+    <string name="mode_desc_full_odometry_3d">Pełny potok odometrii wizualnej: estymacja pozy, akumulacja trajektorii i rekonstrukcja mapy 3D</string>
+
     <!-- About tab – filter descriptions (EFFECTS mode) -->
     <string name="filter_desc_invert">Inwersja kolorów: odwraca wartości pikseli (255 − wartość), tworząc efekt fotograficznego negatywu.</string>
     <string name="filter_desc_sepia">Efekt sepii: nakłada ciepłą brązową tonację naśladującą stare fotografie, używając macierzy kolorów Adobe Photoshop.</string>

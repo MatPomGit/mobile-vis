@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.Rect
 import android.util.Log
 import com.google.mediapipe.framework.image.BitmapImageBuilder
@@ -17,16 +18,20 @@ import com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarker
 import com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarkerResult
 import com.google.mediapipe.tasks.vision.poselandmarker.PoseLandmarker
 import com.google.mediapipe.tasks.vision.poselandmarker.PoseLandmarkerResult
+import kotlin.math.abs
+import kotlin.math.cos
+import kotlin.math.sin
 import kotlin.math.sqrt
 
 /**
  * Applies MediaPipe-based detection and tracking filters to Android [Bitmap] frames.
  *
- * Supports four detection modes driven by [OpenCvFilter]:
+ * Supports five detection modes driven by [OpenCvFilter]:
  * - [OpenCvFilter.HOLISTIC_BODY]  – 33 full-body pose landmarks via [PoseLandmarker].
  * - [OpenCvFilter.HOLISTIC_HANDS] – up to 42 hand landmarks (21 per hand) via [HandLandmarker].
  * - [OpenCvFilter.HOLISTIC_FACE]  – 468 face-mesh landmarks via [FaceLandmarker].
  * - [OpenCvFilter.IRIS]           – 478 refined face landmarks including iris via [FaceLandmarker].
+ * - [OpenCvFilter.HOLOGRAM_3D]    – 3-D wireframe cube rotated by the viewer's face position.
  *
  * Call [initialize] once after construction and [close] when the processor is no longer needed.
  * If a required model file has not been downloaded yet, the corresponding detector will be
@@ -116,6 +121,84 @@ class MediaPipeProcessor(private val context: Context) {
         /** Indices for iris landmarks in the 478 face mesh. */
         private val LEFT_IRIS_INDICES = 468..472
         private val RIGHT_IRIS_INDICES = 473..477
+
+        // ------------------------------------------------------------------
+        // Hologram 3-D rendering constants
+        // ------------------------------------------------------------------
+
+        /**
+         * MediaPipe face-mesh nose-tip landmark index.
+         * Used to derive the viewer's gaze direction relative to the screen centre.
+         */
+        private const val HOLOGRAM_NOSE_TIP = 4
+
+        /**
+         * Hologram object size as a fraction of the shorter bitmap dimension.
+         * Controls how large the projected cube appears on screen.
+         */
+        private const val HOLOGRAM_SIZE_FRACTION = 0.22f
+
+        /**
+         * Maximum yaw rotation angle in degrees applied when the nose is at the
+         * horizontal screen edge (normalised offset ±0.5 × HOLOGRAM_ORIENT_SCALE).
+         */
+        private const val HOLOGRAM_MAX_YAW = 60f
+
+        /**
+         * Maximum pitch rotation angle in degrees applied when the nose is at the
+         * vertical screen edge.
+         */
+        private const val HOLOGRAM_MAX_PITCH = 45f
+
+        /**
+         * Multiplier applied to the normalised face-centre offset before clamping.
+         * A value of 2.0 means an offset of ±0.25 already saturates the rotation.
+         */
+        private const val HOLOGRAM_ORIENT_SCALE = 2.0f
+
+        /** BGR-equivalent teal colour (0xC8FF00 → ARGB 0xFF00FFC8) for hologram edges. */
+        private const val HOLOGRAM_EDGE_COLOR = 0xFF00FFC8.toInt()
+
+        /** Semi-transparent dark-teal for hologram face fills. */
+        private const val HOLOGRAM_FILL_COLOR = 0x4000C880.toInt()
+
+        /** Stroke width for hologram wireframe edges (pixels). */
+        private const val HOLOGRAM_EDGE_WIDTH = 3f
+
+        /**
+         * 8 × 3 array of unit-cube vertices centred at the origin.
+         * Rows: [x, y, z] with each component ∈ {-1, +1}.
+         */
+        private val HOLOGRAM_CUBE_VERTICES = arrayOf(
+            floatArrayOf(-1f, -1f, -1f),
+            floatArrayOf(+1f, -1f, -1f),
+            floatArrayOf(+1f, +1f, -1f),
+            floatArrayOf(-1f, +1f, -1f),
+            floatArrayOf(-1f, -1f, +1f),
+            floatArrayOf(+1f, -1f, +1f),
+            floatArrayOf(+1f, +1f, +1f),
+            floatArrayOf(-1f, +1f, +1f),
+        )
+
+        /** 12 edges of the cube as pairs of vertex indices. */
+        private val HOLOGRAM_CUBE_EDGES = arrayOf(
+            0 to 1, 1 to 2, 2 to 3, 3 to 0,  // back face
+            4 to 5, 5 to 6, 6 to 7, 7 to 4,  // front face
+            0 to 4, 1 to 5, 2 to 6, 3 to 7,  // connecting edges
+        )
+
+        /** 6 faces of the cube as groups of 4 vertex indices (for fill rendering). */
+        private val HOLOGRAM_CUBE_FACES = arrayOf(
+            intArrayOf(0, 1, 2, 3),
+            intArrayOf(4, 5, 6, 7),
+            intArrayOf(0, 1, 5, 4),
+            intArrayOf(2, 3, 7, 6),
+            intArrayOf(0, 3, 7, 4),
+            intArrayOf(1, 2, 6, 5),
+        )
+
+        /** Text size for the hologram orientation HUD overlay. */
+        private const val HOLOGRAM_HUD_TEXT_SIZE = 36f
     }
 
     private var poseLandmarker: PoseLandmarker? = null
@@ -161,6 +244,30 @@ class MediaPipeProcessor(private val context: Context) {
         strokeCap = Paint.Cap.ROUND
     }
 
+    /** Paint for hologram wireframe edges. */
+    private val hologramEdgePaint = Paint().apply {
+        style = Paint.Style.STROKE
+        strokeWidth = HOLOGRAM_EDGE_WIDTH
+        color = HOLOGRAM_EDGE_COLOR
+        isAntiAlias = true
+        strokeCap = Paint.Cap.ROUND
+    }
+
+    /** Paint for hologram face fills (semi-transparent). */
+    private val hologramFillPaint = Paint().apply {
+        style = Paint.Style.FILL
+        color = HOLOGRAM_FILL_COLOR
+    }
+
+    /** Paint for hologram HUD text (yaw / pitch readout). */
+    private val hologramHudPaint = Paint().apply {
+        textSize = HOLOGRAM_HUD_TEXT_SIZE
+        color = HOLOGRAM_EDGE_COLOR
+        isAntiAlias = true
+        isFakeBoldText = true
+        setShadowLayer(4f, 0f, 0f, Color.BLACK)
+    }
+
     /** Reusable Rect used for text-bounds measurement to avoid per-frame allocations. */
     private val textBoundsRect = Rect()
 
@@ -201,6 +308,7 @@ class MediaPipeProcessor(private val context: Context) {
             OpenCvFilter.HOLISTIC_HANDS -> applyHandLandmarker(bitmap)
             OpenCvFilter.HOLISTIC_FACE -> applyFaceLandmarker(bitmap, false)
             OpenCvFilter.IRIS -> applyFaceLandmarker(bitmap, true)
+            OpenCvFilter.HOLOGRAM_3D -> applyHologram3D(bitmap)
             else -> bitmap
         }
     }
@@ -304,6 +412,130 @@ class MediaPipeProcessor(private val context: Context) {
         }
 
         return output
+    }
+
+    /**
+     * Render a 3D hologram (wireframe cube) whose rotation is driven by the viewer's face
+     * position relative to the screen centre.
+     *
+     * The nose-tip landmark (index 4) is used to estimate horizontal (yaw) and vertical (pitch)
+     * offsets relative to the normalised frame centre (0.5, 0.5).  These offsets are scaled and
+     * clamped to derive rotation angles, which are applied to the cube vertices before perspective
+     * projection onto the canvas.
+     *
+     * If the face-landmarker model is unavailable, a fallback overlay is shown.  If no face is
+     * detected in the current frame, a static (unrotated) hologram is drawn along with a
+     * "Brak twarzy" indicator.
+     */
+    private fun applyHologram3D(bitmap: Bitmap): Bitmap {
+        val detector = faceLandmarker ?: return overlayMissingModel(
+            bitmap,
+            context.getString(R.string.mediapipe_model_missing_face)
+        )
+
+        val argbBitmap = ensureArgb8888(bitmap)
+        val result: FaceLandmarkerResult = detector.detect(BitmapImageBuilder(argbBitmap).build())
+
+        val output = bitmap.copy(Bitmap.Config.ARGB_8888, true)
+        val canvas = Canvas(output)
+
+        val w = output.width
+        val h = output.height
+        val cx = w / 2f
+        val cy = h / 2f
+        val size = minOf(w, h) * HOLOGRAM_SIZE_FRACTION
+
+        // Compute yaw/pitch from nose-tip position (or use zeros if no face).
+        var yawDeg = 0f
+        var pitchDeg = 0f
+        val faceDetected = result.faceLandmarks().isNotEmpty()
+
+        if (faceDetected) {
+            val face = result.faceLandmarks()[0]
+            if (face.size > HOLOGRAM_NOSE_TIP) {
+                val nose = face[HOLOGRAM_NOSE_TIP]
+                val offsetX = (nose.x() - 0.5f) * HOLOGRAM_ORIENT_SCALE
+                val offsetY = (nose.y() - 0.5f) * HOLOGRAM_ORIENT_SCALE
+                yawDeg = offsetX.coerceIn(-1f, 1f) * HOLOGRAM_MAX_YAW
+                pitchDeg = offsetY.coerceIn(-1f, 1f) * HOLOGRAM_MAX_PITCH
+            }
+        }
+
+        // Build rotation matrices.
+        val yawRad = Math.toRadians(yawDeg.toDouble()).toFloat()
+        val pitchRad = Math.toRadians(pitchDeg.toDouble()).toFloat()
+
+        // Project cube vertices onto 2-D canvas.
+        val focal = w * 1.5f
+        val camZ = size * 4f
+        val pts2d = Array(8) { 0f to 0f }
+        for ((i, v) in HOLOGRAM_CUBE_VERTICES.withIndex()) {
+            val rv = rotateVertex(v, yawRad, pitchRad)
+            val vx = rv[0] * size
+            val vy = rv[1] * size
+            val vz = rv[2] * size
+            val z = camZ + vz
+            val safeZ = if (abs(z) < 1e-6f) 1e-6f else z
+            pts2d[i] = (vx * focal / safeZ + cx) to (vy * focal / safeZ + cy)
+        }
+
+        // Draw semi-transparent face fills first.
+        for (faceIndices in HOLOGRAM_CUBE_FACES) {
+            val path = Path()
+            val (fx0, fy0) = pts2d[faceIndices[0]]
+            path.moveTo(fx0, fy0)
+            for (k in 1 until faceIndices.size) {
+                val (fx, fy) = pts2d[faceIndices[k]]
+                path.lineTo(fx, fy)
+            }
+            path.close()
+            canvas.drawPath(path, hologramFillPaint)
+        }
+
+        // Draw wireframe edges.
+        for ((startIdx, endIdx) in HOLOGRAM_CUBE_EDGES) {
+            val (x1, y1) = pts2d[startIdx]
+            val (x2, y2) = pts2d[endIdx]
+            canvas.drawLine(x1, y1, x2, y2, hologramEdgePaint)
+        }
+
+        // Draw vertex dots.
+        for ((px, py) in pts2d) {
+            canvas.drawCircle(px, py, 5f, hologramEdgePaint.apply { style = Paint.Style.FILL })
+        }
+        hologramEdgePaint.style = Paint.Style.STROKE
+
+        // HUD: yaw / pitch readout or "no face" message.
+        val hudText = if (faceDetected) {
+            context.getString(R.string.hologram_hud_angles, yawDeg, pitchDeg)
+        } else {
+            context.getString(R.string.hologram_no_face)
+        }
+        canvas.drawText(hudText, 16f, h - 20f, hologramHudPaint)
+
+        return output
+    }
+
+    /**
+     * Rotate a 3-D vertex [v] by [yawRad] around the Y axis then [pitchRad] around the X axis.
+     *
+     * @param v     Float array ``[x, y, z]``.
+     * @param yawRad   Rotation angle around Y in radians.
+     * @param pitchRad Rotation angle around X in radians.
+     * @return New rotated ``[x, y, z]`` float array.
+     */
+    private fun rotateVertex(v: FloatArray, yawRad: Float, pitchRad: Float): FloatArray {
+        // Yaw (around Y axis): x' = x·cos(y) + z·sin(y), y' = y, z' = -x·sin(y) + z·cos(y)
+        val cy = cos(yawRad)
+        val sy = sin(yawRad)
+        val x1 = v[0] * cy + v[2] * sy
+        val y1 = v[1]
+        val z1 = -v[0] * sy + v[2] * cy
+
+        // Pitch (around X axis): x'' = x', y'' = y'·cos(p) - z'·sin(p), z'' = y'·sin(p) + z'·cos(p)
+        val cp = cos(pitchRad)
+        val sp = sin(pitchRad)
+        return floatArrayOf(x1, y1 * cp - z1 * sp, y1 * sp + z1 * cp)
     }
 
     // ------------------------------------------------------------------

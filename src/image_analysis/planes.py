@@ -701,9 +701,17 @@ def _cluster_lines_by_direction(
             diff = min(diff, 180.0 - diff)  # account for 0/180 wrap
             if diff <= angle_tol_deg:
                 clusters[k].append((x1, y1, x2, y2))
-                # Update mean angle (circular mean simplified for small ranges)
+                # Update mean angle using wrap-corrected running average so that
+                # angles near the 0°/180° boundary (e.g. 178° and 2°) are handled
+                # correctly.  The signed difference is folded into [-90°, +90°]
+                # before being applied to the current mean.
                 n = len(clusters[k])
-                cluster_angles[k] = mean_angle + (angle - mean_angle) / n
+                angle_diff = angle - mean_angle
+                if angle_diff > 90.0:
+                    angle_diff -= 180.0
+                elif angle_diff < -90.0:
+                    angle_diff += 180.0
+                cluster_angles[k] = (mean_angle + angle_diff / n) % 180.0
                 assigned = True
                 break
 

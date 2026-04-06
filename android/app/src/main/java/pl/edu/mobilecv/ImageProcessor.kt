@@ -1480,7 +1480,7 @@ class ImageProcessor {
             totalWeight += length
         }
         if (totalWeight == 0.0) return 0.0
-        val mean = Math.toDegrees(atan2(sumSin, sumCos)).let { if (it < 0) it + 180.0 else it } % 180.0
+        val mean = Math.toDegrees(atan2(sumSin, sumCos) / 2.0).let { if (it < 0) it + 180.0 else it } % 180.0
         return mean
     }
 

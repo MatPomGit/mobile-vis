@@ -678,6 +678,24 @@ class TestClusterLinesByDirection:
         clusters = _cluster_lines_by_direction(lines, angle_tol_deg=5.0)
         assert len(clusters) == 2
 
+    def test_near_zero_and_near_180_lines_in_same_cluster(self) -> None:
+        """Lines at ~178° and ~2° are nearly parallel and must land in one cluster.
+
+        The running-average update must wrap across the 0°/180° boundary so
+        that the cluster mean stays near 0° (or 180°) rather than jumping to
+        ~90° as a naive average would produce.
+        """
+        # Line at ~2°: from (0,0) to (100,3) → atan2(3,100) ≈ 1.7°
+        # Line at ~178°: from (100,0) to (0,3) → atan2(3,-100) ≈ 178.3°
+        lines = np.array(
+            [[[0, 0, 100, 3]], [[100, 0, 0, 3]], [[0, 10, 100, 13]]],
+            dtype=np.int32,
+        )
+        clusters = _cluster_lines_by_direction(lines, angle_tol_deg=5.0)
+        assert len(clusters) == 1, (
+            "Near-0° and near-180° lines must form a single cluster"
+        )
+
 
 class TestIntersectLines:
     def test_returns_none_for_single_line(self) -> None:

@@ -12,6 +12,7 @@ import org.opencv.core.KeyPoint
 import org.opencv.core.Mat
 import org.opencv.core.MatOfDMatch
 import org.opencv.core.MatOfFloat4
+import org.opencv.core.MatOfKeyPoint
 import org.opencv.core.MatOfPoint2f
 import org.opencv.core.Point
 import org.opencv.core.Rect
@@ -52,7 +53,7 @@ class VisualOdometryEngine {
         private const val MAX_MESH_EDGE_DIST_SQ = 50000.0
     }
 
-    private enum class FeatureDetectorType {
+    enum class FeatureDetectorType {
         ORB,
         AKAZE,
     }
@@ -117,8 +118,8 @@ class VisualOdometryEngine {
             return null to null
         }
 
-        val prevKeyPoints = mutableListOf<KeyPoint>()
-        val currKeyPoints = mutableListOf<KeyPoint>()
+        val prevKeyPoints = MatOfKeyPoint()
+        val currKeyPoints = MatOfKeyPoint()
         val prevDescriptors = Mat()
         val currDescriptors = Mat()
 
@@ -126,22 +127,31 @@ class VisualOdometryEngine {
         detectAndCompute(gray, currKeyPoints, currDescriptors)
 
         if (prevDescriptors.empty() || currDescriptors.empty()) {
+            prevKeyPoints.release()
+            currKeyPoints.release()
             releaseTrackingMats(prevDescriptors, currDescriptors)
             return trackingLost(gray, "tracking lost / reinit needed: empty descriptors")
         }
 
         val goodMatches = findSymmetricMatches(prevDescriptors, currDescriptors)
         if (goodMatches.size < MIN_MATCH_COUNT) {
+            prevKeyPoints.release()
+            currKeyPoints.release()
             releaseTrackingMats(prevDescriptors, currDescriptors)
             return trackingLost(gray, "tracking lost / reinit needed: not enough matches")
         }
 
         val prevMatched = mutableListOf<Point>()
         val currMatched = mutableListOf<Point>()
+        val prevKPArray = prevKeyPoints.toArray()
+        val currKPArray = currKeyPoints.toArray()
         for (match in goodMatches) {
-            prevMatched.add(prevKeyPoints[match.queryIdx].pt)
-            currMatched.add(currKeyPoints[match.trainIdx].pt)
+            prevMatched.add(prevKPArray[match.queryIdx].pt)
+            currMatched.add(currKPArray[match.trainIdx].pt)
         }
+
+        prevKeyPoints.release()
+        currKeyPoints.release()
 
         synchronized(this) {
             lastTracks = prevMatched.indices.map { i -> listOf(prevMatched[i], currMatched[i]) }.toMutableList()
@@ -204,7 +214,7 @@ class VisualOdometryEngine {
         return null to null
     }
 
-    private fun detectAndCompute(gray: Mat, keypoints: MutableList<KeyPoint>, descriptors: Mat) {
+    private fun detectAndCompute(gray: Mat, keypoints: MatOfKeyPoint, descriptors: Mat) {
         when (featureDetectorType) {
             FeatureDetectorType.ORB -> {
                 val detector = ORB.create(maxFeatures)
@@ -263,7 +273,15 @@ class VisualOdometryEngine {
         val mask = Mat()
         val model = if (calibrationProfile != null) {
             val k = calibrationProfile.calibration.cameraMatrix
-            Calib3d.findEssentialMat(prev, next, k, Calib3d.RANSAC, 0.999, RANSAC_REPROJECTION_THRESHOLD, mask)
+            val essential = Calib3d.findEssentialMat(prev, next, k, Calib3d.RANSAC, 0.999, RANSAC_REPROJECTION_THRESHOLD)
+            if (!essential.empty()) {
+                val r = Mat()
+                val t = Mat()
+                Calib3d.recoverPose(essential, prev, next, k, r, t, mask)
+                r.release()
+                t.release()
+            }
+            essential
         } else {
             Calib3d.findFundamentalMat(prev, next, Calib3d.FM_RANSAC, 3.0, 0.99, mask)
         }

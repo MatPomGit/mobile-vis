@@ -49,6 +49,11 @@ android {
     buildFeatures {
         viewBinding = true
     }
+    packaging {
+        jniLibs {
+            pickFirsts += "**/libc++_shared.so"
+        }
+    }
     buildToolsVersion = "36.0.0"
 }
 

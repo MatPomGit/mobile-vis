@@ -67,7 +67,8 @@ enum class AnalysisMode(val displayName: String, val filters: List<OpenCvFilter>
      * Human body, face and hand tracking using MediaPipe Holistic and Iris.
      *
      * Includes full-body pose estimation, bilateral hand tracking,
-     * 468-landmark face mesh, and iris/gaze tracking.
+     * 468-landmark face mesh, iris/gaze tracking, and a 3D hologram that
+     * rotates based on the viewer's face position.
      */
     POSE(
         "Poza / Twarz",
@@ -76,6 +77,7 @@ enum class AnalysisMode(val displayName: String, val filters: List<OpenCvFilter>
             OpenCvFilter.HOLISTIC_HANDS,
             OpenCvFilter.HOLISTIC_FACE,
             OpenCvFilter.IRIS,
+            OpenCvFilter.HOLOGRAM_3D,
         )
     ),
 

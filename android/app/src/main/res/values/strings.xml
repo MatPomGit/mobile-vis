@@ -98,6 +98,8 @@
     <string name="mediapipe_no_person">Nie wykryto człowieka</string>
     <string name="mediapipe_mouth_open">Usta otwarte</string>
     <string name="mediapipe_speaking">Mówi!</string>
+    <string name="hologram_no_face">Brak twarzy</string>
+    <string name="hologram_hud_angles">Yaw: %+.1f°  Pitch: %+.1f°</string>
 
     <!-- YOLO object detection -->
     <string name="yolo_models_downloading">Pobieranie modeli YOLO w tle…</string>
@@ -169,6 +171,7 @@
     <string name="filter_desc_hands">Śledzenie rąk: MediaPipe Hand Landmarker wykrywa 21 punktów na każdej dłoni (obie ręce jednocześnie).</string>
     <string name="filter_desc_face">Siatka twarzy: MediaPipe Face Landmarker rysuje 468 punktów charakterystycznych twarzy.</string>
     <string name="filter_desc_iris">Śledzenie wzroku (Iris): 478 punktów twarzy z 10 dodatkowymi dla tęczówek. Wizualizuje kierunek patrzenia.</string>
+    <string name="filter_desc_hologram_3d">Hologram 3D: wyświetla obracający się sześcian 3D. Kąt obrotu zależy od pozycji twarzy względem środka ekranu (yaw i pitch z nosa).</string>
 
     <!-- About tab – filter descriptions (ODOMETRY mode) -->
     <string name="filter_desc_visual_odometry">Odometria wizyjna: śledzi punkty charakterystyczne między klatkami i szacuje ruch kamery (translacja i rotacja).</string>

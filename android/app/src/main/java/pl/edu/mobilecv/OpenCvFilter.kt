@@ -95,6 +95,18 @@ enum class OpenCvFilter(val displayName: String) {
      */
     IRIS("Wzrok (Iris)"),
 
+    /**
+     * Renders a 3D hologram object (wireframe cube) whose rotation is driven
+     * by the viewer's face position relative to the screen centre.
+     *
+     * Uses MediaPipe Face Landmarker to detect the nose-tip landmark and maps
+     * its normalised X/Y offset from the frame centre to yaw and pitch angles.
+     * The resulting rotation is applied to a cube rendered via perspective
+     * projection, creating the illusion of a holographic display that responds
+     * to the viewer's gaze.
+     */
+    HOLOGRAM_3D("Hologram 3D"),
+
     /** Estimates sparse monocular visual odometry from tracked feature points. */
     VISUAL_ODOMETRY("Odometria wizyjna"),
 
@@ -261,7 +273,8 @@ val OpenCvFilter.isMediaPipe: Boolean
     get() = this == OpenCvFilter.HOLISTIC_BODY ||
         this == OpenCvFilter.HOLISTIC_HANDS ||
         this == OpenCvFilter.HOLISTIC_FACE ||
-        this == OpenCvFilter.IRIS
+        this == OpenCvFilter.IRIS ||
+        this == OpenCvFilter.HOLOGRAM_3D
 
 /**
  * Returns ``true`` if this filter requires the YOLO processing pipeline

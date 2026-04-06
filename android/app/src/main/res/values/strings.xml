@@ -226,8 +226,10 @@
     <string name="models_tab_description">Tryby Poza/Twarz i YOLO wymagają pobrania modeli uczenia maszynowego. Sprawdź stan poniżej i pobierz brakujące modele przed pierwszym użyciem tych trybów.</string>
     <string name="models_mediapipe_title">Modele MediaPipe</string>
     <string name="models_mediapipe_description">Modele do śledzenia pozy ciała (Pose), rąk (Hand) i siatki twarzy (Face Mesh) używane w trybie Poza/Twarz.</string>
-    <string name="models_yolo_title">Modele YOLO</string>
-    <string name="models_yolo_description">Modele YOLOv8-nano do detekcji obiektów (Detect), segmentacji instancji (Segment), estymacji pozy (Pose), klasyfikacji obrazu (Classify) i detekcji z orientowanymi ramkami (OBB) używane w trybie YOLO.</string>
+    <string name="models_yolo_title">Modele YOLO (źródłowe)</string>
+    <string name="models_yolo_description">Pliki źródłowe YOLOv8-nano pobierane bezpośrednio od producenta (Ultralytics). Obejmują detekcję obiektów (Detect), segmentację (Segment), estymację pozy (Pose), klasyfikację (Classify) i orientowane ramki (OBB). Po pobraniu wymagają konwersji do TorchScript w celu uruchomienia na urządzeniu.</string>
+    <string name="models_rtmdet_title">Modele RTMDet</string>
+    <string name="models_rtmdet_description">Modele RTMDet-nano w formacie ONNX do detekcji obiektów (Detect) i detekcji z obróconymi ramkami (Rotated) używane w trybie RTMDet.</string>
     <string name="model_name_pose_landmarker">Pose Landmarker (ciało)</string>
     <string name="model_name_hand_landmarker">Hand Landmarker (ręce)</string>
     <string name="model_name_face_landmarker">Face Landmarker (twarz)</string>
@@ -236,6 +238,8 @@
     <string name="model_name_yolo_pose">YOLOv8n Pose (estymacja pozy)</string>
     <string name="model_name_yolo_classify">YOLOv8n Classify (klasyfikacja ImageNet-1000)</string>
     <string name="model_name_yolo_obb">YOLOv8n OBB (orientowane ramki, DOTAv1)</string>
+    <string name="model_name_rtmdet_detect">RTMDet-nano Detect (detekcja obiektów COCO)</string>
+    <string name="model_name_rtmdet_rotated">RTMDet-nano Rotated (orientowane ramki)</string>
     <string name="model_status_available">Pobrano • %1$s</string>
     <string name="model_status_missing">Nie pobrano</string>
     <string name="model_btn_download">Pobierz</string>
@@ -246,6 +250,12 @@
     <string name="model_download_failed" tools:keep="@string/model_download_failed">Błąd pobierania: %1$s</string>
     <string name="model_download_all_success" tools:keep="@string/model_download_all_success">Wszystkie modele pobrane pomyślnie</string>
     <string name="model_download_all_failed" tools:keep="@string/model_download_all_failed">Nie udało się pobrać wszystkich modeli</string>
+
+    <!-- Models-missing suggestion dialog (shown at startup when any model is absent) -->
+    <string name="models_missing_title">Brakujące modele</string>
+    <string name="models_missing_message">Niektóre modele AI (MediaPipe, YOLO lub RTMDet) nie zostały jeszcze pobrane. Przejdź do zakładki „Modele", aby pobrać brakujące pliki przed pierwszym użyciem tych trybów.</string>
+    <string name="models_go_to_tab">Przejdź do Modele</string>
+    <string name="models_later">Później</string>
 
     <!-- Point cloud save -->
     <string name="save_point_cloud_description">Zapisz chmurę punktów do pliku</string>

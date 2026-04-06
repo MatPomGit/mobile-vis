@@ -45,14 +45,15 @@ class ActiveVisionOptimizer {
         focusedRegion.copyTo(destinationRegion)
 
         if (visualizeWork) {
-            Imgproc.rectangle(output, roi, Scalar(255.0, 180.0, 0.0, 255.0), 3)
+            val redColor = Scalar(255.0, 0.0, 0.0, 255.0)
+            Imgproc.rectangle(output, roi, redColor, 3)
             Imgproc.putText(
                 output,
                 "Active Vision ROI",
                 org.opencv.core.Point(roi.x.toDouble(), max(25.0, (roi.y - 10).toDouble())),
                 Imgproc.FONT_HERSHEY_SIMPLEX,
                 0.7,
-                Scalar(255.0, 180.0, 0.0, 255.0),
+                redColor,
                 2,
             )
         }

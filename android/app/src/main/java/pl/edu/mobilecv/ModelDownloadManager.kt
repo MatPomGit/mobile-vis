@@ -88,7 +88,7 @@ object ModelDownloadManager {
     private const val YOLO_DIR = "yolo"
 
     /**
-     * Remote download URLs for RTMDet-nano ONNX models hosted on GitHub Releases.
+     * Remote download URLs for RTMDet-nano TorchScript models hosted on GitHub Releases.
      *
      * The models are exported from the official OpenMMLab RTMDet weights via
      * mmdeploy and stored in the project's GitHub Releases under the ``models`` tag.
@@ -97,9 +97,9 @@ object ModelDownloadManager {
      */
     val RTMDET_MODEL_URLS: Map<String, String> = mapOf(
         RtmDetProcessor.MODEL_DETECT to
-            "https://github.com/MatPomGit/mobile-vis/releases/download/models/rtmdet_nano_det.onnx",
+            "https://github.com/MatPomGit/mobile-vis/releases/download/models/rtmdet_nano_det.torchscript",
         RtmDetProcessor.MODEL_ROTATED to
-            "https://github.com/MatPomGit/mobile-vis/releases/download/models/rtmdet_nano_rotated.onnx",
+            "https://github.com/MatPomGit/mobile-vis/releases/download/models/rtmdet_nano_rotated.torchscript",
     )
 
     private const val RTMDET_DIR = "rtmdet"

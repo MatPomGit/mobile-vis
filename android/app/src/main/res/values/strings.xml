@@ -105,12 +105,19 @@
     <string name="yolo_models_downloading">Pobieranie modeli YOLO w tle…</string>
     <string name="yolo_models_ready">Modele YOLO gotowe</string>
     <string name="yolo_models_download_failed" tools:keep="@string/yolo_models_download_failed">Nie udało się pobrać modeli YOLO. Sprawdź połączenie z internetem.</string>
+
+    <!-- RTMDet object detection -->
+    <string name="rtmdet_models_downloading">Pobieranie modeli RTMDet w tle…</string>
+    <string name="rtmdet_models_ready">Modele RTMDet gotowe</string>
+    <string name="rtmdet_models_download_failed">Nie udało się pobrać modeli RTMDet. Sprawdź połączenie z internetem.</string>
+
     <string name="vo_overlay_tracks" tools:keep="@string/vo_overlay_tracks">Ścieżki VO</string>
     <string name="vo_overlay_point_cloud" tools:keep="@string/vo_overlay_point_cloud">Chmura</string>
 
     <!-- Visual Odometry parameters -->
     <string name="vo_max_features_label">Max cech:</string>
     <string name="vo_min_parallax_label">Próg paralaksy:</string>
+    <string name="geometry_max_planes_label">Liczba płaszczyzn:</string>
     <string name="vo_depth_gain_label" tools:keep="@string/vo_depth_gain_label">Wzmocnienie głębi:</string>
     <string name="vo_mesh_toggle">Pokaż siatkę (Mesh)</string>
 
@@ -203,7 +210,7 @@
     <string name="mode_desc_effects">Artystyczne efekty wizualne: inwersja, sepia, tłoczenie, pikselizacja i styl kreskówki</string>
 
     <!-- About tab – filter descriptions (RTMDET mode) -->
-    <string name="filter_desc_rtmdet_detect">Detekcja obiektów RTMDet-nano: wykrywa obiekty w czasie rzeczywistym, rysuje ramki z etykietami klas i poziomem pewności (format end2end ONNX).</string>
+    <string name="filter_desc_rtmdet_detect">Detekcja obiektów RTMDet-nano: wykrywa obiekty w czasie rzeczywistym, rysuje ramki z etykietami klas i poziomem pewności (format end2end TorchScript).</string>
     <string name="filter_desc_rtmdet_rotated">Detekcja z obróconymi ramkami RTMDet-nano (RTMDet-R): wykrywa obiekty i rysuje zorientowane prostokąty zgodne z osią obiektu.</string>
     <string name="mode_desc_rtmdet">Detekcja obiektów z ramkami prostopadłymi i zorientowanymi z użyciem RTMDet-nano (OpenMMLab)</string>
 
@@ -232,7 +239,7 @@
     <string name="models_yolo_title">Modele YOLO (źródłowe)</string>
     <string name="models_yolo_description">Pliki źródłowe YOLOv8-nano pobierane bezpośrednio od producenta (Ultralytics). Obejmują detekcję obiektów (Detect), segmentację (Segment), estymację pozy (Pose), klasyfikację (Classify) i orientowane ramki (OBB). Po pobraniu wymagają konwersji do TorchScript w celu uruchomienia na urządzeniu.</string>
     <string name="models_rtmdet_title">Modele RTMDet</string>
-    <string name="models_rtmdet_description">Modele RTMDet-nano w formacie ONNX do detekcji obiektów (Detect) i detekcji z obróconymi ramkami (Rotated) używane w trybie RTMDet.</string>
+    <string name="models_rtmdet_description">Modele RTMDet-nano w formacie TorchScript do detekcji obiektów (Detect) i detekcji z obróconymi ramkami (Rotated) używane w trybie RTMDet.</string>
     <string name="model_name_pose_landmarker">Pose Landmarker (ciało)</string>
     <string name="model_name_hand_landmarker">Hand Landmarker (ręce)</string>
     <string name="model_name_face_landmarker">Face Landmarker (twarz)</string>

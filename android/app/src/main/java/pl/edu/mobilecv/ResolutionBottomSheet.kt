@@ -27,14 +27,29 @@ class ResolutionBottomSheet : BottomSheetDialogFragment() {
 
     companion object {
         const val TAG = "ResolutionBottomSheet"
+        private const val ARG_CURRENT_RESOLUTION = "current_resolution"
+
+        /**
+         * Creates a new instance of [ResolutionBottomSheet] with the specified [current] resolution.
+         */
+        fun newInstance(current: CameraResolution): ResolutionBottomSheet {
+            return ResolutionBottomSheet().apply {
+                arguments = Bundle().apply {
+                    putString(ARG_CURRENT_RESOLUTION, current.name)
+                }
+            }
+        }
     }
 
     /** The resolution that should appear pre-selected when the sheet opens. */
-    var currentResolution: CameraResolution = CameraResolution.DEFAULT
+    private val initialResolution: CameraResolution by lazy {
+        val name = arguments?.getString(ARG_CURRENT_RESOLUTION)
+        CameraResolution.entries.find { it.name == name } ?: CameraResolution.DEFAULT
+    }
 
     /**
-     * Invoked on the main thread when the user taps **Apply** with a valid selection.
-     * Receives the chosen [CameraResolution].
+     * Deprecated: Use Fragment Result API with request key "resolution_request"
+     * and result key "selected_resolution" (String - name of [CameraResolution]).
      */
     var onResolutionSelected: ((CameraResolution) -> Unit)? = null
 
@@ -56,7 +71,7 @@ class ResolutionBottomSheet : BottomSheetDialogFragment() {
                 id = View.generateViewId()
                 text = resolution.displayName
                 tag = resolution
-                isChecked = (resolution == currentResolution)
+                isChecked = (resolution == initialResolution)
             }
             radioGroup.addView(radio)
         }
@@ -65,7 +80,15 @@ class ResolutionBottomSheet : BottomSheetDialogFragment() {
             val checkedId = radioGroup.checkedRadioButtonId
             if (checkedId != View.NO_ID) {
                 val selected = view.findViewById<RadioButton>(checkedId).tag as CameraResolution
+                
+                // Invoke legacy callback if set
                 onResolutionSelected?.invoke(selected)
+                
+                // Modern Fragment Result API
+                val result = Bundle().apply {
+                    putString("selected_resolution", selected.name)
+                }
+                parentFragmentManager.setFragmentResult("resolution_request", result)
             }
             dismiss()
         }

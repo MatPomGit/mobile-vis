@@ -269,6 +269,49 @@
 
         </LinearLayout>
 
+        <!-- Geometry Max Planes slider -->
+        <LinearLayout
+            android:id="@+id/layoutGeometryMaxPlanes"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:paddingTop="4dp"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_vertical"
+                android:text="@string/geometry_max_planes_label"
+                android:textColor="@android:color/white"
+                android:textSize="12sp"
+                android:minWidth="120dp" />
+
+            <SeekBar
+                android:id="@+id/seekBarGeometryMaxPlanes"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_vertical"
+                android:layout_weight="1"
+                android:max="8"
+                android:progress="2"
+                android:progressTint="@android:color/white"
+                android:thumbTint="@android:color/white" />
+
+            <TextView
+                android:id="@+id/textViewGeometryMaxPlanes"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_vertical"
+                android:layout_marginStart="8dp"
+                android:textColor="@android:color/white"
+                android:textSize="12sp"
+                tools:text="3" />
+
+        </LinearLayout>
+
         <!-- VO Mesh toggle -->
         <LinearLayout
             android:id="@+id/layoutVoMesh"
@@ -479,19 +522,6 @@
                 android:background="@drawable/bg_capture_button"
                 android:contentDescription="@string/capture_button_description"
                 android:scaleType="centerInside" />
-
-            <!-- Robot Connection FAB -->
-            <com.google.android.material.floatingactionbutton.FloatingActionButton
-                android:id="@+id/fabRobotConnection"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="center_vertical|end"
-                android:contentDescription="@string/robot_connection_description"
-                app:backgroundTint="@color/button_robot_default"
-                app:elevation="0dp"
-                app:fabSize="mini"
-                app:srcCompat="@android:drawable/ic_menu_share"
-                app:tint="@android:color/white" />
 
             <!-- Save Point Cloud FAB (visible only during POINT_CLOUD filter) -->
             <com.google.android.material.floatingactionbutton.FloatingActionButton

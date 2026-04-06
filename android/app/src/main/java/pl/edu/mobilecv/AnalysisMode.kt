@@ -137,6 +137,7 @@ enum class AnalysisMode(val displayName: String, val filters: List<OpenCvFilter>
         "YOLO",
         listOf(
             OpenCvFilter.YOLO_DETECT,
+            OpenCvFilter.YOLO_KALMAN,
             OpenCvFilter.YOLO_SEGMENT,
             OpenCvFilter.YOLO_POSE,
             OpenCvFilter.YOLO_CLASSIFY,
@@ -146,7 +147,7 @@ enum class AnalysisMode(val displayName: String, val filters: List<OpenCvFilter>
 
     /**
      * Real-time object detection with axis-aligned and rotated bounding boxes
-     * powered by RTMDet-nano (OpenMMLab) models running on the OpenCV DNN
+     * powered by RTMDet-nano (OpenMMLab) models running on the PyTorch Mobile
      * backend.
      *
      * RTMDet (Real-Time instance detection) delivers state-of-the-art accuracy
@@ -160,6 +161,16 @@ enum class AnalysisMode(val displayName: String, val filters: List<OpenCvFilter>
         listOf(
             OpenCvFilter.RTMDET_DETECT,
             OpenCvFilter.RTMDET_ROTATED,
+        )
+    ),
+
+    /**
+     * Advanced object tracking using Kalman Filters to stabilize YOLO detections.
+     */
+    TRACKING(
+        "Śledzenie",
+        listOf(
+            OpenCvFilter.YOLO_KALMAN,
         )
     ),
 

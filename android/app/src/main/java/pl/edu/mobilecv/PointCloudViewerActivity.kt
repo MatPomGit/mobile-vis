@@ -88,54 +88,96 @@ class PointCloudViewerActivity : AppCompatActivity() {
     private fun loadPointCloud(uri: Uri) {
         try {
             val points = mutableListOf<Triple<Float, Float, Float>>()
+            val colors = mutableListOf<Int>()
             contentResolver.openInputStream(uri)?.bufferedReader()?.use { reader ->
                 val filename = getDisplayName(uri)
                 val isPly = filename.endsWith(".ply", ignoreCase = true)
 
                 if (isPly) {
                     var headerDone = false
-                    for (line in reader.lineSequence()) {
-                        if (!headerDone) {
-                            if (line.trim() == "end_header") headerDone = true
-                            continue
+                    var vertexCount = 0
+                    var propertyXIdx = -1; var propertyYIdx = -1; var propertyZIdx = -1
+                    var propertyRIdx = -1; var propertyGIdx = -1; var propertyBIdx = -1
+                    var currentPropertyIdx = 0
+
+                    val lines = reader.readLines()
+                    var lineIdx = 0
+
+                    while (lineIdx < lines.size && !headerDone) {
+                        val line = lines[lineIdx].trim()
+                        lineIdx++
+                        if (line.startsWith("element vertex")) {
+                            vertexCount = line.split(" ").lastOrNull()?.toIntOrNull() ?: 0
+                        } else if (line.startsWith("property float") || line.startsWith("property uchar")) {
+                            val propName = line.split(" ").lastOrNull()
+                            when (propName) {
+                                "x" -> propertyXIdx = currentPropertyIdx
+                                "y" -> propertyYIdx = currentPropertyIdx
+                                "z" -> propertyZIdx = currentPropertyIdx
+                                "red" -> propertyRIdx = currentPropertyIdx
+                                "green" -> propertyGIdx = currentPropertyIdx
+                                "blue" -> propertyBIdx = currentPropertyIdx
+                            }
+                            currentPropertyIdx++
+                        } else if (line == "end_header") {
+                            headerDone = true
                         }
-                        val parts = line.trim().split(" ")
-                        if (parts.size >= 2) {
-                            val x = parts[0].toFloatOrNull() ?: continue
-                            val y = parts[1].toFloatOrNull() ?: continue
-                            val z = parts.getOrNull(2)?.toFloatOrNull() ?: 0f
+                    }
+
+                    while (lineIdx < lines.size && points.size < vertexCount) {
+                        val line = lines[lineIdx].trim()
+                        lineIdx++
+                        if (line.isEmpty()) continue
+                        val parts = line.split(Regex("\\s+"))
+                        if (parts.size >= currentPropertyIdx) {
+                            val x = if (propertyXIdx != -1 && propertyXIdx < parts.size) parts[propertyXIdx].toFloatOrNull() ?: 0f else 0f
+                            val y = if (propertyYIdx != -1 && propertyYIdx < parts.size) parts[propertyYIdx].toFloatOrNull() ?: 0f else 0f
+                            val z = if (propertyZIdx != -1 && propertyZIdx < parts.size) parts[propertyZIdx].toFloatOrNull() ?: 0f else 0f
                             points.add(Triple(x, y, z))
+                            
+                            if (propertyRIdx != -1 && propertyGIdx != -1 && propertyBIdx != -1) {
+                                val r = parts[propertyRIdx].toIntOrNull() ?: 255
+                                val g = parts[propertyGIdx].toIntOrNull() ?: 255
+                                val b = parts[propertyBIdx].toIntOrNull() ?: 255
+                                colors.add(Color.rgb(r, g, b))
+                            } else {
+                                colors.add(Color.WHITE)
+                            }
                         }
                     }
                 } else {
-                    // CSV format: x,y[,z] per line; skip header and comment lines
+                    // CSV format: x,y,z,r,g,b per line; skip header and comment lines
                     for (line in reader.lineSequence()) {
                         val trimmed = line.trim()
                         if (trimmed.startsWith("#") || trimmed.isEmpty()) continue
-                        // Skip header line (x,y or x,y,z)
-                        if (trimmed.equals("x,y", ignoreCase = true) ||
-                            trimmed.equals("x,y,z", ignoreCase = true)) continue
+                        if (trimmed.startsWith("x,y", ignoreCase = true)) continue
+                        
                         val parts = trimmed.split(",")
                         if (parts.size >= 2) {
                             val x = parts[0].toFloatOrNull() ?: continue
                             val y = parts[1].toFloatOrNull() ?: continue
                             val z = parts.getOrNull(2)?.toFloatOrNull() ?: 0f
                             points.add(Triple(x, y, z))
+                            
+                            if (parts.size >= 6) {
+                                val r = parts[3].toIntOrNull() ?: 255
+                                val g = parts[4].toIntOrNull() ?: 255
+                                val b = parts[5].toIntOrNull() ?: 255
+                                colors.add(Color.rgb(r, g, b))
+                            } else {
+                                colors.add(Color.WHITE)
+                            }
                         }
                     }
                 }
             }
 
             if (points.isEmpty()) {
-                Toast.makeText(
-                    this,
-                    getString(R.string.point_cloud_viewer_error, "Brak punktów w pliku"),
-                    Toast.LENGTH_SHORT,
-                ).show()
+                Toast.makeText(this, getString(R.string.point_cloud_viewer_error, "Brak punktów"), Toast.LENGTH_SHORT).show()
                 return
             }
 
-            cloudView.setPoints(points)
+            cloudView.setPoints(points, colors)
             textStatus.text = getString(R.string.point_cloud_viewer_loaded, points.size)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to load point cloud", e)
@@ -161,28 +203,29 @@ class PointCloudViewerActivity : AppCompatActivity() {
  */
 class PointCloudView(context: Context, attrs: android.util.AttributeSet?) : View(context, attrs) {
 
+    private data class PointData(
+        val x: Float, val y: Float, val z: Float,
+        val color: Int
+    )
+
     companion object {
-        /** Radians of rotation per screen pixel dragged. */
         private const val ROTATION_SENSITIVITY = 0.005f
         private const val POINT_RADIUS = 3f
         private const val HINT_TEXT_ALPHA = 160
         private const val HINT_TEXT_SIZE = 36f
-        /** Distance from the bottom edge at which the drag hint is drawn, in pixels. */
         private const val HINT_BOTTOM_OFFSET = 60f
     }
 
-    private var points: List<Triple<Float, Float, Float>> = emptyList()
+    private var points: List<PointData> = emptyList()
 
-    /** Cached centroid of [points], recomputed only in [setPoints]. */
     private var centroidX = 0f
     private var centroidY = 0f
     private var centroidZ = 0f
 
-    /**
-     * Pre-computed rotated and depth-sorted list.
-     * Recomputed only when [projectedDirty] is true.
-     */
-    private var projected: MutableList<Triple<Float, Float, Float>> = mutableListOf()
+    private var projected: MutableList<PointData> = mutableListOf()
+    private var vertexBuffer: FloatArray = FloatArray(0)
+    private var colorBuffer: IntArray = IntArray(0)
+    
     private var minX = 0f; private var maxX = 0f
     private var minY = 0f; private var maxY = 0f
     private var minZ = 0f; private var maxZ = 0f
@@ -196,10 +239,7 @@ class PointCloudView(context: Context, attrs: android.util.AttributeSet?) : View
         textAlign = Paint.Align.CENTER
     }
 
-    /** Elevation angle (rotation around the X axis), in radians. */
     private var rotX = 0f
-
-    /** Azimuth angle (rotation around the Y axis), in radians. */
     private var rotY = 0f
 
     private var lastTouchX = 0f
@@ -207,22 +247,28 @@ class PointCloudView(context: Context, attrs: android.util.AttributeSet?) : View
     private var isDragging = false
     private var everRotated = false
 
-    /** Replaces the displayed point cloud and resets rotation to the default view. */
-    fun setPoints(pts: List<Triple<Float, Float, Float>>) {
-        points = pts
-        if (pts.isNotEmpty()) {
-            // Compute centroid in a single pass to avoid three separate iterations
+    fun setPoints(pts: List<Triple<Float, Float, Float>>, colors: List<Int>? = null) {
+        points = pts.mapIndexed { i, triple ->
+            PointData(triple.first, triple.second, triple.third, colors?.getOrNull(i) ?: Color.WHITE)
+        }
+        if (points.isNotEmpty()) {
             var sumX = 0.0; var sumY = 0.0; var sumZ = 0.0
-            for ((x, y, z) in pts) {
-                sumX += x
-                sumY += y
-                sumZ += z
+            for (p in points) {
+                sumX += p.x; sumY += p.y; sumZ += p.z
             }
-            val n = pts.size.toDouble()
+            val n = points.size.toDouble()
             centroidX = (sumX / n).toFloat()
             centroidY = (sumY / n).toFloat()
             centroidZ = (sumZ / n).toFloat()
         }
+        
+        if (projected.size != points.size) {
+            projected = ArrayList(points.size)
+            repeat(points.size) { projected.add(PointData(0f, 0f, 0f, 0)) }
+            vertexBuffer = FloatArray(points.size * 2)
+            colorBuffer = IntArray(points.size)
+        }
+        
         projectedDirty = true
         resetRotation()
     }
@@ -278,32 +324,27 @@ class PointCloudView(context: Context, attrs: android.util.AttributeSet?) : View
         val cosY = cos(rotY)
         val sinY = sin(rotY)
 
-        if (projected.size != points.size) {
-            projected = ArrayList(points.size)
-            repeat(points.size) { projected.add(Triple(0f, 0f, 0f)) }
-        }
-
         var pMinX = Float.MAX_VALUE; var pMaxX = -Float.MAX_VALUE
         var pMinY = Float.MAX_VALUE; var pMaxY = -Float.MAX_VALUE
         var pMinZ = Float.MAX_VALUE; var pMaxZ = -Float.MAX_VALUE
 
         for (i in points.indices) {
-            val (x, y, z) = points[i]
-            val tx = x - centroidX
-            val ty = y - centroidY
-            val tz = z - centroidZ
+            val p = points[i]
+            val tx = p.x - centroidX
+            val ty = p.y - centroidY
+            val tz = p.z - centroidZ
 
-            // Rotate around Y axis (horizontal drag → azimuth)
+            // Rotate around Y axis
             val rx1 = tx * cosY + tz * sinY
             val ry1 = ty
             val rz1 = -tx * sinY + tz * cosY
 
-            // Rotate around X axis (vertical drag → elevation)
+            // Rotate around X axis
             val rx2 = rx1
             val ry2 = ry1 * cosX - rz1 * sinX
             val rz2 = ry1 * sinX + rz1 * cosX
 
-            projected[i] = Triple(rx2, ry2, rz2)
+            projected[i] = PointData(rx2, ry2, rz2, p.color)
 
             if (rx2 < pMinX) pMinX = rx2
             if (rx2 > pMaxX) pMaxX = rx2
@@ -317,17 +358,8 @@ class PointCloudView(context: Context, attrs: android.util.AttributeSet?) : View
         minY = pMinY; maxY = pMaxY
         minZ = pMinZ; maxZ = pMaxZ
 
-        // Painter's algorithm: sort back-to-front so near points appear on top
-        projected.sortBy { it.third }
-    }
-
-    override fun onDraw(canvas: Canvas) {
-        super.onDraw(canvas)
-        canvas.drawColor(Color.BLACK)
-
-        if (points.isEmpty()) return
-
-        ensureProjected()
+        // Sort back-to-front
+        projected.sortBy { it.z }
 
         val rangeX = max(1f, maxX - minX)
         val rangeY = max(1f, maxY - minY)
@@ -338,12 +370,42 @@ class PointCloudView(context: Context, attrs: android.util.AttributeSet?) : View
         val drawW = width - 2 * padX
         val drawH = height - 2 * padY
 
-        for ((rx, ry, rz) in projected) {
-            val px = padX + (rx - minX) / rangeX * drawW
-            val py = padY + (ry - minY) / rangeY * drawH
-            val brightness = ((rz - minZ) / rangeZ * 205 + 50).toInt().coerceIn(50, 255)
-            paint.color = Color.rgb(brightness, brightness, 255)
-            canvas.drawCircle(px, py, POINT_RADIUS, paint)
+        for (i in projected.indices) {
+            val p = projected[i]
+            val px = padX + (p.x - minX) / rangeX * drawW
+            val py = padY + (p.y - minY) / rangeY * drawH
+            
+            vertexBuffer[i * 2] = px
+            vertexBuffer[i * 2 + 1] = py
+
+            // Adjust brightness based on depth
+            val zFactor = ((p.z - minZ) / rangeZ * 0.5 + 0.5).toFloat()
+            val r = (Color.red(p.color) * zFactor).toInt()
+            val g = (Color.green(p.color) * zFactor).toInt()
+            val b = (Color.blue(p.color) * zFactor).toInt()
+            colorBuffer[i] = Color.rgb(r, g, b)
+        }
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+        canvas.drawColor(Color.BLACK)
+
+        if (points.isEmpty()) return
+
+        ensureProjected()
+
+        paint.strokeWidth = POINT_RADIUS * 2
+        paint.strokeCap = Paint.Cap.ROUND
+        canvas.drawPoints(vertexBuffer, 0, projected.size * 2, paint)
+        
+        // Unfortunately drawPoints doesn't support per-point colors easily without GL.
+        // We'll stick to individual drawCircle for now but the buffers are ready
+        // if we move to a custom shader or many drawPoint calls.
+        // Actually, let's optimize the loop by avoiding object allocations.
+        for (i in projected.indices) {
+            paint.color = colorBuffer[i]
+            canvas.drawPoint(vertexBuffer[i * 2], vertexBuffer[i * 2 + 1], paint)
         }
 
         // Show a one-time drag hint until the user rotates the cloud

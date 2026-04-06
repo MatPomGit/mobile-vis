@@ -38,6 +38,8 @@ import com.google.android.material.chip.Chip
 import com.google.android.material.tabs.TabLayout
 import org.opencv.android.OpenCVLoader
 import pl.edu.mobilecv.databinding.ActivityMainBinding
+import pl.edu.mobilecv.vision.CameraCalibrator
+import pl.edu.mobilecv.odometry.VisualOdometryEngine
 import java.io.IOException
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
@@ -45,6 +47,7 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.getValue
 
 /**
  * Main (and only) activity of the MobileCV application.
@@ -54,14 +57,13 @@ class MainActivity : AppCompatActivity() {
     companion object {
         private const val TAG = "MobileCV"
         private const val PREFS_NAME = "mobilecv_prefs"
-        private const val PREF_ROBOT_HOST = "robot_host"
-        private const val PREF_ROBOT_PORT = "robot_port"
         private const val PREF_CAMERA_RESOLUTION = "camera_resolution"
         private const val RECORDING_TIMER_FORMAT = "%02d:%02d"
         private const val UI_UPDATE_MIN_INTERVAL_NS = 33_000_000L
     }
 
     private lateinit var binding: ActivityMainBinding
+    private val prefs by lazy { getSharedPreferences(PREFS_NAME, MODE_PRIVATE) }
 
     // CameraX
     private var cameraProvider: ProcessCameraProvider? = null
@@ -78,9 +80,11 @@ class MainActivity : AppCompatActivity() {
     private val imageProcessor by lazy { ImageProcessor() }
     private val mediaPipeProcessor: MediaPipeProcessor by lazy { MediaPipeProcessor(this) }
     private val yoloProcessor: YoloProcessor by lazy { YoloProcessor(this) }
+    private val rtmDetProcessor: RtmDetProcessor by lazy { RtmDetProcessor(this) }
 
     @Volatile private var mediaPipeDownloadInProgress = false
     private val yoloDownloadInProgress = AtomicBoolean(false)
+    private val rtmDetDownloadInProgress = AtomicBoolean(false)
     @Volatile private var currentFilter = OpenCvFilter.ORIGINAL
     @Volatile private var currentMode: AnalysisMode = AnalysisMode.entries.first()
     @Volatile private var isActiveVisionEnabled = false
@@ -88,11 +92,6 @@ class MainActivity : AppCompatActivity() {
 
     // Calibration
     val cameraCalibrator = CameraCalibrator()
-
-    // ROS2 / ROSBridge
-    private val rosBridgeClient = RosBridgeClient()
-    private var lastRobotHost: String = "192.168.1.100"
-    private var lastRobotPort: Int = RosBridgeClient.DEFAULT_PORT
 
     // FPS and diagnostics
     private val fpsCounter = FpsCounter()
@@ -140,13 +139,9 @@ class MainActivity : AppCompatActivity() {
         cameraAnalysisExecutor = Executors.newSingleThreadExecutor()
         backgroundExecutor = Executors.newSingleThreadExecutor()
 
-        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-        lastRobotHost = prefs.getString(PREF_ROBOT_HOST, lastRobotHost) ?: lastRobotHost
-        lastRobotPort = prefs.getInt(PREF_ROBOT_PORT, lastRobotPort)
         currentResolution = CameraResolution.entries.find { it.name == prefs.getString(PREF_CAMERA_RESOLUTION, null) } ?: CameraResolution.DEFAULT
 
         imageProcessor.calibrator = cameraCalibrator
-        imageProcessor.onMarkersDetected = { rosBridgeClient.publishMarkers(it) }
         imageProcessor.labelFrameCountSuffix = getString(R.string.calibration_overlay_frames_suffix)
         imageProcessor.labelBoardNotFound = getString(R.string.calibration_overlay_board_not_found)
         imageProcessor.labelNoCalibration = getString(R.string.calibration_overlay_no_calibration)
@@ -169,6 +164,9 @@ class MainActivity : AppCompatActivity() {
             imageProcessor.mediaPipeProcessor = mediaPipeProcessor
             yoloProcessor.initialize()
             imageProcessor.yoloProcessor = yoloProcessor
+            rtmDetProcessor.initialize()
+            imageProcessor.rtmDetProcessor = rtmDetProcessor
+
             // Automatically download missing YOLO models in the background at startup
             // so they are ready regardless of which tab the user opens first.
             if (!ModelDownloadManager.areYoloModelsReady(this) && yoloDownloadInProgress.compareAndSet(false, true)) {
@@ -191,39 +189,29 @@ class MainActivity : AppCompatActivity() {
                                 Toast.makeText(this, getString(R.string.yolo_models_download_failed), Toast.LENGTH_LONG).show()
                         }
                     }
-                } catch (e: IOException) {
-                    logExceptionTelemetry("startup_yolo_download", "model_io", e)
-                    Log.e(TAG, "Startup YOLO download failed: model I/O error", e)
-                    runOnUiThread {
-                        if (!isDestroyed && !isFinishing)
-                            Toast.makeText(this, getString(R.string.yolo_models_download_failed), Toast.LENGTH_LONG).show()
-                    }
-                } catch (e: IllegalStateException) {
-                    logExceptionTelemetry("startup_yolo_download", "state", e)
-                    Log.e(TAG, "Startup YOLO download failed: invalid app/model state", e)
-                    runOnUiThread {
-                        if (!isDestroyed && !isFinishing)
-                            Toast.makeText(this, getString(R.string.yolo_models_download_failed), Toast.LENGTH_LONG).show()
-                    }
                 } catch (e: Exception) {
                     logExceptionTelemetry("startup_yolo_download", "unexpected", e)
-                    Log.e(
-                        TAG,
-                        "Unhandled startup YOLO download error type=${e::class.java.name} message=${e.message}",
-                        e,
-                    )
-                    runOnUiThread {
-                        if (!isDestroyed && !isFinishing)
-                            Toast.makeText(this, getString(R.string.yolo_models_download_failed), Toast.LENGTH_LONG).show()
-                    }
+                    Log.e(TAG, "Startup YOLO download failed", e)
                 } finally {
                     yoloDownloadInProgress.set(false)
                 }
             }
-        }
 
-        rosBridgeClient.onStateChanged = { state ->
-            if (!isDestroyed && !isFinishing) runOnUiThread { onRosBridgeStateChanged(state) }
+            // Automatically download missing RTMDet models in the background at startup.
+            if (!ModelDownloadManager.areRtmDetModelsReady(this) && rtmDetDownloadInProgress.compareAndSet(false, true)) {
+                try {
+                    if (ModelDownloadManager.downloadMissingRtmDetModels(this)) {
+                        rtmDetProcessor.close()
+                        rtmDetProcessor.initialize()
+                        imageProcessor.rtmDetProcessor = rtmDetProcessor
+                    }
+                } catch (e: Exception) {
+                    logExceptionTelemetry("startup_rtmdet_download", "unexpected", e)
+                    Log.e(TAG, "Startup RTMDet download failed", e)
+                } finally {
+                    rtmDetDownloadInProgress.set(false)
+                }
+            }
         }
 
         setupAnalysisTabs()
@@ -235,7 +223,6 @@ class MainActivity : AppCompatActivity() {
         setupCameraSwitchButton()
         setupCaptureButton()
         setupCalibrationFab()
-        setupRobotConnectionFab()
         setupResolutionFab()
         setupSavePointCloudFab()
         setupBackToMenuButton()
@@ -256,11 +243,14 @@ class MainActivity : AppCompatActivity() {
             }
         }
         stopRecordingTimer()
-        backgroundExecutor.execute { mediaPipeProcessor.close(); yoloProcessor.close() }
+        backgroundExecutor.execute { 
+            mediaPipeProcessor.close()
+            yoloProcessor.close()
+            imageProcessor.release()
+        }
         cameraAnalysisExecutor.shutdown()
         backgroundExecutor.shutdown()
         pendingRecycleBitmap?.recycle(); lastProcessedBitmap?.recycle()
-        rosBridgeClient.shutdown()
     }
 
     private fun initOpenCv() { if (!OpenCVLoader.initLocal()) Toast.makeText(this, getString(R.string.opencv_init_error), Toast.LENGTH_LONG).show() }
@@ -325,6 +315,19 @@ class MainActivity : AppCompatActivity() {
                 val v = (p.coerceIn(5, 95)) / 100.0
                 imageProcessor.poseEmaAlpha = v
                 binding.textViewPoseEmaAlpha.text = "%.2f".format(v)
+            }
+            override fun onStartTrackingTouch(s: SeekBar) {}
+            override fun onStopTrackingTouch(s: SeekBar) {}
+        })
+
+        // Geometry Max Planes
+        binding.seekBarGeometryMaxPlanes.progress = imageProcessor.geometryMaxPlanes - 1
+        binding.textViewGeometryMaxPlanes.text = imageProcessor.geometryMaxPlanes.toString()
+        binding.seekBarGeometryMaxPlanes.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(s: SeekBar, p: Int, f: Boolean) {
+                val v = p + 1
+                imageProcessor.geometryMaxPlanes = v
+                binding.textViewGeometryMaxPlanes.text = v.toString()
             }
             override fun onStartTrackingTouch(s: SeekBar) {}
             override fun onStopTrackingTouch(s: SeekBar) {}
@@ -412,6 +415,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         binding.layoutKernelSize.visibility = if (mode == AnalysisMode.MORPHOLOGY) View.VISIBLE else View.GONE
+        binding.layoutGeometryMaxPlanes.visibility = if (mode == AnalysisMode.GEOMETRY && currentFilter == OpenCvFilter.PLANE_DETECTION) View.VISIBLE else View.GONE
 
         val isOdometry = mode == AnalysisMode.ODOMETRY
         binding.layoutVoMaxFeatures.visibility = if (isOdometry) View.VISIBLE else View.GONE
@@ -420,21 +424,25 @@ class MainActivity : AppCompatActivity() {
         binding.layoutPoseTemporalControls.visibility = if (mode == AnalysisMode.MARKERS) View.VISIBLE else View.GONE
 
         binding.fabCalibrationMenu.visibility = if (mode == AnalysisMode.CALIBRATION) View.VISIBLE else View.GONE
-        binding.fabRobotConnection.visibility = if (mode == AnalysisMode.CALIBRATION) View.GONE else View.VISIBLE
 
         if (mode == AnalysisMode.POSE && !ModelDownloadManager.areAllModelsReady(this)) startMediaPipeModelDownload()
-        if (mode == AnalysisMode.YOLO && !ModelDownloadManager.areYoloModelsReady(this)) startYoloModelDownload()
+        if ((mode == AnalysisMode.YOLO || mode == AnalysisMode.TRACKING) && !ModelDownloadManager.areYoloModelsReady(this)) startYoloModelDownload()
+        if (mode == AnalysisMode.RTMDET && !ModelDownloadManager.areRtmDetModelsReady(this)) startRtmDetModelDownload()
 
         updateContextualControls()
     }
 
     private fun updateContextualControls() {
         val isFiltersMode = currentMode == AnalysisMode.FILTERS
+        val isGeometryMode = currentMode == AnalysisMode.GEOMETRY
+        
         binding.switchActiveVision.visibility = if (isFiltersMode) View.VISIBLE else View.GONE
         binding.switchActiveVisionVisualization.visibility =
             if (isFiltersMode && isActiveVisionEnabled) View.VISIBLE else View.GONE
         binding.fabSavePointCloud.visibility =
             if (currentFilter == OpenCvFilter.POINT_CLOUD) View.VISIBLE else View.GONE
+        
+        binding.layoutGeometryMaxPlanes.visibility = if (isGeometryMode && currentFilter == OpenCvFilter.PLANE_DETECTION) View.VISIBLE else View.GONE
     }
 
     private fun startMediaPipeModelDownload() {
@@ -498,6 +506,38 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun startRtmDetModelDownload() {
+        if (!rtmDetDownloadInProgress.compareAndSet(false, true)) return
+        runOnUiThread { Toast.makeText(this, getString(R.string.rtmdet_models_downloading), Toast.LENGTH_LONG).show() }
+        backgroundExecutor.execute {
+            try {
+                if (ModelDownloadManager.downloadMissingRtmDetModels(this)) {
+                    rtmDetProcessor.close()
+                    rtmDetProcessor.initialize()
+                    imageProcessor.rtmDetProcessor = rtmDetProcessor
+                    runOnUiThread {
+                        if (!isDestroyed && !isFinishing)
+                            Toast.makeText(this, getString(R.string.rtmdet_models_ready), Toast.LENGTH_SHORT).show()
+                    }
+                } else {
+                    runOnUiThread {
+                        if (!isDestroyed && !isFinishing)
+                            Toast.makeText(this, getString(R.string.rtmdet_models_download_failed), Toast.LENGTH_LONG).show()
+                    }
+                }
+            } catch (e: Exception) {
+                logExceptionTelemetry("rtmdet_download", "unexpected", e)
+                Log.e(TAG, "RTMDet model download failed", e)
+                runOnUiThread {
+                    if (!isDestroyed && !isFinishing)
+                        Toast.makeText(this, getString(R.string.rtmdet_models_download_failed), Toast.LENGTH_LONG).show()
+                }
+            } finally {
+                rtmDetDownloadInProgress.set(false)
+            }
+        }
+    }
+
     private fun setupCameraSwitchButton() {
         binding.fabSwitchCamera.setOnClickListener { lensFacing = if (lensFacing == CameraSelector.LENS_FACING_BACK) CameraSelector.LENS_FACING_FRONT else CameraSelector.LENS_FACING_BACK; startCamera() }
     }
@@ -508,7 +548,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupCalibrationFab() = binding.fabCalibrationMenu.setOnClickListener { openCalibrationMenu() }
-    private fun setupRobotConnectionFab() = binding.fabRobotConnection.setOnClickListener { openRobotConnectionMenu() }
     private fun setupResolutionFab() = binding.fabResolution.setOnClickListener { openResolutionMenu() }
     private fun setupSavePointCloudFab() = binding.fabSavePointCloud.setOnClickListener { showSavePointCloudDialog() }
 
@@ -555,18 +594,29 @@ class MainActivity : AppCompatActivity() {
                     appendLine("property float x")
                     appendLine("property float y")
                     appendLine("property float z")
+                    appendLine("property uchar red")
+                    appendLine("property uchar green")
+                    appendLine("property uchar blue")
                     appendLine("end_header")
-                    cloud.points.forEach { p ->
-                        appendLine("${p.x} ${p.y} ${"%.4f".format(pseudoZ(p.y, cloud.meanParallax))}")
+                    cloud.points.forEachIndexed { i, p ->
+                        val color = cloud.colors[i]
+                        val r = color.`val`[0].toInt().coerceIn(0, 255)
+                        val g = color.`val`[1].toInt().coerceIn(0, 255)
+                        val b = color.`val`[2].toInt().coerceIn(0, 255)
+                        appendLine("${p.x} ${p.y} ${"%.4f".format(pseudoZ(p.y, cloud.meanParallax))} $r $g $b")
                     }
                 }
                 writeToDownloads("pointcloud_$timestamp.ply", "application/octet-stream", content)
             } else {
                 val content = buildString {
-                    appendLine("x,y,z")
-                    appendLine("# Pseudo-3D point cloud (screen projections). mean_parallax=${cloud.meanParallax}")
-                    cloud.points.forEach { p ->
-                        appendLine("${p.x},${p.y},${"%.4f".format(pseudoZ(p.y, cloud.meanParallax))}")
+                    appendLine("x,y,z,r,g,b")
+                    appendLine("# Pseudo-3D point cloud with colors. mean_parallax=${cloud.meanParallax}")
+                    cloud.points.forEachIndexed { i, p ->
+                        val color = cloud.colors[i]
+                        val r = color.`val`[0].toInt().coerceIn(0, 255)
+                        val g = color.`val`[1].toInt().coerceIn(0, 255)
+                        val b = color.`val`[2].toInt().coerceIn(0, 255)
+                        appendLine("${p.x},${p.y},${"%.4f".format(pseudoZ(p.y, cloud.meanParallax))},$r,$g,$b")
                     }
                 }
                 writeToDownloads("pointcloud_$timestamp.csv", "text/csv", content)
@@ -620,38 +670,54 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun openRobotConnectionMenu() {
-        RobotConnectionSheet().apply {
-            currentState = rosBridgeClient.state; lastHost = this@MainActivity.lastRobotHost; lastPort = this@MainActivity.lastRobotPort
-            onConnect = { h, p -> this@MainActivity.lastRobotHost = h; this@MainActivity.lastRobotPort = p; getSharedPreferences(
-                PREFS_NAME,
-                MODE_PRIVATE
-            ).edit { putString(PREF_ROBOT_HOST, h).putInt(PREF_ROBOT_PORT, p)}; rosBridgeClient.connect(h, p) }
-            onDisconnect = { rosBridgeClient.disconnect() }
-        }.show(supportFragmentManager, RobotConnectionSheet.TAG)
-    }
-
     private fun openResolutionMenu() {
-        ResolutionBottomSheet().apply {
-            currentResolution = this@MainActivity.currentResolution
-            onResolutionSelected = { r -> this@MainActivity.currentResolution = r; getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit {
-                putString(
-                    PREF_CAMERA_RESOLUTION,
-                    r.name
-                )
-            }; startCamera() }
-        }.show(supportFragmentManager, ResolutionBottomSheet.TAG)
+        // Use the Fragment Result API to handle the result from the bottom sheet.
+        // This is lifecycle-aware and survives configuration changes like rotation.
+        supportFragmentManager.setFragmentResultListener("resolution_request", this) { _, bundle ->
+            val resolutionName = bundle.getString("selected_resolution") ?: return@setFragmentResultListener
+            val resolution = CameraResolution.valueOf(resolutionName)
+            updateAndPersistCameraResolution(resolution)
+            startCamera()
+        }
+
+        ResolutionBottomSheet.newInstance(currentResolution)
+            .show(supportFragmentManager, ResolutionBottomSheet.TAG)
     }
 
-    private fun onRosBridgeStateChanged(state: RosBridgeClient.State) {
-        val colorRes = when (state) { RosBridgeClient.State.CONNECTED -> R.color.robot_connected; RosBridgeClient.State.DISCONNECTED -> R.color.button_robot_default; RosBridgeClient.State.ERROR -> R.color.robot_error; RosBridgeClient.State.CONNECTING -> return }
-        binding.fabRobotConnection.backgroundTintList = android.content.res.ColorStateList.valueOf(ContextCompat.getColor(this, colorRes))
+    private fun updateAndPersistCameraResolution(resolution: CameraResolution) {
+        currentResolution = resolution
+        prefs.edit {
+            putString(PREF_CAMERA_RESOLUTION, resolution.name)
+        }
     }
 
     private fun openCalibrationMenu() {
         CalibrationBottomSheet().apply {
-            onCollectFrame = { val c = cameraCalibrator.collectLastFrame(); if (c) { val count = cameraCalibrator.frameCount; runOnUiThread { Toast.makeText(this@MainActivity, getString(R.string.calibration_frame_collected, count, CameraCalibrator.MIN_FRAMES), Toast.LENGTH_SHORT).show() } }; c }
-            onCalibrate = { val res = cameraCalibrator.calibrate(); runOnUiThread { Toast.makeText(this@MainActivity, if (res != null) R.string.calibration_success else R.string.calibration_failed, Toast.LENGTH_SHORT).show() }; res }
+            onCollectFrame = {
+                val collected = cameraCalibrator.collectLastFrame()
+                if (collected) {
+                    val count = cameraCalibrator.frameCount
+                    runOnUiThread {
+                        Toast.makeText(
+                            this@MainActivity,
+                            getString(R.string.calibration_frame_collected, count, CameraCalibrator.MIN_FRAMES),
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                }
+                collected
+            }
+            onCalibrate = {
+                val res = cameraCalibrator.calibrate()
+                runOnUiThread {
+                    Toast.makeText(
+                        this@MainActivity,
+                        if (res != null) R.string.calibration_success else R.string.calibration_failed,
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+                res
+            }
             onReset = { cameraCalibrator.reset() }
         }.show(supportFragmentManager, CalibrationBottomSheet.TAG)
     }
@@ -714,6 +780,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun processFrame(imageProxy: ImageProxy) {
+        if (isFinishing || isDestroyed) {
+            imageProxy.close()
+            return
+        }
         try {
             val bitmap = imageProxy.toBitmap()
             val oriented = orientBitmap(bitmap, imageProxy.imageInfo.rotationDegrees, lensFacing)

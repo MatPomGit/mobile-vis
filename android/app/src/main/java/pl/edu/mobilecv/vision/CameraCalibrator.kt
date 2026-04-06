@@ -1,4 +1,4 @@
-package pl.edu.mobilecv
+package pl.edu.mobilecv.vision
 
 import android.util.Log
 import org.opencv.calib3d.Calib3d

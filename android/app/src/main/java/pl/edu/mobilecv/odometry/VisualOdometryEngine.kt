@@ -1,4 +1,4 @@
-package pl.edu.mobilecv
+package pl.edu.mobilecv.odometry
 
 import kotlin.math.acos
 import kotlin.math.max
@@ -21,6 +21,7 @@ import org.opencv.features2d.BFMatcher
 import org.opencv.features2d.ORB
 import org.opencv.imgproc.Imgproc
 import org.opencv.imgproc.Subdiv2D
+import pl.edu.mobilecv.vision.CameraCalibrator
 
 /**
  * Tracks sparse visual odometry signals and creates a lightweight pseudo point cloud.
@@ -36,6 +37,7 @@ class VisualOdometryEngine {
 
     data class PointCloudState(
         val points: List<Point>,
+        val colors: List<org.opencv.core.Scalar>,
         val edges: List<Pair<Point, Point>>,
         val meanParallax: Double
     )
@@ -79,7 +81,7 @@ class VisualOdometryEngine {
     fun updateOdometry(src: Mat): OdometryState? {
         val gray = Mat()
         Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
-        val (state, _) = processFrameInternal(gray)
+        val (state, _) = processFrameInternal(gray, src)
         gray.release()
         return state
     }
@@ -87,7 +89,7 @@ class VisualOdometryEngine {
     fun updatePointCloud(src: Mat): PointCloudState? {
         val gray = Mat()
         Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
-        val (_, cloud) = processFrameInternal(gray)
+        val (_, cloud) = processFrameInternal(gray, src)
         gray.release()
         return cloud
     }
@@ -103,16 +105,16 @@ class VisualOdometryEngine {
             src.copyTo(gray)
         }
         this.calibrator = calib
-        processFrameInternal(gray)
+        processFrameInternal(gray, src)
         gray.release()
     }
 
-    fun processFrame(gray: Mat, calib: CameraCalibrator? = null): Pair<OdometryState?, PointCloudState?> {
+    fun processFrame(gray: Mat, srcRgba: Mat, calib: CameraCalibrator? = null): Pair<OdometryState?, PointCloudState?> {
         this.calibrator = calib
-        return processFrameInternal(gray)
+        return processFrameInternal(gray, srcRgba)
     }
 
-    private fun processFrameInternal(gray: Mat): Pair<OdometryState?, PointCloudState?> {
+    private fun processFrameInternal(gray: Mat, srcRgba: Mat): Pair<OdometryState?, PointCloudState?> {
         if (prevGray.empty()) {
             gray.copyTo(prevGray)
             return null to null
@@ -197,7 +199,7 @@ class VisualOdometryEngine {
             return trackingLost(gray, "tracking lost / reinit needed: thresholds not met")
         }
 
-        val (state, points) = estimateMotionAndPoints(inlierPrev, inlierCurr, calibrationProfile)
+        val (state, points) = estimateMotionAndPoints(inlierPrev, inlierCurr, srcRgba, calibrationProfile)
         inlierPrev.release()
         inlierCurr.release()
 
@@ -349,6 +351,7 @@ class VisualOdometryEngine {
     private fun estimateMotionAndPoints(
         prev: MatOfPoint2f,
         next: MatOfPoint2f,
+        srcRgba: Mat, // Pass RGBA to get colors
         calibrationProfile: CameraCalibrator.CalibrationProfile?,
     ): Pair<OdometryState, PointCloudState> {
         val k = calibrationProfile?.calibration?.cameraMatrix ?: Mat.eye(3, 3, CvType.CV_64F)
@@ -378,6 +381,7 @@ class VisualOdometryEngine {
         val state = OdometryState(prev.rows(), inlierCount, transNorm, rotDeg)
 
         val cloudPoints = mutableListOf<Point>()
+        val cloudColors = mutableListOf<org.opencv.core.Scalar>()
         val prevArr = prev.toArray()
         val nextArr = next.toArray()
         var parallaxSum = 0.0
@@ -392,6 +396,12 @@ class VisualOdometryEngine {
 
             val zScale = if (dist < minParallax) 0.0 else (dist - minParallax) / 10.0
             cloudPoints.add(Point(nextPt.x, nextPt.y - zScale * PERSPECTIVE_FACTOR))
+            
+            // Sample color from RGBA src
+            val ix = nextPt.x.toInt().coerceIn(0, srcRgba.cols() - 1)
+            val iy = nextPt.y.toInt().coerceIn(0, srcRgba.rows() - 1)
+            val rgba = srcRgba.get(iy, ix)
+            cloudColors.add(org.opencv.core.Scalar(rgba[0], rgba[1], rgba[2]))
         }
 
         val meanParallax = if (nextArr.isEmpty()) 0.0 else parallaxSum / nextArr.size
@@ -442,7 +452,7 @@ class VisualOdometryEngine {
         t.release()
         mask.release()
 
-        return state to PointCloudState(cloudPoints, meshEdges, meanParallax)
+        return state to PointCloudState(cloudPoints, cloudColors, meshEdges, meanParallax)
     }
 
     private fun releaseTrackingMats(vararg mats: Mat) {

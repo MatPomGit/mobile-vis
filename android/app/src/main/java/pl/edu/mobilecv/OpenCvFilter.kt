@@ -193,6 +193,11 @@ enum class OpenCvFilter(val displayName: String) {
     YOLO_DETECT("YOLO Detect"),
 
     /**
+     * YOLOv8-nano with Kalman filter tracking to improve bounding box stability.
+     */
+    YOLO_KALMAN("YOLO + Kalman"),
+
+    /**
      * Runs YOLOv8-nano instance segmentation, overlaying bounding boxes for
      * detected objects.  Full pixel-level mask rendering is approximated with
      * the bounding box due to CPU performance constraints.
@@ -282,6 +287,7 @@ val OpenCvFilter.isMediaPipe: Boolean
  */
 val OpenCvFilter.isYolo: Boolean
     get() = this == OpenCvFilter.YOLO_DETECT ||
+        this == OpenCvFilter.YOLO_KALMAN ||
         this == OpenCvFilter.YOLO_SEGMENT ||
         this == OpenCvFilter.YOLO_POSE ||
         this == OpenCvFilter.YOLO_CLASSIFY ||
@@ -289,7 +295,7 @@ val OpenCvFilter.isYolo: Boolean
 
 /**
  * Returns ``true`` if this filter requires the RTMDet processing pipeline
- * backed by the OpenCV DNN module.
+ * backed by the PyTorch Mobile library.
  */
 val OpenCvFilter.isRtmDet: Boolean
     get() = this == OpenCvFilter.RTMDET_DETECT ||

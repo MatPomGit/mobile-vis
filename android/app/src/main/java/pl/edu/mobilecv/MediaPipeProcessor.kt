@@ -54,12 +54,12 @@ class MediaPipeProcessor(private val context: Context) {
         // Drawing constants
         // ------------------------------------------------------------------
 
-        private const val POSE_COLOR = Color.GREEN
-        private const val LEFT_HAND_COLOR = Color.YELLOW
-        private const val RIGHT_HAND_COLOR = Color.CYAN
-        private const val FACE_COLOR = Color.WHITE
+        private const val POSE_COLOR = Color.RED
+        private const val LEFT_HAND_COLOR = Color.RED
+        private const val RIGHT_HAND_COLOR = Color.RED
+        private const val FACE_COLOR = Color.RED
         private const val IRIS_COLOR_LEFT = Color.RED
-        private const val IRIS_COLOR_RIGHT = Color.BLUE
+        private const val IRIS_COLOR_RIGHT = Color.RED
 
         private const val LANDMARK_RADIUS = 4f
         private const val LINE_WIDTH = 3f
@@ -204,7 +204,6 @@ class MediaPipeProcessor(private val context: Context) {
     private var poseLandmarker: PoseLandmarker? = null
     private var handLandmarker: HandLandmarker? = null
     private var faceLandmarker: FaceLandmarker? = null
-    private var faceLandmarkerIris: FaceLandmarker? = null
 
     private val dotPaint = Paint().apply {
         style = Paint.Style.FILL
@@ -284,10 +283,8 @@ class MediaPipeProcessor(private val context: Context) {
      * Should be called from a background thread to avoid blocking the UI.
      */
     fun initialize() {
-        poseLandmarker = tryCreatePoseLandmarker()
-        handLandmarker = tryCreateHandLandmarker()
-        faceLandmarker = tryCreateFaceLandmarker(false)
-        faceLandmarkerIris = tryCreateFaceLandmarker(true)
+        // No-op: detectors are now initialized lazily in apply methods.
+        // This avoids invalidation logs and unnecessary resource allocation at startup.
     }
 
     /**
@@ -297,11 +294,9 @@ class MediaPipeProcessor(private val context: Context) {
         poseLandmarker?.close()
         handLandmarker?.close()
         faceLandmarker?.close()
-        faceLandmarkerIris?.close()
         poseLandmarker = null
         handLandmarker = null
         faceLandmarker = null
-        faceLandmarkerIris = null
     }
 
     /**
@@ -321,7 +316,8 @@ class MediaPipeProcessor(private val context: Context) {
     }
 
     private fun applyPoseLandmarker(bitmap: Bitmap): Bitmap {
-        val detector = poseLandmarker ?: return overlayMissingModel(
+        val detector = poseLandmarker ?: tryCreatePoseLandmarker().also { poseLandmarker = it }
+        if (detector == null) return overlayMissingModel(
             bitmap,
             context.getString(R.string.mediapipe_model_missing_pose)
         )
@@ -344,10 +340,11 @@ class MediaPipeProcessor(private val context: Context) {
 
         // -- Mouth / speaking detection (runs FaceLandmarker on the same frame) --
         if (personCount > 0) {
-            faceLandmarker?.let { faceDetector ->
+            val faceDetector = faceLandmarker ?: tryCreateFaceLandmarker().also { faceLandmarker = it }
+            faceDetector?.let { fd ->
                 runCatching {
                     val faceResult: FaceLandmarkerResult =
-                        faceDetector.detect(BitmapImageBuilder(argbBitmap).build())
+                        fd.detect(BitmapImageBuilder(argbBitmap).build())
                     // Only examine the first detected face to avoid overlapping status badges.
                     if (faceResult.faceLandmarks().isNotEmpty()) {
                         val jawOpen = extractJawOpen(faceResult, 0)
@@ -361,7 +358,8 @@ class MediaPipeProcessor(private val context: Context) {
     }
 
     private fun applyHandLandmarker(bitmap: Bitmap): Bitmap {
-        val detector = handLandmarker ?: return overlayMissingModel(
+        val detector = handLandmarker ?: tryCreateHandLandmarker().also { handLandmarker = it }
+        if (detector == null) return overlayMissingModel(
             bitmap,
             context.getString(R.string.mediapipe_model_missing_hands)
         )
@@ -386,7 +384,7 @@ class MediaPipeProcessor(private val context: Context) {
     }
 
     private fun applyFaceLandmarker(bitmap: Bitmap, iris: Boolean): Bitmap {
-        val detector = if (iris) faceLandmarkerIris else faceLandmarker
+        val detector = faceLandmarker ?: tryCreateFaceLandmarker().also { faceLandmarker = it }
         val missingMsg = context.getString(R.string.mediapipe_model_missing_face)
 
         if (detector == null) {
@@ -435,7 +433,8 @@ class MediaPipeProcessor(private val context: Context) {
      * "Brak twarzy" indicator.
      */
     private fun applyHologram3D(bitmap: Bitmap): Bitmap {
-        val detector = faceLandmarker ?: return overlayMissingModel(
+        val detector = faceLandmarker ?: tryCreateFaceLandmarker().also { faceLandmarker = it }
+        if (detector == null) return overlayMissingModel(
             bitmap,
             context.getString(R.string.mediapipe_model_missing_face)
         )
@@ -670,7 +669,7 @@ class MediaPipeProcessor(private val context: Context) {
         }
     }
 
-    private fun tryCreateFaceLandmarker(refineIris: Boolean): FaceLandmarker? {
+    private fun tryCreateFaceLandmarker(): FaceLandmarker? {
         val modelPath = ModelDownloadManager.getModelPath(context, MODEL_FACE)
             ?: return null.also { Log.d(TAG, "Face model not available") }
         return try {
@@ -682,7 +681,7 @@ class MediaPipeProcessor(private val context: Context) {
                 .build()
             FaceLandmarker.createFromOptions(context, options)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to create FaceLandmarker (iris=$refineIris)", e)
+            Log.e(TAG, "Failed to create FaceLandmarker", e)
             null
         }
     }
@@ -702,7 +701,7 @@ class MediaPipeProcessor(private val context: Context) {
         } else {
             context.getString(R.string.mediapipe_no_person)
         }
-        infoPaint.color = if (personCount > 0) Color.GREEN else Color.RED
+        infoPaint.color = Color.RED
         infoPaint.getTextBounds(text, 0, text.length, textBoundsRect)
         val badgeBottom = textBoundsRect.height() + INFO_BADGE_MARGIN + INFO_BADGE_PADDING * 2
         canvas.drawRect(
@@ -730,9 +729,9 @@ class MediaPipeProcessor(private val context: Context) {
     private fun drawMouthStatus(canvas: Canvas, jawOpen: Float, personBadgeBottom: Float) {
         val (text, color) = when {
             jawOpen > MOUTH_TALKING_THRESHOLD ->
-                context.getString(R.string.mediapipe_speaking) to Color.YELLOW
+                context.getString(R.string.mediapipe_speaking) to Color.RED
             jawOpen > MOUTH_OPEN_THRESHOLD ->
-                context.getString(R.string.mediapipe_mouth_open) to Color.WHITE
+                context.getString(R.string.mediapipe_mouth_open) to Color.RED
             else -> return
         }
         infoPaint.color = color

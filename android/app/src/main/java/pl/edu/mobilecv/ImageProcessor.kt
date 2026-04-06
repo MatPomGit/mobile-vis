@@ -9,7 +9,6 @@ import org.opencv.core.CvException
 import org.opencv.core.CvType
 import org.opencv.core.Mat
 import org.opencv.core.MatOfDouble
-import org.opencv.core.MatOfFloat
 import org.opencv.core.MatOfInt
 import org.opencv.core.MatOfPoint
 import org.opencv.core.MatOfPoint2f
@@ -18,16 +17,16 @@ import org.opencv.core.Point
 import org.opencv.core.Point3
 import org.opencv.core.Scalar
 import org.opencv.core.Size
-import org.opencv.core.TermCriteria
 import org.opencv.imgproc.Imgproc
 import org.opencv.objdetect.ArucoDetector
 import org.opencv.objdetect.DetectorParameters
 import org.opencv.objdetect.Objdetect
 import org.opencv.objdetect.QRCodeDetector
 import androidx.core.graphics.createBitmap
-import kotlin.math.abs
+import pl.edu.mobilecv.vision.CameraCalibrator
+import pl.edu.mobilecv.odometry.VisualOdometryEngine
+import pl.edu.mobilecv.odometry.FullOdometryEngine
 import kotlin.math.atan2
-import kotlin.math.hypot
 import kotlin.math.sqrt
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
@@ -85,17 +84,17 @@ class ImageProcessor {
     var labelNoCalibration: String = "Brak kalibracji"
     var labelOdometryTracks: String = "Ścieżki"
     var labelPointCloud: String = "Chmura"
-    var labelVoMaxFeaturesDesc: String = "Max features (more = accurate, slower)"
-    var labelVoMinParallaxDesc: String = "Min parallax [px] (motion threshold)"
-    var labelVoColorDepthDesc: String = "Color = depth (bright=near, dark=far)"
     var labelNoPlanes: String = "Brak płaszczyzn"
     var labelNoVanishingPoints: String = "Brak punktów zbieżności"
     var labelNoLines: String = "Brak linii w scenie"
     var labelPlanes: String = "Płaszczyzny"
     var labelLines: String = "Linie"
     var labelGroups: String = "Grupy"
-    var labelGeometryError: String = "Błąd geometrii"
     var labelVpError: String = "Błąd VP"
+    var labelGeometryError: String = "Błąd geometrii"
+    var labelVoMaxFeaturesDesc: String = ""
+    var labelVoMinParallaxDesc: String = ""
+    var labelVoColorDepthDesc: String = ""
     var labelFullOdometryTracks: String = "Tory"
     var labelFullOdometryInliers: String = "Inlierów"
     var labelFullOdometryFrames: String = "Klatki"
@@ -107,7 +106,6 @@ class ImageProcessor {
     var labelCollectingData: String = "Zbieranie danych..."
     var labelCollectingPoints: String = "Zbieranie punktów..."
 
-    var onMarkersDetected: ((List<MarkerDetection>) -> Unit)? = null
     var isActiveVisionEnabled: Boolean = false
     var isActiveVisionVisualizationEnabled: Boolean = false
 
@@ -128,9 +126,15 @@ class ImageProcessor {
     @Volatile
     var isVoMeshEnabled: Boolean = false
         set(value) { field = value; visualOdometryEngine.isMeshEnabled = value }
+
+    @Volatile
+    var geometryMaxPlanes: Int = 3
+        set(value) { field = value; geometryProcessor.maxPlanes = value }
+
     @Volatile
     var debugUndistortBeforeGeometry: Boolean = false
 
+    private val geometryProcessor = GeometryProcessor(::logExceptionTelemetry)
     private val activeVisionOptimizer = ActiveVisionOptimizer()
     private val visualOdometryEngine = VisualOdometryEngine().also {
         it.maxFeatures = voMaxFeatures
@@ -148,11 +152,6 @@ class ImageProcessor {
             set_adaptiveThreshWinSizeMax(23)
             set_adaptiveThreshWinSizeStep(10)
         }
-    }
-
-    /** Cached 3×3 rectangular kernel for edge dilation in plane detection. */
-    private val dilationKernel3x3 by lazy {
-        Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(3.0, 3.0))
     }
 
     private val aprilTagDetector by lazy {
@@ -176,8 +175,6 @@ class ImageProcessor {
             Scalar(70.0, 120.0, 255.0, 255.0),
             Scalar(255.0, 220.0, 70.0, 255.0),
         )
-        private const val CLUSTER_ANGLE_THRESHOLD_DEG = 8.0
-        private const val MAX_LINE_DIRECTION_CLUSTERS = 4
         private const val POINT_CLOUD_CIRCLE_RADIUS = 3
         private const val POINT_CLOUD_MESH_THICKNESS = 1
         private const val PIXELATE_BLOCK_SIZE = 16
@@ -186,16 +183,17 @@ class ImageProcessor {
         private const val EPSILON_THRESHOLD = 1e-6
     }
 
-    // Reusable mats for the hottest filters to reduce per-frame allocations.
     private val srcBuffer = Mat()
     private val baseFrameBuffer = Mat()
     private val originalBuffer = Mat()
-    private val grayBuffer = Mat()
-    private val grayRgbaBuffer = Mat()
-    private val cannyBlurBuffer = Mat()
-    private val cannyEdgesBuffer = Mat()
-    private val cannyRgbaBuffer = Mat()
-    private val gaussianBuffer = Mat()
+
+    fun release() {
+        srcBuffer.release()
+        baseFrameBuffer.release()
+        originalBuffer.release()
+        aprilTagDetector.apply { /* No explicit release in some versions, but good to check */ }
+        arucoDetector.apply { }
+    }
 
     private data class RuntimeBenchmarkAccumulator(
         var samples: Int = 0,
@@ -230,15 +228,7 @@ class ImageProcessor {
     private fun logExceptionTelemetry(scope: String, category: String, error: Throwable) {
         val key = "$scope:$category"
         val count = exceptionTelemetry.getOrPut(key) { AtomicInteger(0) }.incrementAndGet()
-        val ranking = exceptionTelemetry.entries
-            .sortedByDescending { it.value.get() }
-            .take(3)
-            .joinToString { "${it.key}=${it.value.get()}" }
-            .ifBlank { "n/a" }
-        Log.i(
-            TAG,
-            "Exception telemetry key=$key count=$count type=${error::class.java.simpleName} top=$ranking",
-        )
+        Log.i(TAG, "Exception telemetry key=$key count=$count type=${error::class.java.simpleName}")
     }
 
     fun processFrame(bitmap: Bitmap, filter: OpenCvFilter): Bitmap {
@@ -252,11 +242,11 @@ class ImageProcessor {
             return mediaPipeProcessor?.processFrame(bitmap, filter) ?: bitmap.copy(Bitmap.Config.ARGB_8888, false)
         }
         if (filter.isYolo) {
-            return yoloProcessor?.processFrame(bitmap, filter, onMarkersDetected)
+            return yoloProcessor?.processFrame(bitmap, filter)
                 ?: bitmap.copy(Bitmap.Config.ARGB_8888, false)
         }
         if (filter.isRtmDet) {
-            return rtmDetProcessor?.processFrame(bitmap, filter, onMarkersDetected)
+            return rtmDetProcessor?.processFrame(bitmap, filter)
                 ?: bitmap.copy(Bitmap.Config.ARGB_8888, false)
         }
 
@@ -284,16 +274,16 @@ class ImageProcessor {
             OpenCvFilter.GRAYSCALE,
             OpenCvFilter.CANNY_EDGES,
             OpenCvFilter.GAUSSIAN_BLUR -> processHotFilterBuffered(baseFrame, filter)
-            OpenCvFilter.THRESHOLD -> Triple(applyThreshold(baseFrame), true, 0L)
-            OpenCvFilter.SOBEL -> Triple(applySobel(baseFrame), true, 0L)
-            OpenCvFilter.LAPLACIAN -> Triple(applyLaplacian(baseFrame), true, 0L)
-            OpenCvFilter.DILATE -> Triple(applyDilate(baseFrame), true, 0L)
-            OpenCvFilter.ERODE -> Triple(applyErode(baseFrame), true, 0L)
-            OpenCvFilter.OPEN -> Triple(applyMorphEx(baseFrame, Imgproc.MORPH_OPEN), true, 0L)
-            OpenCvFilter.CLOSE -> Triple(applyMorphEx(baseFrame, Imgproc.MORPH_CLOSE), true, 0L)
-            OpenCvFilter.GRADIENT -> Triple(applyMorphEx(baseFrame, Imgproc.MORPH_GRADIENT), true, 0L)
-            OpenCvFilter.TOP_HAT -> Triple(applyMorphEx(baseFrame, Imgproc.MORPH_TOPHAT), true, 0L)
-            OpenCvFilter.BLACK_HAT -> Triple(applyMorphEx(baseFrame, Imgproc.MORPH_BLACKHAT), true, 0L)
+            OpenCvFilter.THRESHOLD -> Triple(LegacyFilters.applyThreshold(baseFrame), true, 0L)
+            OpenCvFilter.SOBEL -> Triple(LegacyFilters.applySobel(baseFrame), true, 0L)
+            OpenCvFilter.LAPLACIAN -> Triple(LegacyFilters.applyLaplacian(baseFrame), true, 0L)
+            OpenCvFilter.DILATE -> Triple(LegacyFilters.applyMorphology(baseFrame, -1, morphKernelSize), true, 0L)
+            OpenCvFilter.ERODE -> Triple(LegacyFilters.applyMorphology(baseFrame, -2, morphKernelSize), true, 0L)
+            OpenCvFilter.OPEN -> Triple(LegacyFilters.applyMorphology(baseFrame, Imgproc.MORPH_OPEN, morphKernelSize), true, 0L)
+            OpenCvFilter.CLOSE -> Triple(LegacyFilters.applyMorphology(baseFrame, Imgproc.MORPH_CLOSE, morphKernelSize), true, 0L)
+            OpenCvFilter.GRADIENT -> Triple(LegacyFilters.applyMorphology(baseFrame, Imgproc.MORPH_GRADIENT, morphKernelSize), true, 0L)
+            OpenCvFilter.TOP_HAT -> Triple(LegacyFilters.applyMorphology(baseFrame, Imgproc.MORPH_TOPHAT, morphKernelSize), true, 0L)
+            OpenCvFilter.BLACK_HAT -> Triple(LegacyFilters.applyMorphology(baseFrame, Imgproc.MORPH_BLACKHAT, morphKernelSize), true, 0L)
             OpenCvFilter.APRIL_TAGS -> Triple(applyAprilTagDetection(baseFrame), true, 0L)
             OpenCvFilter.ARUCO -> Triple(applyArucoDetection(baseFrame), true, 0L)
             OpenCvFilter.QR_CODE -> Triple(applyQrCodeDetection(baseFrame), true, 0L)
@@ -304,19 +294,19 @@ class ImageProcessor {
             OpenCvFilter.POINT_CLOUD -> Triple(applyPointCloud(baseFrame), true, 0L)
             OpenCvFilter.PLANE_DETECTION -> Triple(applyPlaneDetection(baseFrame), true, 0L)
             OpenCvFilter.VANISHING_POINTS -> Triple(applyVanishingPoints(baseFrame), true, 0L)
-            OpenCvFilter.MEDIAN_BLUR -> Triple(applyMedianBlur(baseFrame), true, 0L)
-            OpenCvFilter.BILATERAL_FILTER -> Triple(applyBilateralFilter(baseFrame), true, 0L)
-            OpenCvFilter.BOX_FILTER -> Triple(applyBoxFilter(baseFrame), true, 0L)
-            OpenCvFilter.ADAPTIVE_THRESHOLD -> Triple(applyAdaptiveThreshold(baseFrame), true, 0L)
-            OpenCvFilter.HISTOGRAM_EQUALIZATION -> Triple(applyHistogramEqualization(baseFrame), true, 0L)
-            OpenCvFilter.SCHARR -> Triple(applyScharr(baseFrame), true, 0L)
-            OpenCvFilter.PREWITT -> Triple(applyPrewitt(baseFrame), true, 0L)
-            OpenCvFilter.ROBERTS -> Triple(applyRoberts(baseFrame), true, 0L)
-            OpenCvFilter.INVERT -> Triple(applyInvert(baseFrame), true, 0L)
-            OpenCvFilter.SEPIA -> Triple(applySepia(baseFrame), true, 0L)
-            OpenCvFilter.EMBOSS -> Triple(applyEmboss(baseFrame), true, 0L)
-            OpenCvFilter.PIXELATE -> Triple(applyPixelate(baseFrame), true, 0L)
-            OpenCvFilter.CARTOON -> Triple(applyCartoon(baseFrame), true, 0L)
+            OpenCvFilter.MEDIAN_BLUR -> Triple(LegacyFilters.applyMedianBlur(baseFrame), true, 0L)
+            OpenCvFilter.BILATERAL_FILTER -> Triple(LegacyFilters.applyBilateralFilter(baseFrame), true, 0L)
+            OpenCvFilter.BOX_FILTER -> Triple(LegacyFilters.applyBoxFilter(baseFrame), true, 0L)
+            OpenCvFilter.ADAPTIVE_THRESHOLD -> Triple(LegacyFilters.applyAdaptiveThreshold(baseFrame), true, 0L)
+            OpenCvFilter.HISTOGRAM_EQUALIZATION -> Triple(LegacyFilters.applyHistogramEqualization(baseFrame), true, 0L)
+            OpenCvFilter.SCHARR -> Triple(LegacyFilters.applyScharr(baseFrame), true, 0L)
+            OpenCvFilter.PREWITT -> Triple(LegacyFilters.applyPrewitt(baseFrame), true, 0L)
+            OpenCvFilter.ROBERTS -> Triple(LegacyFilters.applyRoberts(baseFrame), true, 0L)
+            OpenCvFilter.INVERT -> Triple(LegacyFilters.applyInvert(baseFrame), true, 0L)
+            OpenCvFilter.SEPIA -> Triple(LegacyFilters.applySepia(baseFrame), true, 0L)
+            OpenCvFilter.EMBOSS -> Triple(LegacyFilters.applyEmboss(baseFrame), true, 0L)
+            OpenCvFilter.PIXELATE -> Triple(LegacyFilters.applyPixelate(baseFrame, PIXELATE_BLOCK_SIZE), true, 0L)
+            OpenCvFilter.CARTOON -> Triple(LegacyFilters.applyCartoon(baseFrame), true, 0L)
             OpenCvFilter.FULL_ODOMETRY -> Triple(applyFullOdometry(baseFrame), true, 0L)
             OpenCvFilter.ODOMETRY_TRAJECTORY -> Triple(applyOdometryTrajectory(baseFrame), true, 0L)
             OpenCvFilter.ODOMETRY_MAP -> Triple(applyOdometryMap(baseFrame), true, 0L)
@@ -325,23 +315,13 @@ class ImageProcessor {
         val processed = processedPair.first
         val shouldReleaseProcessed = processedPair.second
 
-        val benchmarkAfterNs = if (shouldBenchmark) {
-            processedPair.third
-        } else {
-            0L
-        }
+        val benchmarkAfterNs = if (shouldBenchmark) processedPair.third else 0L
 
         val result = createBitmap(processed.cols(), processed.rows())
         Utils.matToBitmap(processed, result)
-        if (shouldReleaseProcessed) {
-            processed.release()
-        }
-        if (isActiveVisionEnabled) {
-            baseFrame.release()
-        }
-        if (shouldBenchmark && benchmarkAfterNs > 0L) {
-            updateBenchmark(filter, benchmarkBeforeNs, benchmarkAfterNs)
-        }
+        if (shouldReleaseProcessed) processed.release()
+        if (isActiveVisionEnabled) baseFrame.release()
+        if (shouldBenchmark && benchmarkAfterNs > 0L) updateBenchmark(filter, benchmarkBeforeNs, benchmarkAfterNs)
         return result
     }
 
@@ -360,49 +340,27 @@ class ImageProcessor {
                 src.copyTo(out)
                 out
             }
-            OpenCvFilter.GRAYSCALE -> {
-                val gray = ensureMat(grayBuffer, src.rows(), src.cols(), CvType.CV_8UC1)
-                val out = ensureMat(grayRgbaBuffer, src.rows(), src.cols(), CvType.CV_8UC4)
-                Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
-                Imgproc.cvtColor(gray, out, Imgproc.COLOR_GRAY2RGBA)
-                out
-            }
-            OpenCvFilter.CANNY_EDGES -> {
-                val gray = ensureMat(grayBuffer, src.rows(), src.cols(), CvType.CV_8UC1)
-                val blur = ensureMat(cannyBlurBuffer, src.rows(), src.cols(), CvType.CV_8UC1)
-                val edges = ensureMat(cannyEdgesBuffer, src.rows(), src.cols(), CvType.CV_8UC1)
-                val out = ensureMat(cannyRgbaBuffer, src.rows(), src.cols(), CvType.CV_8UC4)
-                Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
-                Imgproc.GaussianBlur(gray, blur, Size(5.0, 5.0), 0.0)
-                Imgproc.Canny(blur, edges, 50.0, 150.0)
-                Imgproc.cvtColor(edges, out, Imgproc.COLOR_GRAY2RGBA)
-                out
-            }
-            OpenCvFilter.GAUSSIAN_BLUR -> {
-                val out = ensureMat(gaussianBuffer, src.rows(), src.cols(), src.type())
-                Imgproc.GaussianBlur(src, out, Size(5.0, 5.0), 0.0)
-                out
-            }
+            OpenCvFilter.GRAYSCALE -> LegacyFilters.applyGrayscale(src)
+            OpenCvFilter.CANNY_EDGES -> LegacyFilters.applyCanny(src)
+            OpenCvFilter.GAUSSIAN_BLUR -> LegacyFilters.applyGaussianBlur(src)
             else -> src
         }
-        return Triple(output, false, System.nanoTime() - start)
+        return Triple(output, output != src, System.nanoTime() - start)
     }
 
     private fun processHotFilterLegacy(src: Mat, filter: OpenCvFilter): Mat {
         return when (filter) {
             OpenCvFilter.ORIGINAL -> src.clone()
-            OpenCvFilter.GRAYSCALE -> applyGrayscale(src)
-            OpenCvFilter.CANNY_EDGES -> applyCanny(src)
-            OpenCvFilter.GAUSSIAN_BLUR -> applyGaussianBlur(src)
+            OpenCvFilter.GRAYSCALE -> LegacyFilters.applyGrayscale(src)
+            OpenCvFilter.CANNY_EDGES -> LegacyFilters.applyCanny(src)
+            OpenCvFilter.GAUSSIAN_BLUR -> LegacyFilters.applyGaussianBlur(src)
             else -> src.clone()
         }
     }
 
     private fun updateBenchmark(filter: OpenCvFilter, beforeNs: Long, afterNs: Long) {
         val acc = benchmarkAccumulators.getOrPut(filter) { RuntimeBenchmarkAccumulator() }
-        if (acc.samples >= benchmarkSampleLimit) {
-            return
-        }
+        if (acc.samples >= benchmarkSampleLimit) return
         acc.samples += 1
         acc.beforeNs += beforeNs
         acc.afterNs += afterNs
@@ -410,84 +368,13 @@ class ImageProcessor {
 
     fun consumeBenchmarkSnapshot(filter: OpenCvFilter): RuntimeBenchmarkSnapshot? {
         val acc = benchmarkAccumulators[filter] ?: return null
-        if (acc.samples == 0 || acc.samples < benchmarkSampleLimit) {
-            return null
-        }
+        if (acc.samples == 0 || acc.samples < benchmarkSampleLimit) return null
         benchmarkAccumulators.remove(filter)
         val avgBeforeMs = acc.beforeNs.toDouble() / acc.samples / 1_000_000.0
         val avgAfterMs = acc.afterNs.toDouble() / acc.samples / 1_000_000.0
         val fpsBefore = if (avgBeforeMs > 0.0) 1000.0 / avgBeforeMs else 0.0
         val fpsAfter = if (avgAfterMs > 0.0) 1000.0 / avgAfterMs else 0.0
-        return RuntimeBenchmarkSnapshot(
-            filter = filter,
-            samples = acc.samples,
-            avgBeforeMs = avgBeforeMs,
-            avgAfterMs = avgAfterMs,
-            fpsBefore = fpsBefore,
-            fpsAfter = fpsAfter,
-        )
-    }
-
-    private fun applyGrayscale(src: Mat): Mat {
-        val res = Mat(); Imgproc.cvtColor(src, res, Imgproc.COLOR_RGBA2GRAY)
-        val out = Mat(); Imgproc.cvtColor(res, out, Imgproc.COLOR_GRAY2RGBA)
-        res.release(); return out
-    }
-
-    private fun applyCanny(src: Mat): Mat {
-        val gray = Mat(); val blurred = Mat(); val edges = Mat(); val res = Mat()
-        Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
-        Imgproc.GaussianBlur(gray, blurred, Size(5.0, 5.0), 0.0)
-        Imgproc.Canny(blurred, edges, 50.0, 150.0)
-        Imgproc.cvtColor(edges, res, Imgproc.COLOR_GRAY2RGBA)
-        gray.release(); blurred.release(); edges.release(); return res
-    }
-
-    private fun applyGaussianBlur(src: Mat): Mat {
-        val res = Mat(); Imgproc.GaussianBlur(src, res, Size(5.0, 5.0), 0.0); return res
-    }
-
-    private fun applyThreshold(src: Mat): Mat {
-        val gray = Mat(); val thresh = Mat(); val res = Mat()
-        Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
-        Imgproc.threshold(gray, thresh, 127.0, 255.0, Imgproc.THRESH_BINARY)
-        Imgproc.cvtColor(thresh, res, Imgproc.COLOR_GRAY2RGBA)
-        gray.release(); thresh.release(); return res
-    }
-
-    private fun applySobel(src: Mat): Mat {
-        val gray = Mat(); val sx = Mat(); val sy = Mat(); val ax = Mat(); val ay = Mat(); val c = Mat(); val res = Mat()
-        Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
-        Imgproc.Sobel(gray, sx, CvType.CV_16S, 1, 0)
-        Imgproc.Sobel(gray, sy, CvType.CV_16S, 0, 1)
-        Core.convertScaleAbs(sx, ax); Core.convertScaleAbs(sy, ay)
-        Core.addWeighted(ax, 0.5, ay, 0.5, 0.0, c)
-        Imgproc.cvtColor(c, res, Imgproc.COLOR_GRAY2RGBA)
-        gray.release(); sx.release(); sy.release(); ax.release(); ay.release(); c.release(); return res
-    }
-
-    private fun applyLaplacian(src: Mat): Mat {
-        val gray = Mat(); val lap = Mat(); val abs = Mat(); val res = Mat()
-        Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
-        Imgproc.Laplacian(gray, lap, CvType.CV_16S)
-        Core.convertScaleAbs(lap, abs)
-        Imgproc.cvtColor(abs, res, Imgproc.COLOR_GRAY2RGBA)
-        gray.release(); lap.release(); abs.release(); return res
-    }
-
-    private fun applyDilate(src: Mat): Mat {
-        val res = Mat(); val k = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size((2*morphKernelSize+1).toDouble(), (2*morphKernelSize+1).toDouble()))
-        Imgproc.dilate(src, res, k); k.release(); return res
-    }
-
-    private fun applyErode(src: Mat): Mat {
-        val res = Mat(); val k = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size((2*morphKernelSize+1).toDouble(), (2*morphKernelSize+1).toDouble()))
-        Imgproc.erode(src, res, k); k.release(); return res
-    }
-
-    private fun applyMorphEx(src: Mat, op: Int): Mat {
-        val res = Mat(); val k = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size((2*morphKernelSize+1).toDouble(), (2*morphKernelSize+1).toDouble()))
-        Imgproc.morphologyEx(src, res, op, k); k.release(); return res
+        return RuntimeBenchmarkSnapshot(filter, acc.samples, avgBeforeMs, avgAfterMs, fpsBefore, fpsAfter)
     }
 
     private fun applyAprilTagDetection(src: Mat): Mat {
@@ -497,30 +384,14 @@ class ImageProcessor {
         gray.release()
         if (ids.rows() > 0) {
             Objdetect.drawDetectedMarkers(res, corners, ids, Scalar(0.0, 255.0, 0.0, 255.0))
-            val detections = ArrayList<MarkerDetection>()
             for (i in 0 until corners.size) {
-                val c = corners[i]
-                val pts = ptsToList(c)
+                val pts = ptsToList(corners[i])
                 val markerId = ids.get(i, 0)[0].toInt()
-                val poseEstimate = drawMarkerPoseOverlay(
-                    res = res,
-                    corners = pts,
-                    markerKey = "april:$markerId",
-                    markerLabel = "AprilTag#$markerId",
-                )
-                val detection = MarkerDetection.AprilTag(
-                    markerId = markerId,
-                    corners = pts,
-                    rvec = poseEstimate?.rvec,
-                    tvec = poseEstimate?.tvec,
-                    quality = poseEstimate?.quality ?: MarkerDetection.Quality(),
-                )
+                val poseEstimate = drawMarkerPoseOverlay(res, pts, "april:$markerId", "AprilTag#$markerId")
+                val detection = MarkerDetection.AprilTag(markerId, pts, poseEstimate?.rvec, poseEstimate?.tvec, poseEstimate?.quality ?: MarkerDetection.Quality())
                 drawCornerOutlineWithOrder(res, pts)
                 drawMarkerLabel(res, detection, poseEstimate?.metrics)
-                logMarkerDiagnostics(detection)
-                detections.add(detection)
             }
-            onMarkersDetected?.invoke(detections)
         }
         ids.release(); return res
     }
@@ -532,30 +403,14 @@ class ImageProcessor {
         gray.release()
         if (ids.rows() > 0) {
             Objdetect.drawDetectedMarkers(res, corners, ids, Scalar(255.0, 255.0, 0.0, 255.0))
-            val detections = ArrayList<MarkerDetection>()
             for (i in 0 until corners.size) {
-                val c = corners[i]
-                val pts = ptsToList(c)
+                val pts = ptsToList(corners[i])
                 val markerId = ids.get(i, 0)[0].toInt()
-                val poseEstimate = drawMarkerPoseOverlay(
-                    res = res,
-                    corners = pts,
-                    markerKey = "aruco:$markerId",
-                    markerLabel = "ArUco#$markerId",
-                )
-                val detection = MarkerDetection.Aruco(
-                    markerId = markerId,
-                    corners = pts,
-                    rvec = poseEstimate?.rvec,
-                    tvec = poseEstimate?.tvec,
-                    quality = poseEstimate?.quality ?: MarkerDetection.Quality(),
-                )
+                val poseEstimate = drawMarkerPoseOverlay(res, pts, "aruco:$markerId", "ArUco#$markerId")
+                val detection = MarkerDetection.Aruco(markerId, pts, poseEstimate?.rvec, poseEstimate?.tvec, poseEstimate?.quality ?: MarkerDetection.Quality())
                 drawCornerOutlineWithOrder(res, pts)
                 drawMarkerLabel(res, detection, poseEstimate?.metrics)
-                logMarkerDiagnostics(detection)
-                detections.add(detection)
             }
-            onMarkersDetected?.invoke(detections)
         }
         ids.release(); return res
     }
@@ -572,362 +427,147 @@ class ImageProcessor {
     private fun drawCornerOutlineWithOrder(res: Mat, corners: List<Pair<Float, Float>>) {
         if (corners.size < 4) return
         for (i in corners.indices) {
-            val a = corners[i]
-            val b = corners[(i + 1) % corners.size]
-            val pa = Point(a.first.toDouble(), a.second.toDouble())
-            val pb = Point(b.first.toDouble(), b.second.toDouble())
+            val pa = Point(corners[i].first.toDouble(), corners[i].second.toDouble())
+            val pb = Point(corners[(i + 1) % corners.size].first.toDouble(), corners[(i + 1) % corners.size].second.toDouble())
             val color = OVERLAY_CORNER_COLORS[i % OVERLAY_CORNER_COLORS.size]
             Imgproc.line(res, pa, pb, color, 3)
             Imgproc.circle(res, pa, 4, color, -1)
-            Imgproc.putText(
-                res,
-                "$i",
-                Point(pa.x + 6.0, pa.y - 6.0),
-                Imgproc.FONT_HERSHEY_SIMPLEX,
-                0.45,
-                color,
-                2,
-            )
+            Imgproc.putText(res, "$i", Point(pa.x + 6.0, pa.y - 6.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.45, color, 2)
         }
     }
 
-    private fun drawMarkerPoseOverlay(
-        res: Mat,
-        corners: List<Pair<Float, Float>>,
-        markerKey: String,
-        markerLabel: String,
-    ): MarkerPoseEstimate? {
+    private fun drawMarkerPoseOverlay(res: Mat, corners: List<Pair<Float, Float>>, markerKey: String, markerLabel: String): MarkerPoseEstimate? {
         val calib = calibrator?.calibrationResult ?: return null
         if (corners.size != 4) return null
-        val imagePoints = MatOfPoint2f(
-            Point(corners[0].first.toDouble(), corners[0].second.toDouble()),
-            Point(corners[1].first.toDouble(), corners[1].second.toDouble()),
-            Point(corners[2].first.toDouble(), corners[2].second.toDouble()),
-            Point(corners[3].first.toDouble(), corners[3].second.toDouble()),
-        )
+        val imagePoints = MatOfPoint2f(Point(corners[0].first.toDouble(), corners[0].second.toDouble()), Point(corners[1].first.toDouble(), corners[1].second.toDouble()), Point(corners[2].first.toDouble(), corners[2].second.toDouble()), Point(corners[3].first.toDouble(), corners[3].second.toDouble()))
         val half = MARKER_SIZE_METERS / 2.0
-        val objectPoints = MatOfPoint3f(
-            Point3(-half, half, 0.0),
-            Point3(half, half, 0.0),
-            Point3(half, -half, 0.0),
-            Point3(-half, -half, 0.0),
-        )
-        val rvec = Mat()
-        val tvec = Mat()
-        val solved = Calib3d.solvePnP(
-            objectPoints,
-            imagePoints,
-            calib.cameraMatrix,
-            calib.distCoeffs,
-            rvec,
-            tvec,
-            false,
-            Calib3d.SOLVEPNP_IPPE_SQUARE,
-        ) || Calib3d.solvePnP(
-            objectPoints,
-            imagePoints,
-            calib.cameraMatrix,
-            calib.distCoeffs,
-            rvec,
-            tvec,
-        )
-        if (!solved) {
-            imagePoints.release()
-            objectPoints.release()
-            rvec.release()
-            tvec.release()
-            return null
-        }
+        val objectPoints = MatOfPoint3f(Point3(-half, half, 0.0), Point3(half, half, 0.0), Point3(half, -half, 0.0), Point3(-half, -half, 0.0))
+        val rvec = Mat(); val tvec = Mat()
+        val solved = Calib3d.solvePnP(objectPoints, imagePoints, calib.cameraMatrix, calib.distCoeffs, rvec, tvec, false, Calib3d.SOLVEPNP_IPPE_SQUARE) || Calib3d.solvePnP(objectPoints, imagePoints, calib.cameraMatrix, calib.distCoeffs, rvec, tvec)
+        if (!solved) { imagePoints.release(); objectPoints.release(); rvec.release(); tvec.release(); return null }
 
         val filtered = selectPoseForRender(markerKey, tvec, rvec)
-        val rmat = Mat()
-        Calib3d.Rodrigues(filtered.second, rmat)
+        val rmat = Mat(); Calib3d.Rodrigues(filtered.second, rmat)
         val zAxis = doubleArrayOf(rmat.get(0, 2)[0], rmat.get(1, 2)[0], rmat.get(2, 2)[0])
         val euler = rotationMatrixToEuler(rmat)
-        val zAligned = ensureZAxisConsistency(
-            markerKey = markerKey,
-            zAxis = zAxis,
-            markerLabel = markerLabel,
-        )
-        if (!zAligned) {
-            Log.w(TAG, "Potential axis inconsistency for $markerLabel")
-        }
-        if (poseOutputMode == PoseOutputMode.RAW_VS_SMOOTHED) {
-            Calib3d.drawFrameAxes(
-                res,
-                calib.cameraMatrix,
-                calib.distCoeffs,
-                rvec,
-                tvec,
-                (AXIS_LENGTH_METERS * 0.8).toFloat(),
-            )
-        }
-        Calib3d.drawFrameAxes(
-            res,
-            calib.cameraMatrix,
-            calib.distCoeffs,
-            filtered.second,
-            filtered.first,
-            AXIS_LENGTH_METERS.toFloat(),
-        )
-        val reprojectionError = computeReprojectionError(
-            objectPoints,
-            imagePoints,
-            filtered.second,
-            filtered.first,
-            calib.cameraMatrix,
-            calib.distCoeffs,
-        )
+        ensureZAxisConsistency(markerKey, zAxis, markerLabel)
+        
+        Calib3d.drawFrameAxes(res, calib.cameraMatrix, calib.distCoeffs, filtered.second, filtered.first, AXIS_LENGTH_METERS.toFloat())
+        val reprojectionError = computeReprojectionError(objectPoints, imagePoints, filtered.second, filtered.first, calib.cameraMatrix, calib.distCoeffs)
         val distance = norm3(filtered.first)
         val confidence = 1.0 / (1.0 + reprojectionError)
 
         markerPoseStates[markerKey] = PoseState(zAxisCamera = zAxis)
-
-        val poseRvec = List(3) { index -> filtered.second.get(index, 0)[0] }
-        val poseTvec = List(3) { index -> filtered.first.get(index, 0)[0] }
-        val metrics = PoseOverlayMetrics(
-            distanceMeters = distance,
-            yawDeg = euler[0],
-            pitchDeg = euler[1],
-            rollDeg = euler[2],
-            reprojectionErrorPx = reprojectionError,
-            confidence = confidence,
-            temporalDebug = filtered.third,
-        )
-        imagePoints.release()
-        objectPoints.release()
-        rvec.release()
-        tvec.release()
-        rmat.release()
-        filtered.first.release()
-        filtered.second.release()
-        return MarkerPoseEstimate(
-            rvec = poseRvec,
-            tvec = poseTvec,
-            quality = MarkerDetection.Quality(
-                confidence = confidence,
-                reprojectionErrorPx = reprojectionError,
-            ),
-            metrics = metrics,
-        )
+        val poseRvec = List(3) { filtered.second.get(it, 0)[0] }
+        val poseTvec = List(3) { filtered.first.get(it, 0)[0] }
+        val metrics = PoseOverlayMetrics(distance, euler[0], euler[1], euler[2], reprojectionError, confidence, filtered.third)
+        
+        imagePoints.release(); objectPoints.release(); rvec.release(); tvec.release(); rmat.release(); filtered.first.release(); filtered.second.release()
+        return MarkerPoseEstimate(poseRvec, poseTvec, MarkerDetection.Quality(confidence, reprojectionError), metrics)
     }
 
-    private fun drawMarkerLabel(
-        res: Mat,
-        detection: MarkerDetection,
-        metrics: PoseOverlayMetrics?,
-    ) {
+    private fun drawMarkerLabel(res: Mat, detection: MarkerDetection, metrics: PoseOverlayMetrics?) {
         val anchor = detection.corners.minByOrNull { it.second } ?: Pair(30f, 30f)
-        val x = anchor.first.toDouble()
-        val y = (anchor.second - 12f).toDouble().coerceAtLeast(30.0)
+        val x = anchor.first.toDouble(); val y = (anchor.second - 12f).toDouble().coerceAtLeast(30.0)
         val lines = buildList {
             add("${detection.type}:${detection.id}")
             if (metrics != null) {
                 add("dist=%.2fm".format(metrics.distanceMeters))
-                add(
-                    "yaw/pitch/roll=%.1f/%.1f/%.1f".format(
-                        metrics.yawDeg,
-                        metrics.pitchDeg,
-                        metrics.rollDeg,
-                    ),
-                )
+                add("yaw/pitch/roll=%.1f/%.1f/%.1f".format(metrics.yawDeg, metrics.pitchDeg, metrics.rollDeg))
                 add(detection.quality.toOverlayString())
-                val debug = metrics.temporalDebug
-                val raw = if (debug.jitterRawTvecMm != null && debug.jitterRawRvecDeg != null) {
-                    "raw=%.2fmm/%.2f°".format(debug.jitterRawTvecMm, debug.jitterRawRvecDeg)
-                } else {
-                    "raw=--"
-                }
-                val smooth = if (debug.jitterSmoothTvecMm != null && debug.jitterSmoothRvecDeg != null) {
-                    "smooth=%.2fmm/%.2f°".format(debug.jitterSmoothTvecMm, debug.jitterSmoothRvecDeg)
-                } else {
-                    "smooth=--"
-                }
-                add("mode=${debug.mode.name} ${if (debug.stableStaticScene) "jitter OK" else "jitter HIGH"}")
-                add("$raw | $smooth")
+                add("mode=${metrics.temporalDebug.mode.name} ${if (metrics.temporalDebug.stableStaticScene) "jitter OK" else "jitter HIGH"}")
             } else {
                 add(detection.quality.toOverlayString())
             }
         }
-        lines.forEachIndexed { i, line ->
-            Imgproc.putText(
-                res,
-                line,
-                Point(x, y + i * LABEL_LINE_HEIGHT),
-                Imgproc.FONT_HERSHEY_SIMPLEX,
-                LABEL_FONT_SCALE,
-                Scalar(240.0, 240.0, 240.0, 255.0),
-                2,
-            )
-        }
+        lines.forEachIndexed { i, line -> Imgproc.putText(res, line, Point(x, y + i * LABEL_LINE_HEIGHT), Imgproc.FONT_HERSHEY_SIMPLEX, LABEL_FONT_SCALE, Scalar(255.0, 0.0, 0.0, 255.0), 2) }
     }
 
     private fun ensureZAxisConsistency(markerKey: String, zAxis: DoubleArray, markerLabel: String): Boolean {
         val dotWithCamera = zAxis.getOrElse(2) { 0.0 }
         val prev = markerPoseStates[markerKey]
-        if (dotWithCamera < 0.0) {
-            Log.w(TAG, "$markerLabel has negative Z-axis dot with camera")
-            return false
-        }
+        if (dotWithCamera < 0.0) return false
         if (prev != null) {
             val dot = prev.zAxisCamera.zip(zAxis).sumOf { it.first * it.second }
-            if (dot < 0.0) {
-                Log.w(TAG, "$markerLabel Z-axis flipped between frames")
-                return false
-            }
+            if (dot < 0.0) return false
         }
         return true
     }
 
-    private fun computeReprojectionError(
-        objectPoints: MatOfPoint3f,
-        imagePoints: MatOfPoint2f,
-        rvec: Mat,
-        tvec: Mat,
-        cameraMatrix: Mat,
-        distCoeffs: MatOfDouble,
-    ): Double {
-        val projected = MatOfPoint2f()
-        Calib3d.projectPoints(objectPoints, rvec, tvec, cameraMatrix, distCoeffs, projected)
-        val observed = imagePoints.toArray()
-        val reproj = projected.toArray()
-        projected.release()
+    private fun computeReprojectionError(objectPoints: MatOfPoint3f, imagePoints: MatOfPoint2f, rvec: Mat, tvec: Mat, cameraMatrix: Mat, distCoeffs: MatOfDouble): Double {
+        val projected = MatOfPoint2f(); Calib3d.projectPoints(objectPoints, rvec, tvec, cameraMatrix, distCoeffs, projected)
+        val observed = imagePoints.toArray(); val reproj = projected.toArray(); projected.release()
         if (observed.isEmpty() || observed.size != reproj.size) return Double.POSITIVE_INFINITY
         var errSq = 0.0
         for (i in observed.indices) {
-            val dx = observed[i].x - reproj[i].x
-            val dy = observed[i].y - reproj[i].y
+            val dx = observed[i].x - reproj[i].x; val dy = observed[i].y - reproj[i].y
             errSq += dx * dx + dy * dy
         }
         return sqrt(errSq / observed.size)
     }
 
     private fun norm3(tvec: Mat): Double {
-        val x = tvec.get(0, 0)[0]
-        val y = tvec.get(1, 0)[0]
-        val z = tvec.get(2, 0)[0]
+        val x = tvec.get(0, 0)[0]; val y = tvec.get(1, 0)[0]; val z = tvec.get(2, 0)[0]
         return sqrt(x * x + y * y + z * z)
     }
 
     private fun selectPoseForRender(rawKey: String, rawTvec: Mat, rawRvec: Mat): Triple<Mat, Mat, PoseTemporalDebugMetrics> {
-        poseTemporalFilter.updateConfig(
-            PoseTemporalConfig(
-                enabled = poseSmoothingEnabled,
-                filterType = poseTemporalFilterType,
-                emaAlpha = poseEmaAlpha,
-                oneEuroBeta = poseOneEuroBeta,
-            ),
-        )
-        val result = poseTemporalFilter.process(
-            markerKey = rawKey,
-            tvec = doubleArrayOf(rawTvec.get(0, 0)[0], rawTvec.get(1, 0)[0], rawTvec.get(2, 0)[0]),
-            rvec = doubleArrayOf(rawRvec.get(0, 0)[0], rawRvec.get(1, 0)[0], rawRvec.get(2, 0)[0]),
-            timestampNs = System.nanoTime(),
-        )
+        poseTemporalFilter.updateConfig(PoseTemporalConfig(poseSmoothingEnabled, poseTemporalFilterType, poseEmaAlpha, poseOneEuroBeta))
+        val result = poseTemporalFilter.process(rawKey, doubleArrayOf(rawTvec.get(0, 0)[0], rawTvec.get(1, 0)[0], rawTvec.get(2, 0)[0]), doubleArrayOf(rawRvec.get(0, 0)[0], rawRvec.get(1, 0)[0], rawRvec.get(2, 0)[0]), System.nanoTime())
         val useRaw = poseOutputMode == PoseOutputMode.RAW
         val selectedT = if (useRaw) result.rawTvec else result.smoothedTvec
         val selectedR = if (useRaw) result.rawRvec else result.smoothedRvec
-        val tMat = Mat(3, 1, CvType.CV_64F).apply {
-            put(0, 0, selectedT[0]); put(1, 0, selectedT[1]); put(2, 0, selectedT[2])
-        }
-        val rMat = Mat(3, 1, CvType.CV_64F).apply {
-            put(0, 0, selectedR[0]); put(1, 0, selectedR[1]); put(2, 0, selectedR[2])
-        }
-        val debug = PoseTemporalDebugMetrics(
-            mode = poseOutputMode,
-            jitterRawTvecMm = result.rawJitter?.tvecMm,
-            jitterRawRvecDeg = result.rawJitter?.rvecDeg,
-            jitterSmoothTvecMm = result.smoothedJitter?.tvecMm,
-            jitterSmoothRvecDeg = result.smoothedJitter?.rvecDeg,
-            stableStaticScene = poseTemporalFilter.isStaticSceneStable(result.smoothedJitter),
-        )
+        val tMat = Mat(3, 1, CvType.CV_64F).apply { put(0, 0, selectedT[0]); put(1, 0, selectedT[1]); put(2, 0, selectedT[2]) }
+        val rMat = Mat(3, 1, CvType.CV_64F).apply { put(0, 0, selectedR[0]); put(1, 0, selectedR[1]); put(2, 0, selectedR[2]) }
+        val debug = PoseTemporalDebugMetrics(poseOutputMode, result.rawJitter?.tvecMm, result.rawJitter?.rvecDeg, result.smoothedJitter?.tvecMm, result.smoothedJitter?.rvecDeg, poseTemporalFilter.isStaticSceneStable(result.smoothedJitter))
         return Triple(tMat, rMat, debug)
     }
 
     private fun rotationMatrixToEuler(rmat: Mat): DoubleArray {
-        val r00 = rmat.get(0, 0)[0]
-        val r10 = rmat.get(1, 0)[0]
-        val r20 = rmat.get(2, 0)[0]
-        val r21 = rmat.get(2, 1)[0]
-        val r22 = rmat.get(2, 2)[0]
-        val sy = sqrt(r00 * r00 + r10 * r10)
-        val singular = sy < 1e-6
-
-        val yaw: Double
-        val pitch: Double
-        val roll: Double
-        if (!singular) {
-            yaw = Math.toDegrees(atan2(r10, r00))
-            pitch = Math.toDegrees(atan2(-r20, sy))
-            roll = Math.toDegrees(atan2(r21, r22))
+        val r00 = rmat.get(0, 0)[0]; val r10 = rmat.get(1, 0)[0]; val r20 = rmat.get(2, 0)[0]; val r21 = rmat.get(2, 1)[0]; val r22 = rmat.get(2, 2)[0]
+        val sy = sqrt(r00 * r00 + r10 * r10); val singular = sy < 1e-6
+        return if (!singular) {
+            doubleArrayOf(Math.toDegrees(atan2(r10, r00)), Math.toDegrees(atan2(-r20, sy)), Math.toDegrees(atan2(r21, r22)))
         } else {
-            yaw = Math.toDegrees(atan2(-rmat.get(0, 1)[0], rmat.get(1, 1)[0]))
-            pitch = Math.toDegrees(atan2(-r20, sy))
-            roll = 0.0
+            doubleArrayOf(Math.toDegrees(atan2(-rmat.get(0, 1)[0], rmat.get(1, 1)[0])), Math.toDegrees(atan2(-r20, sy)), 0.0)
         }
-        return doubleArrayOf(yaw, pitch, roll)
     }
 
-
     private fun applyQrCodeDetection(src: Mat): Mat {
-        val res = src.clone(); val points = Mat()
-        val gray = Mat(); Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
+        val res = src.clone(); val points = Mat(); val gray = Mat()
+        Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
         val data = qrCodeDetector.detectAndDecode(gray, points)
         if (!data.isNullOrEmpty()) {
-            val pts = MatOfPoint2f()
-            points.convertTo(pts, CvType.CV_32F)
-            val ptsList = ArrayList<Point>()
+            val pts = MatOfPoint2f(); points.convertTo(pts, CvType.CV_32F)
             for (i in 0 until pts.rows()) {
                 val p = Point(pts.get(i, 0)[0], pts.get(i, 0)[1])
-                ptsList.add(p)
                 Imgproc.line(res, p, Point(pts.get((i+1)%pts.rows(), 0)[0], pts.get((i+1)%pts.rows(), 0)[1]), Scalar(255.0, 0.0, 0.0, 255.0), 3)
             }
-            val detection = MarkerDetection.QrCode(
-                text = data,
-                corners = ptsList.map { Pair(it.x.toFloat(), it.y.toFloat()) },
-            )
-            logMarkerDiagnostics(detection)
-            onMarkersDetected?.invoke(listOf(detection))
             pts.release()
         }
         gray.release(); points.release(); return res
     }
 
-    private fun logMarkerDiagnostics(detection: MarkerDetection) {
-        Log.d(TAG, "marker_detection ${detection.toDiagnosticSummary()}")
-    }
-
-    private fun applyCCTagDetection(src: Mat): Mat {
-        // CCTag is not natively in OpenCV, placeholder or custom impl needed.
-        return src.clone()
-    }
+    private fun applyCCTagDetection(src: Mat): Mat = src.clone()
 
     private fun applyChessboardCalibration(src: Mat): Mat {
-        val res = src.clone()
-        val gray = Mat(); Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
+        val res = src.clone(); val gray = Mat()
+        Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
         val corners = calibrator?.detectCorners(gray, src.size())
         if (corners != null) {
-            val boardSize = Size(calibrator?.boardWidth?.toDouble() ?: 9.0, calibrator?.boardHeight?.toDouble() ?: 6.0)
-            Calib3d.drawChessboardCorners(res, boardSize, corners, true)
+            Calib3d.drawChessboardCorners(res, Size(calibrator?.boardWidth?.toDouble() ?: 9.0, calibrator?.boardHeight?.toDouble() ?: 6.0), corners, true)
         } else {
             Imgproc.putText(res, labelBoardNotFound, Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 1.0, Scalar(255.0, 0.0, 0.0, 255.0), 2)
         }
-        val frameCount = calibrator?.frameCount ?: 0
-        Imgproc.putText(res, "$frameCount $labelFrameCountSuffix", Point(30.0, res.rows() - 30.0), Imgproc.FONT_HERSHEY_SIMPLEX, 1.0, Scalar(0.0, 255.0, 0.0, 255.0), 2)
+        Imgproc.putText(res, "${calibrator?.frameCount ?: 0} $labelFrameCountSuffix", Point(30.0, res.rows() - 30.0), Imgproc.FONT_HERSHEY_SIMPLEX, 1.0, Scalar(0.0, 255.0, 0.0, 255.0), 2)
         gray.release(); return res
     }
 
     private fun applyUndistort(src: Mat): Mat {
         val profile = calibrator?.getCalibrationProfile(src.size())
-        logCalibrationDiagnostics(profile, "undistort")
         val res = Mat()
         if (profile?.isCompatible == true) {
-            Calib3d.undistort(
-                src,
-                res,
-                profile.calibration.cameraMatrix,
-                profile.calibration.distCoeffs,
-            )
+            Calib3d.undistort(src, res, profile.calibration.cameraMatrix, profile.calibration.distCoeffs)
         } else {
             src.copyTo(res)
             Imgproc.putText(res, labelNoCalibration, Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 1.0, Scalar(255.0, 0.0, 0.0, 255.0), 2)
@@ -942,14 +582,11 @@ class ImageProcessor {
         val tracks = visualOdometryEngine.currentTracks
         for (track in tracks) {
             if (track.size < 2) continue
-            for (i in 0 until track.size - 1) {
-                Imgproc.line(res, track[i], track[i+1], Scalar(0.0, 255.0, 0.0, 255.0), 1)
-            }
+            for (i in 0 until track.size - 1) Imgproc.line(res, track[i], track[i+1], Scalar(0.0, 255.0, 0.0, 255.0), 1)
             Imgproc.circle(res, track.last(), 3, Scalar(0.0, 0.0, 255.0, 255.0), -1)
         }
         Imgproc.putText(res, "$labelOdometryTracks: ${tracks.size}", Point(30.0, 30.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.7, Scalar(255.0, 255.0, 255.0), 2)
-        geometryInput.release()
-        return res
+        geometryInput.release(); return res
     }
 
     private fun applyPointCloud(src: Mat): Mat {
@@ -959,84 +596,49 @@ class ImageProcessor {
         val cloud = visualOdometryEngine.lastPointCloud
         if (cloud != null) {
             if (isVoMeshEnabled) {
-                for ((p1, p2) in cloud.edges) {
-                    Imgproc.line(res, p1, p2, Scalar(0.0, 128.0, 255.0, 255.0), POINT_CLOUD_MESH_THICKNESS)
-                }
+                for ((p1, p2) in cloud.edges) Imgproc.line(res, p1, p2, Scalar(0.0, 128.0, 255.0, 255.0), POINT_CLOUD_MESH_THICKNESS)
             }
-            for (pt in cloud.points) {
-                Imgproc.circle(res, pt, POINT_CLOUD_CIRCLE_RADIUS, Scalar(0.0, 255.0, 255.0, 255.0), -1)
+            cloud.points.forEachIndexed { i, pt ->
+                val color = cloud.colors.getOrNull(i) ?: Scalar(0.0, 255.0, 255.0, 255.0)
+                Imgproc.circle(res, pt, POINT_CLOUD_CIRCLE_RADIUS, color, -1)
             }
             Imgproc.putText(res, "$labelPointCloud: ${cloud.points.size}", Point(30.0, 30.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.7, Scalar(255.0, 255.0, 255.0, 255.0), 2)
         }
-        geometryInput.release()
-        return res
+        geometryInput.release(); return res
     }
 
-    // ------------------------------------------------------------------
-    // Full 3-D odometry filters
-    // ------------------------------------------------------------------
+    private data class XzBounds(val minX: Double, val maxX: Double, val minZ: Double, val maxZ: Double)
 
-    /** Bounding box for a set of 3-D points projected onto the X-Z plane. */
-    private data class XzBounds(
-        val minX: Double, val maxX: Double,
-        val minZ: Double, val maxZ: Double,
-    )
-
-    /** Compute the X-Z bounding box over a list of [Point3] values. */
-    private fun computeXzBounds(points: List<org.opencv.core.Point3>): XzBounds {
-        var minX = Double.MAX_VALUE
-        var maxX = -Double.MAX_VALUE
-        var minZ = Double.MAX_VALUE
-        var maxZ = -Double.MAX_VALUE
+    private fun computeXzBounds(points: List<Point3>): XzBounds {
+        var minX = Double.MAX_VALUE; var maxX = -Double.MAX_VALUE; var minZ = Double.MAX_VALUE; var maxZ = -Double.MAX_VALUE
         for (p in points) {
-            if (p.x < minX) minX = p.x
-            if (p.x > maxX) maxX = p.x
-            if (p.z < minZ) minZ = p.z
-            if (p.z > maxZ) maxZ = p.z
+            if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x
+            if (p.z < minZ) minZ = p.z; if (p.z > maxZ) maxZ = p.z
         }
         return XzBounds(minX, maxX, minZ, maxZ)
     }
 
-    /**
-     * Compute a uniform scale factor so that the X-Z range fits inside
-     * ([drawW] × [drawH]) pixels while preserving aspect ratio.
-     *
-     * Individual near-zero ranges are treated as 1 pixel of effective span
-     * to avoid dividing by zero or producing extreme scaling artefacts.
-     */
     private fun computeXzScale(bounds: XzBounds, drawW: Int, drawH: Int): Double {
-        val rangeX = bounds.maxX - bounds.minX
-        val rangeZ = bounds.maxZ - bounds.minZ
+        val rangeX = bounds.maxX - bounds.minX; val rangeZ = bounds.maxZ - bounds.minZ
         if (rangeX < EPSILON_THRESHOLD && rangeZ < EPSILON_THRESHOLD) return 1.0
-        // For a near-zero individual axis, fall back to 1 pixel to avoid extreme division
-        val safeRangeX = if (rangeX < EPSILON_THRESHOLD) 1.0 else rangeX
-        val safeRangeZ = if (rangeZ < EPSILON_THRESHOLD) 1.0 else rangeZ
-        return minOf(drawW.toDouble() / safeRangeX, drawH.toDouble() / safeRangeZ)
+        return minOf(drawW.toDouble() / (if (rangeX < EPSILON_THRESHOLD) 1.0 else rangeX), drawH.toDouble() / (if (rangeZ < EPSILON_THRESHOLD) 1.0 else rangeZ))
     }
 
-    /** Draw a regular grid of [steps]×[steps] lines on [canvas]. */
     private fun drawMapGrid(canvas: Mat, margin: Int, drawW: Int, drawH: Int, steps: Int = 4) {
         val gridColor = Scalar(40.0, 40.0, 40.0, 255.0)
         for (g in 0..steps) {
-            val gx = margin + g * drawW / steps
-            val gy = margin + 50 + g * drawH / steps
+            val gx = margin + g * drawW / steps; val gy = margin + 50 + g * drawH / steps
             Imgproc.line(canvas, Point(gx.toDouble(), (margin + 50).toDouble()), Point(gx.toDouble(), (margin + 50 + drawH).toDouble()), gridColor, 1)
             Imgproc.line(canvas, Point(margin.toDouble(), gy.toDouble()), Point((margin + drawW).toDouble(), gy.toDouble()), gridColor, 1)
         }
     }
 
-    /** Draw X / Z axis labels at the edges of the drawing area. */
     private fun drawXzAxisLabels(canvas: Mat, margin: Int, drawW: Int, drawH: Int) {
         val axisColor = Scalar(100.0, 220.0, 100.0, 255.0)
         Imgproc.putText(canvas, "X", Point((margin + drawW + 4).toDouble(), (margin + 50 + drawH / 2).toDouble()), Imgproc.FONT_HERSHEY_SIMPLEX, 0.5, axisColor, 1)
         Imgproc.putText(canvas, "Z", Point((margin + drawW / 2).toDouble(), (margin + 50 - 6).toDouble()), Imgproc.FONT_HERSHEY_SIMPLEX, 0.5, axisColor, 1)
     }
 
-    /**
-     * Full odometry view: camera image with optical-flow tracks overlaid and a
-     * HUD showing the accumulated pose statistics (frame count, inlier ratio,
-     * world-frame camera position).
-     */
     private fun applyFullOdometry(src: Mat): Mat {
         val geometryInput = prepareGeometryInput(src, "full_odometry")
         val res = src.clone()
@@ -1044,724 +646,131 @@ class ImageProcessor {
         val tracks = fullOdometryEngine.currentTracks
         for (track in tracks) {
             if (track.size < 2) continue
-            for (i in 0 until track.size - 1) {
-                Imgproc.line(res, track[i], track[i + 1], Scalar(0.0, 255.0, 0.0, 255.0), 1)
-            }
+            for (i in 0 until track.size - 1) Imgproc.line(res, track[i], track[i + 1], Scalar(0.0, 255.0, 0.0, 255.0), 1)
             Imgproc.circle(res, track.last(), 3, Scalar(255.0, 80.0, 0.0, 255.0), -1)
         }
-        val state = fullOdometryEngine.lastOdometryState
-        val x = FULL_ODOMETRY_HUD_X
-        var y = 40.0
-        val color = Scalar(255.0, 255.0, 255.0, 255.0)
-        val font = Imgproc.FONT_HERSHEY_SIMPLEX
-        Imgproc.putText(res, "$labelFullOdometryTracks: ${tracks.size}", Point(x, y), font, 0.65, color, 2)
+        val state = fullOdometryEngine.lastOdometryState; var y = 40.0
+        Imgproc.putText(res, "$labelFullOdometryTracks: ${tracks.size}", Point(FULL_ODOMETRY_HUD_X, y), Imgproc.FONT_HERSHEY_SIMPLEX, 0.65, Scalar(255.0, 255.0, 255.0, 255.0), 2)
         if (state != null) {
             y += FULL_ODOMETRY_HUD_LINE_HEIGHT
-            Imgproc.putText(res, "$labelFullOdometryInliers: ${state.inliersCount}/${state.tracksCount}", Point(x, y), font, 0.65, color, 2)
+            Imgproc.putText(res, "$labelFullOdometryInliers: ${state.inliersCount}/${state.tracksCount}", Point(FULL_ODOMETRY_HUD_X, y), Imgproc.FONT_HERSHEY_SIMPLEX, 0.65, Scalar(255.0, 255.0, 255.0, 255.0), 2)
             y += FULL_ODOMETRY_HUD_LINE_HEIGHT
-            Imgproc.putText(res, "$labelFullOdometryFrames: ${state.frameCount}  $labelFullOdometrySteps: ${state.totalSteps}", Point(x, y), font, 0.65, color, 2)
-            val pose = state.currentPose
-            if (pose != null) {
+            Imgproc.putText(res, "$labelFullOdometryFrames: ${state.frameCount}  $labelFullOdometrySteps: ${state.totalSteps}", Point(FULL_ODOMETRY_HUD_X, y), Imgproc.FONT_HERSHEY_SIMPLEX, 0.65, Scalar(255.0, 255.0, 255.0, 255.0), 2)
+            val currentPose = state.currentPose
+            if (currentPose != null) {
                 y += FULL_ODOMETRY_HUD_LINE_HEIGHT
-                val px = "%.2f".format(pose.position.x)
-                val py = "%.2f".format(pose.position.y)
-                val pz = "%.2f".format(pose.position.z)
-                Imgproc.putText(res, "$labelFullOdometryPos: ($px, $py, $pz)", Point(x, y), font, 0.55, color, 2)
+                Imgproc.putText(res, "$labelFullOdometryPos: (%.2f, %.2f, %.2f)".format(currentPose.position.x, currentPose.position.y, currentPose.position.z), Point(FULL_ODOMETRY_HUD_X, y), Imgproc.FONT_HERSHEY_SIMPLEX, 0.55, Scalar(255.0, 255.0, 255.0, 255.0), 2)
                 y += FULL_ODOMETRY_HUD_LINE_HEIGHT
-                Imgproc.putText(res, "R: ${"%.1f".format(pose.rotationDeg)}°  inlier: ${"%.0f".format(pose.inlierRatio * 100)}%", Point(x, y), font, 0.55, color, 2)
+                Imgproc.putText(res, "R: %.1f°  inlier: %.0f%%".format(currentPose.rotationDeg, currentPose.inlierRatio * 100), Point(FULL_ODOMETRY_HUD_X, y), Imgproc.FONT_HERSHEY_SIMPLEX, 0.55, Scalar(255.0, 255.0, 255.0, 255.0), 2)
             }
         }
-        geometryInput.release()
-        return res
+        geometryInput.release(); return res
     }
 
-    /**
-     * Accumulated camera trajectory visualised as a top-down (X-Z) bird's-eye
-     * view on a dark canvas.  Past positions are drawn as white dots; the
-     * current position is shown as a red dot with a cross-hair.
-     */
     private fun applyOdometryTrajectory(src: Mat): Mat {
         val geometryInput = prepareGeometryInput(src, "odometry_trajectory")
-        fullOdometryEngine.processFrameRgba(geometryInput, calibrator)
-        geometryInput.release()
+        fullOdometryEngine.processFrameRgba(geometryInput, calibrator); geometryInput.release()
         val res = Mat.zeros(src.rows(), src.cols(), src.type())
-        val trajectory = fullOdometryEngine.currentTrajectory
-        val positions = trajectory.positions
-        val label = "$labelTrajectory: ${positions.size}"
-        Imgproc.putText(res, label, Point(FULL_ODOMETRY_HUD_X, 36.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.65, Scalar(200.0, 200.0, 200.0, 255.0), 2)
-
+        val positions = fullOdometryEngine.currentTrajectory.positions
+        Imgproc.putText(res, "$labelTrajectory: ${positions.size}", Point(FULL_ODOMETRY_HUD_X, 36.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.65, Scalar(200.0, 200.0, 200.0, 255.0), 2)
         if (positions.size < 2) {
             Imgproc.putText(res, labelCollectingData, Point(FULL_ODOMETRY_HUD_X, 72.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.55, Scalar(150.0, 150.0, 150.0, 255.0), 1)
             return res
         }
-
-        val bounds = computeXzBounds(positions)
-        val margin = 40
-        val drawW = res.cols() - 2 * margin
-        val drawH = res.rows() - 2 * margin - 50
-        val scale = computeXzScale(bounds, drawW, drawH)
-
-        fun toScreen(p: org.opencv.core.Point3): Point {
-            val sx = margin + ((p.x - bounds.minX) * scale).toInt()
-            val sy = margin + 50 + ((p.z - bounds.minZ) * scale).toInt()
-            return Point(sx.toDouble(), sy.toDouble())
-        }
-
+        val bounds = computeXzBounds(positions); val margin = 40; val drawW = res.cols() - 2 * margin; val drawH = res.rows() - 2 * margin - 50; val scale = computeXzScale(bounds, drawW, drawH)
+        
+        // Helper to project 3D point (X, Z) to 2D screen coordinates for top-down map
+        fun toScreenCoord(pt: Point3): Point = Point(
+            margin + (pt.x - bounds.minX) * scale,
+            margin + 50 + (pt.z - bounds.minZ) * scale
+        )
+        
         drawMapGrid(res, margin, drawW, drawH)
-
-        // Draw trajectory path
         for (i in 1 until positions.size) {
-            val p1 = toScreen(positions[i - 1])
-            val p2 = toScreen(positions[i])
-            Imgproc.line(res, p1, p2, Scalar(180.0, 180.0, 180.0, 255.0), 1)
+            Imgproc.line(res, toScreenCoord(positions[i - 1]), toScreenCoord(positions[i]), Scalar(180.0, 180.0, 180.0, 255.0), 1)
         }
-
-        // Draw past positions as small white dots
-        for (i in 0 until positions.size - 1) {
-            Imgproc.circle(res, toScreen(positions[i]), 2, Scalar(255.0, 255.0, 255.0, 255.0), -1)
+        for (i in positions.indices) {
+            Imgproc.circle(res, toScreenCoord(positions[i]), 2, Scalar(255.0, 255.0, 255.0, 255.0), -1)
         }
-
-        // Draw current position (red, larger)
-        val current = trajectory.currentPosition
+        
+        val current = fullOdometryEngine.currentTrajectory.currentPosition
         if (current != null) {
-            val sc = toScreen(current)
+            val sc = toScreenCoord(current)
             Imgproc.circle(res, sc, 6, Scalar(0.0, 0.0, 255.0, 255.0), -1)
             Imgproc.line(res, Point(sc.x - 10.0, sc.y), Point(sc.x + 10.0, sc.y), Scalar(0.0, 0.0, 255.0, 255.0), 2)
             Imgproc.line(res, Point(sc.x, sc.y - 10.0), Point(sc.x, sc.y + 10.0), Scalar(0.0, 0.0, 255.0, 255.0), 2)
         }
-
-        drawXzAxisLabels(res, margin, drawW, drawH)
-        return res
+        drawXzAxisLabels(res, margin, drawW, drawH); return res
     }
 
-    /**
-     * Sparse 3-D map built from triangulated inlier correspondences, projected
-     * onto the X-Z (top-down) plane together with the current camera position.
-     */
     private fun applyOdometryMap(src: Mat): Mat {
         val geometryInput = prepareGeometryInput(src, "odometry_map")
-        fullOdometryEngine.processFrameRgba(geometryInput, calibrator)
-        geometryInput.release()
+        fullOdometryEngine.processFrameRgba(geometryInput, calibrator); geometryInput.release()
         val res = Mat.zeros(src.rows(), src.cols(), src.type())
         val mapState = fullOdometryEngine.currentMap
         val points = mapState.points3d
-
+        val colors = mapState.colors
         Imgproc.putText(res, "$labelMap3D: ${points.size} $labelOdometryPoints", Point(FULL_ODOMETRY_HUD_X, 36.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.65, Scalar(200.0, 200.0, 200.0, 255.0), 2)
-
         if (points.isEmpty()) {
             Imgproc.putText(res, labelCollectingPoints, Point(FULL_ODOMETRY_HUD_X, 72.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.55, Scalar(150.0, 150.0, 150.0, 255.0), 1)
             return res
         }
-
-        // Combine map points and camera position for bounding box
         val camPos = mapState.cameraPosition
-        val allPoints = if (camPos != null) points + camPos else points
-        val bounds = computeXzBounds(allPoints)
-
-        val margin = 40
-        val drawW = res.cols() - 2 * margin
-        val drawH = res.rows() - 2 * margin - 50
-        val scale = computeXzScale(bounds, drawW, drawH)
-
-        fun toScreen(x: Double, z: Double): Point {
-            val sx = margin + ((x - bounds.minX) * scale).toInt()
-            val sy = margin + 50 + ((z - bounds.minZ) * scale).toInt()
-            return Point(sx.toDouble(), sy.toDouble())
-        }
-
+        val combinedPoints = if (camPos != null) points + camPos else points
+        val bounds = computeXzBounds(combinedPoints)
+        val margin = 40; val drawW = res.cols() - 2 * margin; val drawH = res.rows() - 2 * margin - 50; val scale = computeXzScale(bounds, drawW, drawH)
+        
+        fun toScreenCoord(px: Double, pz: Double): Point = Point(
+            margin + (px - bounds.minX) * scale,
+            margin + 50 + (pz - bounds.minZ) * scale
+        )
+        
         drawMapGrid(res, margin, drawW, drawH)
-
-        // Draw map points (cyan)
-        for (p in points) {
-            Imgproc.circle(res, toScreen(p.x, p.z), 2, Scalar(0.0, 220.0, 220.0, 255.0), -1)
+        for (i in points.indices) {
+            val pt = points[i]
+            val c = colors[i]
+            val scalar = Scalar(android.graphics.Color.red(c).toDouble(), android.graphics.Color.green(c).toDouble(), android.graphics.Color.blue(c).toDouble(), 255.0)
+            Imgproc.circle(res, toScreenCoord(pt.x, pt.z), 2, scalar, -1)
         }
-
-        // Draw camera position (orange cross-hair)
+        
         if (camPos != null) {
-            val sc = toScreen(camPos.x, camPos.z)
+            val sc = toScreenCoord(camPos.x, camPos.z)
             Imgproc.circle(res, sc, 7, Scalar(255.0, 80.0, 0.0, 255.0), 2)
             Imgproc.line(res, Point(sc.x - 12.0, sc.y), Point(sc.x + 12.0, sc.y), Scalar(255.0, 80.0, 0.0, 255.0), 2)
             Imgproc.line(res, Point(sc.x, sc.y - 12.0), Point(sc.x, sc.y + 12.0), Scalar(255.0, 80.0, 0.0, 255.0), 2)
         }
-
-        drawXzAxisLabels(res, margin, drawW, drawH)
-        return res
+        drawXzAxisLabels(res, margin, drawW, drawH); return res
     }
 
-    /**
-     * Segments the image into planes using a combination of edge detection, 
-     * Hough line clustering, and vanishing point analysis.
-     *
-     * Visualises planes by:
-     * - Drawing inlier lines of dominant directions in unique colours.
-     * - Drawing a convex hull over the detected plane area.
-     * - Marking the vanishing point for each direction.
-     * - Confidence label (percentage of lines belonging to the plane).
-     */
     private fun applyPlaneDetection(src: Mat): Mat {
         val geometryInput = prepareGeometryInput(src, "plane_detection")
         val profile = calibrator?.getCalibrationProfile(geometryInput.size())
         if (profile != null && !profile.isCompatible) {
-            val blocked = src.clone()
-            Imgproc.putText(
-                blocked,
-                labelNoCalibration,
-                Point(30.0, 50.0),
-                Imgproc.FONT_HERSHEY_SIMPLEX,
-                1.0,
-                Scalar(255.0, 0.0, 0.0, 255.0),
-                2,
-            )
-            geometryInput.release()
-            return blocked
+            val blocked = src.clone(); Imgproc.putText(blocked, labelNoCalibration, Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 1.0, Scalar(255.0, 0.0, 0.0, 255.0), 2)
+            geometryInput.release(); return blocked
         }
         val res = geometryInput.clone()
-        val gray = Mat(); val clahe = Mat(); val blurred = Mat(); val edges = Mat()
-        try {
-            Imgproc.cvtColor(geometryInput, gray, Imgproc.COLOR_RGBA2GRAY)
-
-            // CLAHE – contrast-limited adaptive histogram equalization for even-lighting robustness
-            val claheObj = Imgproc.createCLAHE(2.0, Size(8.0, 8.0))
-            claheObj.apply(gray, clahe)
-
-            Imgproc.GaussianBlur(clahe, blurred, Size(5.0, 5.0), 0.0)
-
-            // Adaptive Canny: thresholds derived from the median intensity of the blurred image
-            val medianVal = _medianIntensity(blurred)
-            val sigma = 0.33
-            val lower = maxOf(0.0, (1.0 - sigma) * medianVal)
-            val upper = minOf(255.0, (1.0 + sigma) * medianVal)
-            Imgproc.Canny(blurred, edges, lower, upper)
-
-            // Dilate edges to bridge small gaps between line segments
-            Imgproc.dilate(edges, edges, dilationKernel3x3)
-
-            val lines = Mat()
-            Imgproc.HoughLinesP(edges, lines, 1.0, Math.PI / 180.0, 30, 15.0, 5.0)
-
-            // Cluster lines by angle; use length-weighted mean angle per cluster
-            val clusters = ArrayList<ArrayList<DoubleArray>>()  // each segment: [x1,y1,x2,y2,length]
-            val clusterAngles = ArrayList<Double>()
-            for (i in 0 until lines.rows()) {
-                val seg = lines.get(i, 0).takeIf { it.isNotEmpty() } ?: continue
-                if (seg.size < 4) continue
-                val x1 = seg[0]; val y1 = seg[1]; val x2 = seg[2]; val y2 = seg[3]
-                val length = hypot(x2 - x1, y2 - y1)
-                val angle = Math.toDegrees(atan2(y2 - y1, x2 - x1)).let { if (it < 0) it + 180.0 else it } % 180.0
-                var assigned = false
-                for (k in clusterAngles.indices) {
-                    var diff = abs(angle - clusterAngles[k]); diff = minOf(diff, 180.0 - diff)
-                    if (diff <= CLUSTER_ANGLE_THRESHOLD_DEG) {
-                        clusters[k].add(doubleArrayOf(x1, y1, x2, y2, length))
-                        // Update cluster mean angle (length-weighted)
-                        clusterAngles[k] = _weightedAngleMean(clusters[k])
-                        assigned = true; break
-                    }
-                }
-                if (!assigned) {
-                    clusters.add(arrayListOf(doubleArrayOf(x1, y1, x2, y2, length)))
-                    clusterAngles.add(angle)
-                }
-            }
-
-            val totalLines = lines.rows()
-            val planeColors = arrayOf(
-                Scalar(0.0, 255.0, 0.0),
-                Scalar(0.0, 120.0, 255.0),
-                Scalar(0.0, 200.0, 255.0),
-            )
-            val sortedClusters = clusters.sortedByDescending { it.size }.take(MAX_LINE_DIRECTION_CLUSTERS)
-            var planeIdx = 0
-            val usedClusters = mutableSetOf<Int>()
-
-            for (i in sortedClusters.indices) {
-                for (j in i + 1 until sortedClusters.size) {
-                    if (planeIdx >= 3) break
-                    if (i in usedClusters || j in usedClusters) continue
-                    val c1 = sortedClusters[i]; val c2 = sortedClusters[j]
-                    if (c1.size + c2.size < 4) continue
-                    val color = planeColors[planeIdx % planeColors.size]
-                    val planeLineCount = c1.size + c2.size
-                    val confidence = if (totalLines > 0) ((planeLineCount * 100.0 / totalLines).toInt()).coerceAtMost(100) else 0
-
-                    // Draw inlier lines with thickness proportional to confidence
-                    val thickness = if (confidence >= 50) 2 else 1
-                    for (seg in c1) Imgproc.line(res, Point(seg[0], seg[1]), Point(seg[2], seg[3]), color, thickness)
-                    for (seg in c2) Imgproc.line(res, Point(seg[0], seg[1]), Point(seg[2], seg[3]), color, thickness)
-
-                    // Semi-transparent convex hull over all endpoints of both clusters
-                    val allPoints = ArrayList<Point>()
-                    for (seg in c1) { allPoints.add(Point(seg[0], seg[1])); allPoints.add(Point(seg[2], seg[3])) }
-                    for (seg in c2) { allPoints.add(Point(seg[0], seg[1])); allPoints.add(Point(seg[2], seg[3])) }
-                    _drawPlaneOverlay(res, allPoints, color)
-
-                    // Vanishing points for each sub-cluster
-                    val vp1 = _computeVanishingPoint(c1.map { intArrayOf(it[0].toInt(), it[1].toInt(), it[2].toInt(), it[3].toInt()) })
-                    val vp2 = _computeVanishingPoint(c2.map { intArrayOf(it[0].toInt(), it[1].toInt(), it[2].toInt(), it[3].toInt()) })
-
-                    // Centroid of all cluster endpoints for arrow base
-                    val cx = allPoints.map { it.x }.average()
-                    val cy = allPoints.map { it.y }.average()
-                    val centroid = Point(cx, cy)
-
-                    for (vp in listOfNotNull(vp1, vp2)) {
-                        Imgproc.circle(res, vp, 8, color, -1)
-                        // Arrow from centroid toward vanishing point (capped at 80 px)
-                        val dx = vp.x - cx; val dy = vp.y - cy
-                        val dist = hypot(dx, dy)
-                        if (dist > 1.0) {
-                            val arrowEnd = Point(cx + dx / dist * minOf(80.0, dist), cy + dy / dist * minOf(80.0, dist))
-                            Imgproc.arrowedLine(res, centroid, arrowEnd, color, 2, Imgproc.LINE_8, 0, 0.3)
-                        }
-                    }
-
-                    Imgproc.putText(res, "P${planeIdx + 1} ($confidence%)", Point(cx + 8, cy), Imgproc.FONT_HERSHEY_SIMPLEX, 0.55, color, 2)
-                    usedClusters.add(i)
-                    usedClusters.add(j)
-                    planeIdx++
-                }
-            }
-
-            // Handle single dominant cluster (all lines nearly parallel)
-            if (planeIdx == 0 && sortedClusters.isNotEmpty() && sortedClusters[0].size >= 3) {
-                val c = sortedClusters[0]
-                val color = planeColors[0]
-                val confidence = if (totalLines > 0) ((c.size * 100.0 / totalLines).toInt()).coerceAtMost(100) else 0
-                for (seg in c) Imgproc.line(res, Point(seg[0], seg[1]), Point(seg[2], seg[3]), color, 2)
-                val allPoints = c.flatMap { listOf(Point(it[0], it[1]), Point(it[2], it[3])) }
-                _drawPlaneOverlay(res, allPoints, color)
-                val vp = _computeVanishingPoint(c.map { intArrayOf(it[0].toInt(), it[1].toInt(), it[2].toInt(), it[3].toInt()) })
-                if (vp != null) Imgproc.circle(res, vp, 8, color, -1)
-                val cx = allPoints.map { it.x }.average()
-                val cy = allPoints.map { it.y }.average()
-                Imgproc.putText(res, "P1 ($confidence%)", Point(cx + 8, cy), Imgproc.FONT_HERSHEY_SIMPLEX, 0.55, color, 2)
-                planeIdx = 1
-            }
-
-            if (planeIdx == 0) {
-                Imgproc.putText(res, "$labelNoPlanes ($labelLines: $totalLines)", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.7, Scalar(200.0, 200.0, 200.0), 2)
-            } else {
-                Imgproc.putText(res, "$labelPlanes: $planeIdx | $labelLines: $totalLines", Point(30.0, 30.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255.0, 255.0, 255.0), 2)
-            }
-            lines.release()
-        } catch (e: CvException) {
-            logExceptionTelemetry("plane_detection", "opencv", e)
-            Imgproc.putText(res, "$labelGeometryError: OpenCV failure", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255.0, 100.0, 100.0), 2)
-        } catch (e: IllegalArgumentException) {
-            logExceptionTelemetry("plane_detection", "invalid_argument", e)
-            Imgproc.putText(res, "$labelGeometryError: invalid input", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255.0, 100.0, 100.0), 2)
-        } catch (e: IllegalStateException) {
-            logExceptionTelemetry("plane_detection", "state", e)
-            Imgproc.putText(res, "$labelGeometryError: invalid state", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255.0, 100.0, 100.0), 2)
-        } catch (e: Exception) {
-            logExceptionTelemetry("plane_detection", "unexpected", e)
-            Log.e(TAG, "Unhandled plane detection error type=${e::class.java.name} message=${e.message}", e)
-            Imgproc.putText(res, "$labelGeometryError: ${e.message?.take(30)}", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255.0, 100.0, 100.0), 2)
-        } finally {
-            geometryInput.release()
-            gray.release(); clahe.release(); blurred.release(); edges.release()
+        val labels = mapOf("noPlanes" to labelNoPlanes, "lines" to labelLines, "planes" to labelPlanes)
+        val planeIdx = geometryProcessor.detectPlanes(geometryInput, res, labels)
+        if (planeIdx == 0) {
+            Imgproc.putText(res, labelNoPlanes, Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.7, Scalar(200.0, 200.0, 200.0), 2)
+        } else {
+            Imgproc.putText(res, "$labelPlanes: $planeIdx", Point(30.0, 30.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255.0, 255.0, 255.0), 2)
         }
+        geometryInput.release(); return res
+    }
+
+    private fun applyVanishingPoints(src: Mat): Mat {
+        val res = src.clone()
+        val labels = mapOf("noLines" to labelNoLines, "noVp" to labelNoVanishingPoints, "lines" to labelLines, "groups" to labelGroups, "vpError" to labelVpError)
+        geometryProcessor.detectVanishingPoints(src, res, labels)
         return res
     }
 
     private fun prepareGeometryInput(src: Mat, stage: String): Mat {
         val profile = calibrator?.getCalibrationProfile(src.size())
-        logCalibrationDiagnostics(profile, stage)
-        if (!debugUndistortBeforeGeometry || profile?.isCompatible != true) {
-            return src.clone()
-        }
-        val undistorted = Mat()
-        Calib3d.undistort(
-            src,
-            undistorted,
-            profile.calibration.cameraMatrix,
-            profile.calibration.distCoeffs,
-        )
+        if (!debugUndistortBeforeGeometry || profile?.isCompatible != true) return src.clone()
+        val undistorted = Mat(); Calib3d.undistort(src, undistorted, profile.calibration.cameraMatrix, profile.calibration.distCoeffs)
         return undistorted
-    }
-
-    private fun logCalibrationDiagnostics(
-        profile: CameraCalibrator.CalibrationProfile?,
-        stage: String,
-    ) {
-        val activeW = profile?.activeImageSize?.width?.toInt() ?: -1
-        val activeH = profile?.activeImageSize?.height?.toInt() ?: -1
-        val calibW = profile?.calibration?.calibrationImageSize?.width?.toInt() ?: -1
-        val calibH = profile?.calibration?.calibrationImageSize?.height?.toInt() ?: -1
-        val rms = profile?.calibration?.rmsError ?: Double.NaN
-        val key = "$stage|$activeW|$activeH|$calibW|$calibH|${profile?.isCompatible}|$rms"
-        if (lastCalibrationDiagnosticsKey == key) return
-        lastCalibrationDiagnosticsKey = key
-        if (profile == null) {
-            Log.d(TAG, "Calibration diagnostics stage=$stage active=${activeW}x${activeH} profile=none")
-            return
-        }
-        Log.d(
-            TAG,
-            "Calibration diagnostics stage=$stage active=${activeW}x${activeH} " +
-                "profile=${calibW}x${calibH} compatible=${profile.isCompatible} " +
-                "rms=%.4f".format(profile.calibration.rmsError),
-        )
-    }
-
-    /**
-     * Draws a semi-transparent filled convex hull over the given point list on [dst].
-     *
-     * The fill uses an addWeighted blend so the original image detail is preserved
-     * beneath the coloured plane overlay.
-     */
-    private fun _drawPlaneOverlay(dst: Mat, points: List<Point>, color: Scalar) {
-        if (points.size < 3) return
-        try {
-            val contourMat = MatOfPoint()
-            contourMat.fromArray(*points.toTypedArray())
-            val hullIdx = MatOfInt()
-            Imgproc.convexHull(contourMat, hullIdx)
-            val hullPts = hullIdx.toArray().map { i -> points[i] }
-            hullIdx.release()
-            if (hullPts.size < 3) { contourMat.release(); return }
-            val hullMat = MatOfPoint()
-            hullMat.fromArray(*hullPts.toTypedArray())
-            val overlay = dst.clone()
-            Imgproc.fillConvexPoly(overlay, hullMat, Scalar(color.`val`[0], color.`val`[1], color.`val`[2], 255.0))
-            Core.addWeighted(dst, 0.75, overlay, 0.25, 0.0, dst)
-            overlay.release(); hullMat.release(); contourMat.release()
-        } catch (e: CvException) {
-            logExceptionTelemetry("plane_overlay", "opencv", e)
-            Log.w(TAG, "Plane overlay rendering failed due to OpenCV error: ${e.message}", e)
-        } catch (e: IllegalArgumentException) {
-            logExceptionTelemetry("plane_overlay", "invalid_argument", e)
-            Log.w(TAG, "Plane overlay rendering failed: invalid convex hull input", e)
-        } catch (e: Exception) {
-            logExceptionTelemetry("plane_overlay", "unexpected", e)
-            Log.e(TAG, "Unhandled plane overlay error type=${e::class.java.name} message=${e.message}", e)
-        }
-    }
-
-    /**
-     * Returns the median intensity of a single-channel [mat].
-     * Used to compute adaptive Canny thresholds.
-     */
-    private fun _medianIntensity(mat: Mat): Double {
-        val hist = Mat()
-        val images = listOf(mat)
-        val channels = MatOfInt(0)
-        val mask = Mat()
-        val histSize = MatOfInt(256)
-        val ranges = MatOfFloat(0f, 256f)
-        Imgproc.calcHist(images, channels, mask, hist, histSize, ranges)
-        val total = mat.rows().toLong() * mat.cols().toLong()
-        var cumulative = 0.0
-        for (i in 0 until 256) {
-            cumulative += hist.get(i, 0)[0]
-            if (cumulative >= total / 2.0) {
-                hist.release(); channels.release(); histSize.release(); ranges.release(); mask.release()
-                return i.toDouble()
-            }
-        }
-        hist.release(); channels.release(); histSize.release(); ranges.release(); mask.release()
-        return 128.0
-    }
-
-    /**
-     * Returns the length-weighted mean angle for a cluster of segments.
-     * Each segment element is [x1, y1, x2, y2, length].
-     */
-    private fun _weightedAngleMean(cluster: List<DoubleArray>): Double {
-        var sumSin = 0.0
-        var sumCos = 0.0
-        var totalWeight = 0.0
-        for (seg in cluster) {
-            val x1 = seg[0]; val y1 = seg[1]; val x2 = seg[2]; val y2 = seg[3]; val length = seg[4]
-            val angleRad = atan2(y2 - y1, x2 - x1)
-            // Double the angle to map 180° periodicity to 360° for circular averaging
-            sumSin += length * kotlin.math.sin(2.0 * angleRad)
-            sumCos += length * kotlin.math.cos(2.0 * angleRad)
-            totalWeight += length
-        }
-        if (totalWeight == 0.0) return 0.0
-        val mean = Math.toDegrees(atan2(sumSin, sumCos) / 2.0).let { if (it < 0) it + 180.0 else it } % 180.0
-        return mean
-    }
-
-    /**
-     * Detects and visualises vanishing points from parallel line-segment groups.
-     *
-     * Draws each cluster of parallel lines in a distinct colour and marks the
-     * estimated vanishing point with a filled circle.
-     */
-    private fun applyVanishingPoints(src: Mat): Mat {
-        val res = src.clone()
-        val gray = Mat(); val blurred = Mat(); val edges = Mat()
-        try {
-            Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
-            Imgproc.GaussianBlur(gray, blurred, Size(5.0, 5.0), 0.0)
-            Imgproc.Canny(blurred, edges, 50.0, 150.0)
-
-            val lines = Mat()
-            Imgproc.HoughLinesP(edges, lines, 1.0, Math.PI / 180.0, 40, 20.0, 8.0)
-
-            val clusters = ArrayList<ArrayList<IntArray>>()
-            val clusterAngles = ArrayList<Double>()
-            for (i in 0 until lines.rows()) {
-                val seg = lines.get(i, 0).takeIf { it.isNotEmpty() } ?: continue
-                if (seg.size < 4) continue
-                val x1 = seg[0].toInt(); val y1 = seg[1].toInt()
-                val x2 = seg[2].toInt(); val y2 = seg[3].toInt()
-                val angle = Math.toDegrees(atan2((y2 - y1).toDouble(), (x2 - x1).toDouble())).let { if (it < 0) it + 180.0 else it } % 180.0
-                var assigned = false
-                for (k in clusterAngles.indices) {
-                    var diff = abs(angle - clusterAngles[k]); diff = minOf(diff, 180.0 - diff)
-                    if (diff <= 8.0) { clusters[k].add(intArrayOf(x1, y1, x2, y2)); assigned = true; break }
-                }
-                if (!assigned) { clusters.add(arrayListOf(intArrayOf(x1, y1, x2, y2))); clusterAngles.add(angle) }
-            }
-
-            val vpColors = arrayOf(Scalar(0.0, 255.0, 0.0), Scalar(0.0, 0.0, 255.0), Scalar(0.0, 165.0, 255.0), Scalar(255.0, 255.0, 0.0))
-            var foundVP = false
-            for (i in 0 until minOf(clusters.size, MAX_LINE_DIRECTION_CLUSTERS)) {
-                val cluster = clusters.sortedByDescending { it.size }[i]
-                if (cluster.size < 2) continue
-                val color = vpColors[i % vpColors.size]
-                for (seg in cluster) {
-                    Imgproc.line(res, Point(seg[0].toDouble(), seg[1].toDouble()), Point(seg[2].toDouble(), seg[3].toDouble()), color, 1)
-                }
-                val vp = _computeVanishingPoint(cluster)
-                if (vp != null) {
-                    Imgproc.circle(res, vp, 10, color, -1)
-                    Imgproc.putText(res, "VP${i + 1}", Point(vp.x + 12, vp.y + 5), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
-                    foundVP = true
-                }
-            }
-
-            when {
-                lines.rows() == 0 -> Imgproc.putText(res, labelNoLines, Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.8, Scalar(200.0, 200.0, 200.0), 2)
-                !foundVP -> Imgproc.putText(res, "$labelNoVanishingPoints ($labelLines: ${lines.rows()})", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(200.0, 200.0, 200.0), 2)
-                else -> Imgproc.putText(res, "$labelLines: ${lines.rows()} | $labelGroups: ${clusters.size}", Point(30.0, 30.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255.0, 255.0, 255.0), 2)
-            }
-            lines.release()
-        } catch (e: CvException) {
-            logExceptionTelemetry("vanishing_points", "opencv", e)
-            Imgproc.putText(res, "$labelVpError: OpenCV failure", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255.0, 100.0, 100.0), 2)
-        } catch (e: IllegalArgumentException) {
-            logExceptionTelemetry("vanishing_points", "invalid_argument", e)
-            Imgproc.putText(res, "$labelVpError: invalid input", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255.0, 100.0, 100.0), 2)
-        } catch (e: IllegalStateException) {
-            logExceptionTelemetry("vanishing_points", "state", e)
-            Imgproc.putText(res, "$labelVpError: invalid state", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255.0, 100.0, 100.0), 2)
-        } catch (e: Exception) {
-            logExceptionTelemetry("vanishing_points", "unexpected", e)
-            Log.e(TAG, "Unhandled vanishing points error type=${e::class.java.name} message=${e.message}", e)
-            Imgproc.putText(res, "$labelVpError: ${e.message?.take(30)}", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255.0, 100.0, 100.0), 2)
-        } finally {
-            gray.release(); blurred.release(); edges.release()
-        }
-        return res
-    }
-
-    /**
-     * Estimates a vanishing point for a cluster of line segments using the
-     * least-squares intersection of their line equations.
-     *
-     * Returns ``null`` when the system is rank-deficient (parallel lines that
-     * intersect at infinity).
-     */
-    private fun _computeVanishingPoint(lines: List<IntArray>): Point? {
-        if (lines.size < 2) return null
-        val aMat = Mat(lines.size, 2, CvType.CV_64F)
-        val bMat = Mat(lines.size, 1, CvType.CV_64F)
-        for (i in lines.indices) {
-            val x1 = lines[i][0].toDouble(); val y1 = lines[i][1].toDouble()
-            val x2 = lines[i][2].toDouble(); val y2 = lines[i][3].toDouble()
-            val a = y1 - y2
-            val b = x2 - x1
-            val c = a * x1 + b * y1
-            aMat.put(i, 0, a); aMat.put(i, 1, b)
-            bMat.put(i, 0, c)
-        }
-        val solution = Mat()
-        val solved = Core.solve(aMat, bMat, solution, Core.DECOMP_SVD)
-        val res = if (solved && solution.rows() >= 2) Point(solution.get(0, 0)[0], solution.get(1, 0)[0]) else null
-        aMat.release(); bMat.release(); solution.release()
-        return res
-    }
-
-    private fun applyMedianBlur(src: Mat): Mat {
-        val res = Mat(); Imgproc.medianBlur(src, res, 5); return res
-    }
-
-    private fun applyBilateralFilter(src: Mat): Mat {
-        val res = Mat(); val gray = Mat()
-        Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2RGB)
-        Imgproc.bilateralFilter(gray, res, 9, 75.0, 75.0)
-        val out = Mat(); Imgproc.cvtColor(res, out, Imgproc.COLOR_RGB2RGBA)
-        gray.release(); res.release(); return out
-    }
-
-    private fun applyBoxFilter(src: Mat): Mat {
-        val res = Mat(); Imgproc.boxFilter(src, res, -1, Size(5.0, 5.0)); return res
-    }
-
-    private fun applyAdaptiveThreshold(src: Mat): Mat {
-        val gray = Mat(); val thresh = Mat(); val res = Mat()
-        Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
-        Imgproc.adaptiveThreshold(gray, thresh, 255.0, Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C, Imgproc.THRESH_BINARY, 11, 2.0)
-        Imgproc.cvtColor(thresh, res, Imgproc.COLOR_GRAY2RGBA)
-        gray.release(); thresh.release(); return res
-    }
-
-    private fun applyHistogramEqualization(src: Mat): Mat {
-        val gray = Mat(); val equ = Mat(); val res = Mat()
-        Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
-        Imgproc.equalizeHist(gray, equ)
-        Imgproc.cvtColor(equ, res, Imgproc.COLOR_GRAY2RGBA)
-        gray.release(); equ.release(); return res
-    }
-
-    private fun applyScharr(src: Mat): Mat {
-        val gray = Mat(); val sx = Mat(); val sy = Mat(); val ax = Mat(); val ay = Mat(); val c = Mat(); val res = Mat()
-        Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
-        Imgproc.Scharr(gray, sx, CvType.CV_16S, 1, 0)
-        Imgproc.Scharr(gray, sy, CvType.CV_16S, 0, 1)
-        Core.convertScaleAbs(sx, ax); Core.convertScaleAbs(sy, ay)
-        Core.addWeighted(ax, 0.5, ay, 0.5, 0.0, c)
-        Imgproc.cvtColor(c, res, Imgproc.COLOR_GRAY2RGBA)
-        gray.release(); sx.release(); sy.release(); ax.release(); ay.release(); c.release(); return res
-    }
-
-    private fun applyPrewitt(src: Mat): Mat {
-        val gray = Mat(); val res = Mat()
-        Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
-        val kernelX = Mat(3, 3, CvType.CV_32F)
-        kernelX.put(0, 0, -1.0, 0.0, 1.0, -1.0, 0.0, 1.0, -1.0, 0.0, 1.0)
-        val kernelY = Mat(3, 3, CvType.CV_32F)
-        kernelY.put(0, 0, -1.0, -1.0, -1.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0)
-        val gradX = Mat(); val gradY = Mat()
-        Imgproc.filter2D(gray, gradX, -1, kernelX)
-        Imgproc.filter2D(gray, gradY, -1, kernelY)
-        val absX = Mat(); val absY = Mat()
-        Core.convertScaleAbs(gradX, absX); Core.convertScaleAbs(gradY, absY)
-        val combined = Mat()
-        Core.addWeighted(absX, 0.5, absY, 0.5, 0.0, combined)
-        Imgproc.cvtColor(combined, res, Imgproc.COLOR_GRAY2RGBA)
-        gray.release(); kernelX.release(); kernelY.release(); gradX.release(); gradY.release(); absX.release(); absY.release(); combined.release()
-        return res
-    }
-
-    private fun applyRoberts(src: Mat): Mat {
-        val gray = Mat(); val res = Mat()
-        Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
-        val kernelX = Mat(2, 2, CvType.CV_32F)
-        kernelX.put(0, 0, 1.0, 0.0, 0.0, -1.0)
-        val kernelY = Mat(2, 2, CvType.CV_32F)
-        kernelY.put(0, 0, 0.0, 1.0, -1.0, 0.0)
-        val gradX = Mat(); val gradY = Mat()
-        Imgproc.filter2D(gray, gradX, -1, kernelX)
-        Imgproc.filter2D(gray, gradY, -1, kernelY)
-        val absX = Mat(); val absY = Mat()
-        Core.convertScaleAbs(gradX, absX); Core.convertScaleAbs(gradY, absY)
-        val combined = Mat()
-        Core.addWeighted(absX, 0.5, absY, 0.5, 0.0, combined)
-        Imgproc.cvtColor(combined, res, Imgproc.COLOR_GRAY2RGBA)
-        gray.release(); kernelX.release(); kernelY.release(); gradX.release(); gradY.release(); absX.release(); absY.release(); combined.release()
-        return res
-    }
-
-    /** Inverts all colour channels using a bitwise NOT operation. */
-    private fun applyInvert(src: Mat): Mat {
-        val res = Mat(); Core.bitwise_not(src, res); return res
-    }
-
-    /**
-     * Applies a warm sepia-tone effect using the Adobe Photoshop sepia preset matrix.
-     * The frame is transformed from RGBA to RGB, each pixel is linearly projected
-     * through the sepia colour matrix, and the result is converted back to RGBA.
-     * Matches the Python [apply_sepia] implementation exactly.
-     */
-    private fun applySepia(src: Mat): Mat {
-        val rgb = Mat(); Imgproc.cvtColor(src, rgb, Imgproc.COLOR_RGBA2RGB)
-        val rgb32f = Mat(); rgb.convertTo(rgb32f, CvType.CV_32FC3)
-        // Adobe Photoshop sepia matrix (rows = output RGB channels, cols = input RGB channels):
-        // out_R = 0.393*R + 0.769*G + 0.189*B
-        // out_G = 0.349*R + 0.686*G + 0.168*B
-        // out_B = 0.272*R + 0.534*G + 0.131*B
-        val kernel = Mat(3, 3, CvType.CV_32F)
-        kernel.put(0, 0, floatArrayOf(0.393f, 0.769f, 0.189f))  // output R row
-        kernel.put(1, 0, floatArrayOf(0.349f, 0.686f, 0.168f))  // output G row
-        kernel.put(2, 0, floatArrayOf(0.272f, 0.534f, 0.131f))  // output B row
-        val sepia32f = Mat(); Core.transform(rgb32f, sepia32f, kernel)
-        val sepia8u = Mat(); sepia32f.convertTo(sepia8u, CvType.CV_8UC3)  // saturate_cast clips [0,255]
-        val res = Mat(); Imgproc.cvtColor(sepia8u, res, Imgproc.COLOR_RGB2RGBA)
-        rgb.release(); rgb32f.release(); kernel.release(); sepia32f.release(); sepia8u.release()
-        return res
-    }
-
-    /**
-     * Produces an emboss / relief effect using a directional 3×3 kernel that
-     * highlights edges as raised surface texture against a mid-grey background.
-     */
-    private fun applyEmboss(src: Mat): Mat {
-        val gray = Mat(); val embossed = Mat(); val res = Mat()
-        Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
-        val kernel = Mat(3, 3, CvType.CV_32F)
-        kernel.put(0, 0, -2.0, -1.0, 0.0, -1.0, 1.0, 1.0, 0.0, 1.0, 2.0)
-        Imgproc.filter2D(gray, embossed, -1, kernel)
-        Core.add(embossed, Scalar(128.0), embossed)       // shift to mid-grey baseline
-        Imgproc.cvtColor(embossed, res, Imgproc.COLOR_GRAY2RGBA)
-        gray.release(); embossed.release(); kernel.release(); return res
-    }
-
-    /**
-     * Pixelates the frame by downscaling to a tiny resolution and then scaling
-     * back up with nearest-neighbour interpolation, creating a blocky pixel-art look.
-     *
-     * Uses [PIXELATE_BLOCK_SIZE] as the pixel block side length. Downsampling uses
-     * INTER_AREA for better quality area-averaging (consistent with the Python implementation).
-     */
-    private fun applyPixelate(src: Mat): Mat {
-        val small = Mat()
-        val res = Mat()
-        Imgproc.resize(src, small, Size(src.cols().toDouble() / PIXELATE_BLOCK_SIZE, src.rows().toDouble() / PIXELATE_BLOCK_SIZE), 0.0, 0.0, Imgproc.INTER_AREA)
-        Imgproc.resize(small, res, Size(src.cols().toDouble(), src.rows().toDouble()), 0.0, 0.0, Imgproc.INTER_NEAREST)
-        small.release(); return res
-    }
-
-    /**
-     * Creates a cartoon / comic-book effect by combining a heavily smoothed
-     * (bilateral-filtered) colour image with binary Canny edges drawn in black.
-     */
-    private fun applyCartoon(src: Mat): Mat {
-        // Step 1: colour-smooth with bilateral filter (applied on RGB, not RGBA)
-        val rgb = Mat(); val smoothed = Mat()
-        Imgproc.cvtColor(src, rgb, Imgproc.COLOR_RGBA2RGB)
-        Imgproc.bilateralFilter(rgb, smoothed, 9, 75.0, 75.0)
-
-        // Step 2: extract edges on grayscale
-        val gray = Mat(); val blurred = Mat(); val edges = Mat()
-        Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
-        Imgproc.medianBlur(gray, blurred, 7)
-        Imgproc.Canny(blurred, edges, 80.0, 200.0)
-
-        // Step 3: invert edges → black lines on white mask
-        val edgesInv = Mat(); Core.bitwise_not(edges, edgesInv)
-
-        // Step 4: dilate the edge mask to make lines slightly thicker
-        val dilatedEdges = Mat()
-        Imgproc.dilate(edgesInv, dilatedEdges, dilationKernel3x3)
-
-        // Step 5: apply edge mask to smoothed colour image (black out edge pixels)
-        val edgeMask3ch = Mat()
-        Imgproc.cvtColor(dilatedEdges, edgeMask3ch, Imgproc.COLOR_GRAY2RGB)
-        val maskedSmoothed = Mat()
-        Core.bitwise_and(smoothed, edgeMask3ch, maskedSmoothed)
-
-        // Step 6: convert back to RGBA
-        val res = Mat()
-        Imgproc.cvtColor(maskedSmoothed, res, Imgproc.COLOR_RGB2RGBA)
-
-        rgb.release(); smoothed.release(); gray.release(); blurred.release()
-        edges.release(); edgesInv.release(); dilatedEdges.release()
-        edgeMask3ch.release(); maskedSmoothed.release()
-        return res
     }
 }

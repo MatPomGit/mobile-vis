@@ -9,6 +9,7 @@ import android.view.ViewGroup
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import pl.edu.mobilecv.databinding.BottomSheetCalibrationBinding
 import androidx.core.graphics.toColorInt
+import pl.edu.mobilecv.vision.CameraCalibrator
 
 /**
  * Menu (bottom-sheet) do kalibracji kamery za pomocą szachownicy.

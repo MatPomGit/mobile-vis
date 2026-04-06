@@ -301,11 +301,15 @@ def detect_yolo(
         if boxes is None:
             continue
         names: dict[int, str] = result.names  # type: ignore[assignment]
+        # Batch-transfer all tensors to CPU in one operation each to avoid
+        # repeated individual GPU→CPU round-trips inside the loop.
+        xyxy_all = boxes.xyxy.cpu().numpy()
+        conf_all = boxes.conf.cpu().numpy()
+        cls_all = boxes.cls.cpu().numpy()
         for i in range(len(boxes)):
-            xyxy = boxes.xyxy[i].cpu().numpy()
-            x1, y1, x2, y2 = (int(v) for v in xyxy)
-            conf_val = float(boxes.conf[i].cpu().numpy())
-            cls_id = int(boxes.cls[i].cpu().numpy())
+            x1, y1, x2, y2 = (int(v) for v in xyxy_all[i])
+            conf_val = float(conf_all[i])
+            cls_id = int(cls_all[i])
             label = names.get(cls_id, str(cls_id))
             detections.append(
                 YoloDetection(

@@ -327,10 +327,11 @@ def _find_circle_contours(
         return []
 
     circles: list[_Circle] = []
+    hier = hierarchy[0]  # Cache the inner array to avoid repeated indexing
     for i, contour in enumerate(contours):
         # Skip top-level (parentless) contours - these are background regions
         # spanning the full image, not CCTag ring boundaries.
-        if hierarchy[0][i][3] == -1:
+        if hier[i][3] == -1:
             continue
         area = float(cv2.contourArea(contour))
         if area < min_area:
@@ -364,24 +365,38 @@ def _group_concentric_circles(
         return []
 
     sorted_circles = sorted(circles, key=lambda c: c[2], reverse=True)
+    n = len(sorted_circles)
     groups: list[list[_Circle]] = []
-    used = [False] * len(sorted_circles)
+    used = [False] * n
+
+    # Extract all fields in one pass and build the full pairwise distance
+    # matrix up front so that each outer-circle iteration reuses the
+    # precomputed row instead of recomputing N distances from scratch.
+    arr = np.array(sorted_circles, dtype=np.float64)  # shape (n, 4): [cx, cy, radius, circularity]
+    cx_arr = arr[:, 0]
+    cy_arr = arr[:, 1]
+    r_arr = arr[:, 2]
+    # dists_matrix[i, j] = Euclidean distance between centres i and j.
+    dists_matrix = np.hypot(
+        cx_arr[:, None] - cx_arr[None, :],
+        cy_arr[:, None] - cy_arr[None, :],
+    )
 
     for i, outer in enumerate(sorted_circles):
         if used[i]:
             continue
-        outer_cx, outer_cy, outer_r, _ = outer
+        outer_r = r_arr[i]
         group: list[_Circle] = [outer]
 
-        for j, inner in enumerate(sorted_circles):
-            if i == j or used[j]:
+        # Reuse the precomputed distance row for this outer circle.
+        dists = dists_matrix[i]
+        for j in range(n):
+            if j == i or used[j]:
                 continue
-            inner_cx, inner_cy, inner_r, _ = inner
-            if inner_r >= outer_r:
+            if r_arr[j] >= outer_r:
                 continue
-            dist = float(np.hypot(inner_cx - outer_cx, inner_cy - outer_cy))
-            if dist <= MAX_CENTRE_OFFSET_FRACTION * outer_r:
-                group.append(inner)
+            if dists[j] <= MAX_CENTRE_OFFSET_FRACTION * outer_r:
+                group.append(sorted_circles[j])
                 used[j] = True
 
         if len(group) >= MIN_CCTAG_RINGS:

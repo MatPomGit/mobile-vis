@@ -292,6 +292,17 @@ def detect_planes(
     used_clusters: set[int] = set()
     vp_threshold = RANSAC_THRESHOLD * VP_INLIER_DISTANCE_MULTIPLIER
 
+    # Lazy vanishing-point cache: compute _intersect_lines(clusters[idx]) at
+    # most once per cluster index and only when that index is first accessed.
+    # This avoids computing VPs for clusters that are never reached because
+    # max_planes was satisfied early or both indices were already used.
+    vp_cache: dict[int, tuple[float, float] | None] = {}
+
+    def _get_vp(idx: int) -> tuple[float, float] | None:
+        if idx not in vp_cache:
+            vp_cache[idx] = _intersect_lines(clusters[idx])
+        return vp_cache[idx]
+
     for i in range(len(clusters)):
         if len(planes) >= max_planes:
             break
@@ -301,8 +312,8 @@ def detect_planes(
             if i in used_clusters or j in used_clusters:
                 continue
 
-            vp1 = _intersect_lines(clusters[i])
-            vp2 = _intersect_lines(clusters[j])
+            vp1 = _get_vp(i)
+            vp2 = _get_vp(j)
             if vp1 is None or vp2 is None:
                 continue
 
@@ -741,18 +752,17 @@ def _intersect_lines(
     if len(line_group) < 2:
         return None
 
-    lhs_rows: list[list[float]] = []
-    b_rows: list[float] = []
+    n = len(line_group)
+    lhs = np.empty((n, 2), dtype=np.float64)
+    b = np.empty(n, dtype=np.float64)
 
-    for x1, y1, x2, y2 in line_group:
+    for k, (x1, y1, x2, y2) in enumerate(line_group):
         dx = float(x2 - x1)
         dy = float(y2 - y1)
         # Line equation: dy·x - dx·y = dy·x1 - dx·y1
-        lhs_rows.append([dy, -dx])
-        b_rows.append(dy * x1 - dx * y1)
-
-    lhs = np.array(lhs_rows, dtype=np.float64)
-    b = np.array(b_rows, dtype=np.float64)
+        lhs[k, 0] = dy
+        lhs[k, 1] = -dx
+        b[k] = dy * x1 - dx * y1
 
     result, _residuals, rank, _ = np.linalg.lstsq(lhs, b, rcond=None)
     if rank < 2:
@@ -803,9 +813,9 @@ def _resolve_mask_overlaps(
         if pmask.shape[:2] != (h, w):
             pmask = cv2.resize(pmask, (w, h), interpolation=cv2.INTER_NEAREST)
 
-        # Remove pixels already owned by a more confident plane.
-        new_mask = pmask.copy()
-        new_mask[claimed] = 0
+        # Remove pixels already owned by a more confident plane without
+        # copying the full mask array: np.where avoids an extra allocation.
+        new_mask = np.where(claimed, np.uint8(0), pmask)
 
         # Register this plane's remaining pixels as claimed.
         claimed |= new_mask > 0

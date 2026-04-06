@@ -93,6 +93,7 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "evaluate_classifier": (".classification", "evaluate_classifier"),
     "export_rtmdet_to_onnx": (".rtmdet", "export_rtmdet_to_onnx"),
     "export_yolo_to_onnx": (".yolo", "export_yolo_to_onnx"),
+    "export_yolo_to_torchscript": (".yolo", "export_yolo_to_torchscript"),
     "find_chessboard_corners": (".calibration", "find_chessboard_corners"),
     "fit_plane_ransac": (".planes", "fit_plane_ransac"),
     "get_project_root": (".utils", "get_project_root"),

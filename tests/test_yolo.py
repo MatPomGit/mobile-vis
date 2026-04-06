@@ -21,6 +21,7 @@ from image_analysis.yolo import (
     detect_yolo,
     draw_yolo_detections,
     export_yolo_to_onnx,
+    export_yolo_to_torchscript,
 )
 
 # ---------------------------------------------------------------------------
@@ -390,6 +391,103 @@ class TestExportYoloToOnnx:
         importlib.reload(yolo_mod)
         mock_model.export.assert_called_once()
         assert result == onnx_file.resolve()
+
+
+# ---------------------------------------------------------------------------
+# export_yolo_to_torchscript
+# ---------------------------------------------------------------------------
+
+
+class TestExportYoloToTorchscript:
+    def test_raises_import_error_without_ultralytics(self, tmp_path) -> None:
+        with patch.dict("sys.modules", {"ultralytics": None}):
+            with pytest.raises(ImportError, match="ultralytics"):
+                export_yolo_to_torchscript(tmp_path / "model.pt")
+
+    def test_raises_file_not_found_for_missing_model(self, tmp_path) -> None:
+        with patch("image_analysis.yolo._require_ultralytics"):
+            with pytest.raises(FileNotFoundError):
+                export_yolo_to_torchscript(tmp_path / "nonexistent.pt")
+
+    @pytest.mark.parametrize("bad_size", [0, -640, 100, 33])
+    def test_raises_value_error_for_invalid_img_size(self, tmp_path, bad_size: int) -> None:
+        model_file = tmp_path / "model.pt"
+        model_file.write_bytes(b"fake")
+        with patch("image_analysis.yolo._require_ultralytics"):
+            with pytest.raises(ValueError, match="img_size"):
+                export_yolo_to_torchscript(model_file, img_size=bad_size)
+
+    def test_export_calls_ultralytics_torchscript_and_renames(self, tmp_path) -> None:
+        model_file = tmp_path / "model.pt"
+        model_file.write_bytes(b"fake")
+        ts_file = tmp_path / "model.torchscript"
+        ts_file.write_bytes(b"torchscript")  # simulate exported file
+
+        mock_model = MagicMock()
+        mock_model.export.return_value = str(tmp_path / "model.torchscript")
+
+        mock_ultralytics = MagicMock()
+        mock_ultralytics.YOLO.return_value = mock_model
+
+        import importlib
+        import image_analysis.yolo as yolo_mod
+
+        with patch.dict("sys.modules", {"ultralytics": mock_ultralytics}):
+            importlib.reload(yolo_mod)
+            result = yolo_mod.export_yolo_to_torchscript(
+                model_file, output_path=ts_file, img_size=640
+            )
+
+        importlib.reload(yolo_mod)
+        mock_model.export.assert_called_once()
+        call_kwargs = mock_model.export.call_args
+        assert call_kwargs.kwargs.get("format") == "torchscript"
+        assert result == ts_file.resolve()
+
+    def test_default_output_path_uses_torchscript_extension(self, tmp_path) -> None:
+        model_file = tmp_path / "yolov8n.pt"
+        model_file.write_bytes(b"fake")
+        expected_output = tmp_path / "yolov8n.torchscript"
+        expected_output.write_bytes(b"torchscript")
+
+        mock_model = MagicMock()
+        mock_model.export.return_value = str(expected_output)
+
+        mock_ultralytics = MagicMock()
+        mock_ultralytics.YOLO.return_value = mock_model
+
+        import importlib
+        import image_analysis.yolo as yolo_mod
+
+        with patch.dict("sys.modules", {"ultralytics": mock_ultralytics}):
+            importlib.reload(yolo_mod)
+            result = yolo_mod.export_yolo_to_torchscript(model_file, img_size=640)
+
+        importlib.reload(yolo_mod)
+        assert result.suffix == ".torchscript"
+
+    def test_optimize_flag_forwarded_to_export(self, tmp_path) -> None:
+        model_file = tmp_path / "model.pt"
+        model_file.write_bytes(b"fake")
+        ts_file = tmp_path / "model.torchscript"
+        ts_file.write_bytes(b"torchscript")
+
+        mock_model = MagicMock()
+        mock_model.export.return_value = str(ts_file)
+
+        mock_ultralytics = MagicMock()
+        mock_ultralytics.YOLO.return_value = mock_model
+
+        import importlib
+        import image_analysis.yolo as yolo_mod
+
+        with patch.dict("sys.modules", {"ultralytics": mock_ultralytics}):
+            importlib.reload(yolo_mod)
+            yolo_mod.export_yolo_to_torchscript(model_file, output_path=ts_file, optimize=True)
+
+        importlib.reload(yolo_mod)
+        call_kwargs = mock_model.export.call_args
+        assert call_kwargs.kwargs.get("optimize") is True
 
 
 # ---------------------------------------------------------------------------

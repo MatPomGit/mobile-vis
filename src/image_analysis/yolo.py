@@ -399,10 +399,12 @@ def export_yolo_to_onnx(
     output_path: str | Path | None = None,
     img_size: int = 640,
 ) -> Path:
-    """Export a YOLO model to ONNX format for deployment on Android.
+    """Export a YOLO model to ONNX format.
 
-    The exported ONNX model can be loaded on Android using the OpenCV DNN
-    module (``Dnn.readNetFromONNX``).
+    .. deprecated::
+        Prefer :func:`export_yolo_to_torchscript` for new Android deployments.
+        ONNX export is retained for backward compatibility with OpenCV DNN
+        pipelines.
 
     Args:
         model_path: Path to the source YOLO weights file (``*.pt``).
@@ -440,6 +442,75 @@ def export_yolo_to_onnx(
         os.replace(exported_path, output_path)
 
     logger.info("ONNX export complete: %s", output_path)
+    return output_path.resolve()
+
+
+def export_yolo_to_torchscript(
+    model_path: str | Path,
+    output_path: str | Path | None = None,
+    img_size: int = 640,
+    optimize: bool = False,
+) -> Path:
+    """Export a YOLO model to TorchScript format for Android deployment.
+
+    The exported TorchScript model can be loaded on Android using the PyTorch
+    Mobile library (``Module.load(path)``).  Download the base ``*.pt``
+    weights directly from the Ultralytics GitHub releases and pass the local
+    path as *model_path*.
+
+    Example::
+
+        >>> from image_analysis.yolo import export_yolo_to_torchscript
+        >>> path = export_yolo_to_torchscript("yolov8n.pt", img_size=640)
+        >>> print(path)  # .../yolov8n.torchscript
+
+    Args:
+        model_path: Path to the source YOLO weights file (``*.pt``).
+        output_path: Destination for the ``.torchscript`` file.  When
+            ``None``, the file is placed alongside *model_path* with the
+            ``.torchscript`` extension replacing ``.pt``.
+        img_size: Input image size (single int → square).  Must be a
+            multiple of 32.
+        optimize: When ``True``, enables TorchScript mobile optimizations
+            (``torch.utils.mobile_optimizer``).  Reduces model size and
+            improves CPU inference speed on mobile devices.
+
+    Returns:
+        Absolute path to the exported ``.torchscript`` file.
+
+    Raises:
+        ImportError: If ``ultralytics`` is not installed.
+        FileNotFoundError: If *model_path* does not exist.
+        ValueError: If *img_size* is not a positive multiple of 32.
+    """
+    _require_ultralytics()
+    model_path = Path(model_path)
+    if not model_path.exists():
+        raise FileNotFoundError(f"Model file not found: {model_path}")
+    if img_size <= 0 or img_size % 32 != 0:
+        raise ValueError(f"img_size must be a positive multiple of 32, got {img_size}")
+
+    from ultralytics import YOLO  # deferred import
+
+    output_path = (
+        model_path.with_suffix(".torchscript") if output_path is None else Path(output_path)
+    )
+
+    logger.info(
+        "Exporting %s to TorchScript at %s (imgsz=%d, optimize=%s)",
+        model_path.name,
+        output_path,
+        img_size,
+        optimize,
+    )
+    model = YOLO(str(model_path))
+    exported = model.export(format="torchscript", imgsz=img_size, optimize=optimize)
+    exported_path = Path(str(exported))
+
+    if exported_path != output_path:
+        os.replace(exported_path, output_path)
+
+    logger.info("TorchScript export complete: %s", output_path)
     return output_path.resolve()
 
 

@@ -7,18 +7,14 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
 import android.util.Log
-import org.opencv.android.Utils
-import org.opencv.core.Core
-import org.opencv.core.Mat
 import org.opencv.core.MatOfInt
 import org.opencv.core.MatOfFloat
 import org.opencv.core.MatOfRect2d
 import org.opencv.core.Rect2d
-import org.opencv.core.Size
 import org.opencv.dnn.Dnn
-import org.opencv.dnn.Net
-import org.opencv.imgproc.Imgproc
-import androidx.core.graphics.createBitmap
+import org.pytorch.IValue
+import org.pytorch.Module
+import org.pytorch.Tensor
 import java.util.Locale
 import kotlin.math.exp
 
@@ -26,13 +22,18 @@ import kotlin.math.exp
  * Applies YOLO-based detection, segmentation, pose estimation, image classification and
  * oriented-bounding-box detection filters to Android [Bitmap] frames.
  *
- * Inference is performed on-device using the OpenCV DNN module loading YOLOv8-nano
- * ONNX models.  Five modes are supported, each driven by [OpenCvFilter]:
+ * Inference is performed on-device using the PyTorch Mobile library loading YOLOv8-nano
+ * TorchScript models.  Five modes are supported, each driven by [OpenCvFilter]:
  * - [OpenCvFilter.YOLO_DETECT]   – 80-class COCO object detection (bounding boxes).
  * - [OpenCvFilter.YOLO_SEGMENT]  – instance segmentation (bounding boxes only on CPU).
  * - [OpenCvFilter.YOLO_POSE]     – 17-keypoint human pose estimation.
  * - [OpenCvFilter.YOLO_CLASSIFY] – ImageNet-1000 image classification (top-5 overlay).
  * - [OpenCvFilter.YOLO_OBB]      – DOTAv1 oriented bounding boxes (15 aerial classes).
+ *
+ * Models are downloaded directly from Ultralytics and stored in [ModelDownloadManager].
+ * The downloaded ``*.pt`` files must be exported to TorchScript format using the Python
+ * ``export_yolo_to_torchscript()`` utility before placement in the device's internal
+ * storage.
  *
  * Call [initialize] once after construction and [close] when the processor is no longer
  * needed.  If a required model file has not been downloaded yet, the frame is returned
@@ -46,12 +47,18 @@ class YoloProcessor(private val context: Context) {
     companion object {
         private const val TAG = "YoloProcessor"
 
-        /** ONNX model filenames stored in internal storage by [ModelDownloadManager]. */
-        const val MODEL_DETECT = "yolov8n_det.onnx"
-        const val MODEL_SEGMENT = "yolov8n_seg.onnx"
-        const val MODEL_POSE = "yolov8n_pose.onnx"
-        const val MODEL_CLASSIFY = "yolov8n_cls.onnx"
-        const val MODEL_OBB = "yolov8n_obb.onnx"
+        /** TorchScript model filenames stored in internal storage by [ModelDownloadManager].
+         *
+         * These files are exported from the official Ultralytics YOLOv8-nano ``*.pt`` weights
+         * using the Python ``export_yolo_to_torchscript()`` utility.  The base ``*.pt`` weights
+         * can be downloaded from Ultralytics via [ModelDownloadManager.YOLO_MODEL_URLS] and
+         * must be converted to TorchScript format before being placed in device storage.
+         */
+        const val MODEL_DETECT = "yolov8n.torchscript"
+        const val MODEL_SEGMENT = "yolov8n-seg.torchscript"
+        const val MODEL_POSE = "yolov8n-pose.torchscript"
+        const val MODEL_CLASSIFY = "yolov8n-cls.torchscript"
+        const val MODEL_OBB = "yolov8n-obb.torchscript"
 
         /** YOLOv8 inference input size (square) for detection/segmentation/pose/OBB. */
         private const val INPUT_SIZE = 640
@@ -163,18 +170,18 @@ class YoloProcessor(private val context: Context) {
     // Internal state
     // -------------------------------------------------------------------------
 
-    private var netDetect: Net? = null
-    private var netSegment: Net? = null
-    private var netPose: Net? = null
-    private var netClassify: Net? = null
-    private var netObb: Net? = null
+    private var netDetect: Module? = null
+    private var netSegment: Module? = null
+    private var netPose: Module? = null
+    private var netClassify: Module? = null
+    private var netObb: Module? = null
 
     // -------------------------------------------------------------------------
     // Lifecycle
     // -------------------------------------------------------------------------
 
     /**
-     * Load all available YOLO ONNX models from internal storage.
+     * Load all available YOLO TorchScript models from internal storage.
      *
      * Models that have not been downloaded yet are silently skipped; the
      * corresponding filter will display an informational overlay instead of
@@ -246,48 +253,38 @@ class YoloProcessor(private val context: Context) {
         onDetections: ((List<MarkerDetection>) -> Unit)?,
     ): Bitmap {
         val net = netDetect ?: return drawModelMissing(bitmap, MODEL_DETECT)
-        val (src, scaleX, scaleY) = bitmapToSquareMat(bitmap)
+        val (inputTensor, scaleX, scaleY) = bitmapToInputTensor(bitmap, INPUT_SIZE)
 
-        val blob = Dnn.blobFromImage(
-            src, 1.0 / 255.0, Size(INPUT_SIZE.toDouble(), INPUT_SIZE.toDouble()),
-            org.opencv.core.Scalar(0.0, 0.0, 0.0), true, false,
-        )
-        net.setInput(blob)
-        val output = net.forward()
-        src.release(); blob.release()
-
-        // YOLOv8-detect output shape: [1, 84, 8400]
-        // Reshape to [8400, 84] then transpose is not needed; iterate columns.
-        val numBoxes = output.size(2)
-        val numAttribs = output.size(1) // 4 + NUM_CLASSES
+        val outputTensor = runForward(net, inputTensor)
+        val outputData = outputTensor.dataAsFloatArray
+        val shape = outputTensor.shape()
+        val numBoxes = shape[2].toInt()
+        val numAttribs = shape[1].toInt() // 4 + NUM_CLASSES
 
         val boxes = ArrayList<Rect2d>()
         val scores = ArrayList<Float>()
         val classIds = ArrayList<Int>()
 
         for (i in 0 until numBoxes) {
-            val cx = output.get(0, 0)[i]
-            val cy = output.get(0, 1)[i]
-            val w = output.get(0, 2)[i]
-            val h = output.get(0, 3)[i]
+            val cx = outputData[0 * numBoxes + i].toDouble()
+            val cy = outputData[1 * numBoxes + i].toDouble()
+            val w = outputData[2 * numBoxes + i].toDouble()
+            val h = outputData[3 * numBoxes + i].toDouble()
 
             var maxScore = 0f
             var maxClassId = 0
             for (c in 0 until numAttribs - 4) {
-                val score = output.get(0, 4 + c)[i].toFloat()
+                val score = outputData[(4 + c) * numBoxes + i]
                 if (score > maxScore) { maxScore = score; maxClassId = c }
             }
 
             if (maxScore < CONFIDENCE_THRESHOLD) continue
 
-            val x1 = (cx - w / 2.0)
-            val y1 = (cy - h / 2.0)
-            boxes.add(Rect2d(x1, y1, w, h))
+            boxes.add(Rect2d(cx - w / 2.0, cy - h / 2.0, w, h))
             scores.add(maxScore)
             classIds.add(maxClassId)
         }
 
-        output.release()
         val kept = applyNms(boxes, scores)
 
         val result = ensureArgb8888(bitmap)
@@ -322,40 +319,29 @@ class YoloProcessor(private val context: Context) {
         onDetections: ((List<MarkerDetection>) -> Unit)?,
     ): Bitmap {
         val net = netSegment ?: return drawModelMissing(bitmap, MODEL_SEGMENT)
-        val (src, scaleX, scaleY) = bitmapToSquareMat(bitmap)
+        val (inputTensor, scaleX, scaleY) = bitmapToInputTensor(bitmap, INPUT_SIZE)
 
-        val blob = Dnn.blobFromImage(
-            src, 1.0 / 255.0, Size(INPUT_SIZE.toDouble(), INPUT_SIZE.toDouble()),
-            org.opencv.core.Scalar(0.0, 0.0, 0.0), true, false,
-        )
-        net.setInput(blob)
-
-        // YOLOv8-seg outputs: [output0: 1×116×8400, output1: 1×32×160×160]
-        // For CPU performance, we only use output0 for bounding boxes.
-        val outputNames = net.getUnconnectedOutLayersNames()
-        val outputs = ArrayList<Mat>()
-        for (name in outputNames) outputs.add(Mat())
-        net.forward(outputs, outputNames)
-        src.release(); blob.release()
-
-        val output = outputs.firstOrNull() ?: return ensureArgb8888(bitmap)
-        val numBoxes = output.size(2)
-        val numAttribs = output.size(1) // 4 + NUM_CLASSES + 32 mask coefficients
+        // YOLOv8-seg outputs a tuple; we only use the first tensor (bounding boxes) on CPU.
+        val outputTensor = runForward(net, inputTensor)
+        val outputData = outputTensor.dataAsFloatArray
+        val shape = outputTensor.shape()
+        val numBoxes = shape[2].toInt()
+        val numAttribs = shape[1].toInt() // 4 + NUM_CLASSES + 32 mask coefficients
 
         val boxes = ArrayList<Rect2d>()
         val scores = ArrayList<Float>()
         val classIds = ArrayList<Int>()
 
         for (i in 0 until numBoxes) {
-            val cx = output.get(0, 0)[i]
-            val cy = output.get(0, 1)[i]
-            val w = output.get(0, 2)[i]
-            val h = output.get(0, 3)[i]
+            val cx = outputData[0 * numBoxes + i].toDouble()
+            val cy = outputData[1 * numBoxes + i].toDouble()
+            val w = outputData[2 * numBoxes + i].toDouble()
+            val h = outputData[3 * numBoxes + i].toDouble()
 
             var maxScore = 0f
             var maxClassId = 0
             for (c in 0 until minOf(NUM_CLASSES, numAttribs - 4)) {
-                val score = output.get(0, 4 + c)[i].toFloat()
+                val score = outputData[(4 + c) * numBoxes + i]
                 if (score > maxScore) { maxScore = score; maxClassId = c }
             }
 
@@ -365,7 +351,6 @@ class YoloProcessor(private val context: Context) {
             classIds.add(maxClassId)
         }
 
-        outputs.forEach { it.release() }
         val kept = applyNms(boxes, scores)
 
         val result = ensureArgb8888(bitmap)
@@ -407,30 +392,26 @@ class YoloProcessor(private val context: Context) {
         onDetections: ((List<MarkerDetection>) -> Unit)?,
     ): Bitmap {
         val net = netPose ?: return drawModelMissing(bitmap, MODEL_POSE)
-        val (src, scaleX, scaleY) = bitmapToSquareMat(bitmap)
+        val (inputTensor, scaleX, scaleY) = bitmapToInputTensor(bitmap, INPUT_SIZE)
 
-        val blob = Dnn.blobFromImage(
-            src, 1.0 / 255.0, Size(INPUT_SIZE.toDouble(), INPUT_SIZE.toDouble()),
-            org.opencv.core.Scalar(0.0, 0.0, 0.0), true, false,
-        )
-        net.setInput(blob)
-        val output = net.forward()
-        src.release(); blob.release()
+        val outputTensor = runForward(net, inputTensor)
+        val outputData = outputTensor.dataAsFloatArray
+        val shape = outputTensor.shape()
+        val numBoxes = shape[2].toInt()
 
         // YOLOv8-pose output shape: [1, 56, 8400]
         // 56 = 4 (bbox) + 1 (person conf) + 51 (17 keypoints × 3: x, y, visibility)
-        val numBoxes = output.size(2)
 
         val boxes = ArrayList<Rect2d>()
         val scores = ArrayList<Float>()
         val keypointSets = ArrayList<FloatArray>() // flat: [kp0x, kp0y, kp0v, ..., kp16x, kp16y, kp16v]
 
         for (i in 0 until numBoxes) {
-            val cx = output.get(0, 0)[i]
-            val cy = output.get(0, 1)[i]
-            val w = output.get(0, 2)[i]
-            val h = output.get(0, 3)[i]
-            val conf = output.get(0, 4)[i].toFloat()
+            val cx = outputData[0 * numBoxes + i].toDouble()
+            val cy = outputData[1 * numBoxes + i].toDouble()
+            val w = outputData[2 * numBoxes + i].toDouble()
+            val h = outputData[3 * numBoxes + i].toDouble()
+            val conf = outputData[4 * numBoxes + i]
 
             if (conf < CONFIDENCE_THRESHOLD) continue
 
@@ -439,14 +420,13 @@ class YoloProcessor(private val context: Context) {
 
             val kps = FloatArray(NUM_KEYPOINTS * 3)
             for (k in 0 until NUM_KEYPOINTS) {
-                kps[k * 3 + 0] = output.get(0, 5 + k * 3)[i].toFloat()
-                kps[k * 3 + 1] = output.get(0, 5 + k * 3 + 1)[i].toFloat()
-                kps[k * 3 + 2] = output.get(0, 5 + k * 3 + 2)[i].toFloat()
+                kps[k * 3 + 0] = outputData[(5 + k * 3) * numBoxes + i]
+                kps[k * 3 + 1] = outputData[(5 + k * 3 + 1) * numBoxes + i]
+                kps[k * 3 + 2] = outputData[(5 + k * 3 + 2) * numBoxes + i]
             }
             keypointSets.add(kps)
         }
 
-        output.release()
         val kept = applyNms(boxes, scores)
 
         val result = ensureArgb8888(bitmap)
@@ -508,30 +488,15 @@ class YoloProcessor(private val context: Context) {
         val net = netClassify ?: return drawModelMissing(bitmap, MODEL_CLASSIFY)
 
         // Resize to the classification input size (224×224) instead of the detection size.
-        val argb = ensureArgb8888(bitmap)
-        val src = Mat()
-        Utils.bitmapToMat(argb, src)
-        val rgb = Mat()
-        Imgproc.cvtColor(src, rgb, Imgproc.COLOR_RGBA2RGB)
-        src.release()
+        val (inputTensor, _, _) = bitmapToInputTensor(bitmap, CLS_INPUT_SIZE)
 
-        val blob = Dnn.blobFromImage(
-            rgb, 1.0 / 255.0, Size(CLS_INPUT_SIZE.toDouble(), CLS_INPUT_SIZE.toDouble()),
-            org.opencv.core.Scalar(0.0, 0.0, 0.0), true, false,
-        )
-        rgb.release()
-        net.setInput(blob)
-        val output = net.forward()
-        blob.release()
+        val outputTensor = runForward(net, inputTensor)
+        val logitsRaw = outputTensor.dataAsFloatArray
 
         // Output shape is [1, NUM_IMAGENET_CLASSES] – read all class logits.
-        val numClasses = minOf(NUM_IMAGENET_CLASSES, output.total().toInt())
-        if (numClasses == 0) {
-            output.release()
-            return ensureArgb8888(bitmap)
-        }
-        val logits = FloatArray(numClasses) { i -> output.get(0, i)[0].toFloat() }
-        output.release()
+        val numClasses = minOf(NUM_IMAGENET_CLASSES, logitsRaw.size)
+        if (numClasses == 0) return ensureArgb8888(bitmap)
+        val logits = logitsRaw.copyOf(numClasses)
 
         // Numerical-stable softmax – single pass to avoid extra FloatArray allocations
         val maxLogit = logits.maxOrNull() ?: 0f
@@ -589,20 +554,16 @@ class YoloProcessor(private val context: Context) {
         onDetections: ((List<MarkerDetection>) -> Unit)?,
     ): Bitmap {
         val net = netObb ?: return drawModelMissing(bitmap, MODEL_OBB)
-        val (src, scaleX, scaleY) = bitmapToSquareMat(bitmap)
+        val (inputTensor, scaleX, scaleY) = bitmapToInputTensor(bitmap, INPUT_SIZE)
 
-        val blob = Dnn.blobFromImage(
-            src, 1.0 / 255.0, Size(INPUT_SIZE.toDouble(), INPUT_SIZE.toDouble()),
-            org.opencv.core.Scalar(0.0, 0.0, 0.0), true, false,
-        )
-        net.setInput(blob)
-        val output = net.forward()
-        src.release(); blob.release()
+        val outputTensor = runForward(net, inputTensor)
+        val outputData = outputTensor.dataAsFloatArray
+        val shape = outputTensor.shape()
+        val numProposals = shape[2].toInt()
+        val numFeatures = shape[1].toInt()
 
         // YOLOv8-obb output shape: [1, OBB_BBOX_DIM + NUM_DOTA_CLASSES, num_proposals]
         // Channels: [cx, cy, w, h, angle, cls_0 … cls_14]
-        val numProposals = output.size(2)
-        val numFeatures = output.size(1)
 
         val boxes = ArrayList<Rect2d>()
         val scores = ArrayList<Float>()
@@ -610,16 +571,16 @@ class YoloProcessor(private val context: Context) {
         val angles = ArrayList<Float>()
 
         for (i in 0 until numProposals) {
-            val cx = output.get(0, 0)[i]
-            val cy = output.get(0, 1)[i]
-            val w = output.get(0, 2)[i]
-            val h = output.get(0, 3)[i]
-            val angle = output.get(0, 4)[i].toFloat()
+            val cx = outputData[0 * numProposals + i].toDouble()
+            val cy = outputData[1 * numProposals + i].toDouble()
+            val w = outputData[2 * numProposals + i].toDouble()
+            val h = outputData[3 * numProposals + i].toDouble()
+            val angle = outputData[4 * numProposals + i]
 
             var maxScore = 0f
             var maxClassId = 0
             for (c in 0 until minOf(NUM_DOTA_CLASSES, numFeatures - OBB_BBOX_DIM)) {
-                val score = output.get(0, OBB_BBOX_DIM + c)[i].toFloat()
+                val score = outputData[(OBB_BBOX_DIM + c) * numProposals + i]
                 if (score > maxScore) { maxScore = score; maxClassId = c }
             }
 
@@ -631,7 +592,6 @@ class YoloProcessor(private val context: Context) {
             angles.add(angle)
         }
 
-        output.release()
         val kept = applyNms(boxes, scores)
 
         val result = ensureArgb8888(bitmap)
@@ -680,22 +640,20 @@ class YoloProcessor(private val context: Context) {
     // -------------------------------------------------------------------------
 
     /**
-     * Load an ONNX model from internal storage.
+     * Load a TorchScript model from internal storage.
      *
      * Returns ``null`` when the file has not been downloaded yet, allowing the
      * caller to display a "model missing" overlay gracefully.
      */
-    private fun tryLoadNet(filename: String): Net? {
+    private fun tryLoadNet(filename: String): Module? {
         val path = ModelDownloadManager.getYoloModelPath(context, filename) ?: run {
             Log.d(TAG, "YOLO model not available: $filename")
             return null
         }
         return try {
-            val net = Dnn.readNetFromONNX(path)
-            net.setPreferableBackend(Dnn.DNN_BACKEND_OPENCV)
-            net.setPreferableTarget(Dnn.DNN_TARGET_CPU)
+            val module = Module.load(path)
             Log.i(TAG, "Loaded YOLO model: $filename")
-            net
+            module
         } catch (e: Exception) {
             Log.e(TAG, "Failed to load YOLO model: $filename", e)
             null
@@ -703,27 +661,47 @@ class YoloProcessor(private val context: Context) {
     }
 
     /**
-     * Convert [bitmap] to a square 640×640 OpenCV [Mat] (RGB) and return it
-     * together with the x/y scale factors needed to map detections back to the
+     * Run a forward pass through [module] using [inputTensor] and return the primary
+     * output tensor.
+     *
+     * When the module returns a tuple (as TorchScript YOLO exports typically do), the
+     * first element is returned.  A plain tensor output is returned directly.
+     */
+    private fun runForward(module: Module, inputTensor: Tensor): Tensor {
+        val output = module.forward(IValue.from(inputTensor))
+        return if (output.isTuple) output.toTuple()[0].toTensor() else output.toTensor()
+    }
+
+    /**
+     * Resize [bitmap] to [inputSize]×[inputSize], convert to a normalised RGB float
+     * tensor of shape ``[1, 3, inputSize, inputSize]`` (values in ``[0.0, 1.0]``) and
+     * return it together with the x/y scale factors needed to map detections back to the
      * original bitmap dimensions.
      */
-    private fun bitmapToSquareMat(bitmap: Bitmap): Triple<Mat, Double, Double> {
-        val src = Mat()
+    private fun bitmapToInputTensor(bitmap: Bitmap, inputSize: Int): Triple<Tensor, Double, Double> {
         val argb = ensureArgb8888(bitmap)
-        Utils.bitmapToMat(argb, src)
+        val scaleX = argb.width.toDouble() / inputSize
+        val scaleY = argb.height.toDouble() / inputSize
 
-        val rgb = Mat()
-        Imgproc.cvtColor(src, rgb, Imgproc.COLOR_RGBA2RGB)
-        src.release()
+        val resized = Bitmap.createScaledBitmap(argb, inputSize, inputSize, true)
+        val pixels = IntArray(inputSize * inputSize)
+        resized.getPixels(pixels, 0, inputSize, 0, 0, inputSize, inputSize)
+        if (resized !== argb) resized.recycle()
 
-        val scaleX = argb.width.toDouble() / INPUT_SIZE
-        val scaleY = argb.height.toDouble() / INPUT_SIZE
+        val floatData = FloatArray(3 * inputSize * inputSize)
+        val planeSize = inputSize * inputSize
+        for (i in pixels.indices) {
+            val pixel = pixels[i]
+            floatData[i]              = ((pixel shr 16) and 0xFF) / 255f  // R
+            floatData[planeSize + i]  = ((pixel shr 8)  and 0xFF) / 255f  // G
+            floatData[2 * planeSize + i] = (pixel and 0xFF)      / 255f  // B
+        }
 
-        val resized = Mat()
-        Imgproc.resize(rgb, resized, Size(INPUT_SIZE.toDouble(), INPUT_SIZE.toDouble()))
-        rgb.release()
-
-        return Triple(resized, scaleX, scaleY)
+        val tensor = Tensor.fromBlob(
+            floatData,
+            longArrayOf(1L, 3L, inputSize.toLong(), inputSize.toLong()),
+        )
+        return Triple(tensor, scaleX, scaleY)
     }
 
     /** Apply NMS using OpenCV and return the list of kept indices. */

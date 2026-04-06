@@ -5,6 +5,7 @@ import android.content.res.ColorStateList
 import android.os.Bundle
 import android.view.View
 import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
@@ -49,6 +50,9 @@ class MenuActivity : AppCompatActivity() {
         private const val BUTTON_MARGIN_MULTIPLIER = 8
     }
 
+    /** Groups of downloadable models shown in the Models tab. */
+    private enum class ModelGroup { MEDIAPIPE, YOLO, RTMDET }
+
     private lateinit var binding: ActivityMenuBinding
 
     /** Single-thread executor used for background model downloads. Lazily created on first use. */
@@ -59,7 +63,8 @@ class MenuActivity : AppCompatActivity() {
         val dotView: View,
         val textModelSize: TextView,
         val btnAction: MaterialButton,
-        val isYolo: Boolean,
+        val progressBar: ProgressBar,
+        val group: ModelGroup,
     )
 
     /** Keyed by model filename (e.g. [MediaPipeProcessor.MODEL_POSE]). */
@@ -152,6 +157,7 @@ class MenuActivity : AppCompatActivity() {
         buildModelsTab()
         buildAboutContent()
         setupMenuTabs()
+        suggestModelsTabIfNeeded()
     }
 
     override fun onDestroy() {
@@ -297,7 +303,7 @@ class MenuActivity : AppCompatActivity() {
     // "Modele" tab
     // ------------------------------------------------------------------
 
-    /** Builds the Models tab with MediaPipe and YOLO model status rows. */
+    /** Builds the Models tab with MediaPipe, YOLO and RTMDet model status rows. */
     private fun buildModelsTab() {
         val container = binding.modelsContainer
 
@@ -307,48 +313,57 @@ class MenuActivity : AppCompatActivity() {
         addSectionHeader(container, getString(R.string.models_mediapipe_title))
         addGroupDescription(container, getString(R.string.models_mediapipe_description))
 
-        addModelRow(container, MediaPipeProcessor.MODEL_POSE,  getString(R.string.model_name_pose_landmarker),  isYolo = false)
-        addModelRow(container, MediaPipeProcessor.MODEL_HAND,  getString(R.string.model_name_hand_landmarker),  isYolo = false)
-        addModelRow(container, MediaPipeProcessor.MODEL_FACE,  getString(R.string.model_name_face_landmarker),  isYolo = false)
-        addDownloadAllButton(container, isYolo = false)
+        addModelRow(container, MediaPipeProcessor.MODEL_POSE,  getString(R.string.model_name_pose_landmarker),  ModelGroup.MEDIAPIPE)
+        addModelRow(container, MediaPipeProcessor.MODEL_HAND,  getString(R.string.model_name_hand_landmarker),  ModelGroup.MEDIAPIPE)
+        addModelRow(container, MediaPipeProcessor.MODEL_FACE,  getString(R.string.model_name_face_landmarker),  ModelGroup.MEDIAPIPE)
+        addDownloadAllButton(container, ModelGroup.MEDIAPIPE)
 
-        // YOLO section
+        // YOLO section -- rows keyed by the *.pt source-model filenames from YOLO_MODEL_URLS
         addSectionHeader(container, getString(R.string.models_yolo_title))
         addGroupDescription(container, getString(R.string.models_yolo_description))
 
-        addModelRow(container, YoloProcessor.MODEL_DETECT,   getString(R.string.model_name_yolo_detect),   isYolo = true)
-        addModelRow(container, YoloProcessor.MODEL_SEGMENT,  getString(R.string.model_name_yolo_segment),  isYolo = true)
-        addModelRow(container, YoloProcessor.MODEL_POSE,     getString(R.string.model_name_yolo_pose),     isYolo = true)
-        addModelRow(container, YoloProcessor.MODEL_CLASSIFY, getString(R.string.model_name_yolo_classify), isYolo = true)
-        addModelRow(container, YoloProcessor.MODEL_OBB,      getString(R.string.model_name_yolo_obb),      isYolo = true)
-        addDownloadAllButton(container, isYolo = true)
+        addModelRow(container, "yolov8n.pt",       getString(R.string.model_name_yolo_detect),   ModelGroup.YOLO)
+        addModelRow(container, "yolov8n-seg.pt",   getString(R.string.model_name_yolo_segment),  ModelGroup.YOLO)
+        addModelRow(container, "yolov8n-pose.pt",  getString(R.string.model_name_yolo_pose),     ModelGroup.YOLO)
+        addModelRow(container, "yolov8n-cls.pt",   getString(R.string.model_name_yolo_classify), ModelGroup.YOLO)
+        addModelRow(container, "yolov8n-obb.pt",   getString(R.string.model_name_yolo_obb),      ModelGroup.YOLO)
+        addDownloadAllButton(container, ModelGroup.YOLO)
+
+        // RTMDet section
+        addSectionHeader(container, getString(R.string.models_rtmdet_title))
+        addGroupDescription(container, getString(R.string.models_rtmdet_description))
+
+        addModelRow(container, RtmDetProcessor.MODEL_DETECT,   getString(R.string.model_name_rtmdet_detect),   ModelGroup.RTMDET)
+        addModelRow(container, RtmDetProcessor.MODEL_ROTATED,  getString(R.string.model_name_rtmdet_rotated),  ModelGroup.RTMDET)
+        addDownloadAllButton(container, ModelGroup.RTMDET)
     }
 
     /**
      * Inflates an [R.layout.item_model_status] row and appends it to [container].
      * Stores references to its views in [modelStatusViews] for later status updates.
      */
-    private fun addModelRow(container: LinearLayout, filename: String, displayName: String, isYolo: Boolean) {
+    private fun addModelRow(container: LinearLayout, filename: String, displayName: String, group: ModelGroup) {
         val row = layoutInflater.inflate(R.layout.item_model_status, container, false)
         val dotView    = row.findViewById<View>(R.id.viewModelStatusDot)
         val textName   = row.findViewById<TextView>(R.id.textModelName)
         val textSize   = row.findViewById<TextView>(R.id.textModelSize)
         val btnAction  = row.findViewById<MaterialButton>(R.id.btnModelAction)
+        val progressBar = row.findViewById<ProgressBar>(R.id.progressBarModelDownload)
 
         textName.text = displayName
-        modelStatusViews[filename] = ModelStatusViews(dotView, textSize, btnAction, isYolo)
+        modelStatusViews[filename] = ModelStatusViews(dotView, textSize, btnAction, progressBar, group)
 
-        btnAction.setOnClickListener { downloadSingleModel(filename, isYolo) }
+        btnAction.setOnClickListener { downloadSingleModel(filename, group) }
         container.addView(row)
-        updateModelRowUi(filename, isYolo)
+        updateModelRowUi(filename, group)
     }
 
     /**
      * Adds a "Download all missing" [MaterialButton] at the bottom of the current section.
      *
-     * @param isYolo ``true`` for the YOLO section, ``false`` for the MediaPipe section.
+     * @param group Model group whose missing files this button should download.
      */
-    private fun addDownloadAllButton(container: LinearLayout, isYolo: Boolean) {
+    private fun addDownloadAllButton(container: LinearLayout, group: ModelGroup) {
         val margin = resources.getDimensionPixelSize(R.dimen.group_stroke_width) * BUTTON_MARGIN_MULTIPLIER
         val btn = MaterialButton(this).apply {
             text = getString(R.string.model_download_all)
@@ -356,7 +371,7 @@ class MenuActivity : AppCompatActivity() {
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).also { it.setMargins(margin, margin / 2, margin, margin) }
-            setOnClickListener { downloadAllModels(isYolo) }
+            setOnClickListener { downloadAllModels(group) }
         }
         container.addView(btn)
     }
@@ -366,9 +381,12 @@ class MenuActivity : AppCompatActivity() {
      *
      * Reads the model's file from disk (fast local I/O) and reflects the result in the UI.
      */
-    private fun updateModelRowUi(filename: String, isYolo: Boolean) {
-        val path = if (isYolo) ModelDownloadManager.getYoloModelPath(this, filename)
-                   else        ModelDownloadManager.getModelPath(this, filename)
+    private fun updateModelRowUi(filename: String, group: ModelGroup) {
+        val path = when (group) {
+            ModelGroup.YOLO    -> ModelDownloadManager.getYoloModelPath(this, filename)
+            ModelGroup.RTMDET  -> ModelDownloadManager.getRtmDetModelPath(this, filename)
+            ModelGroup.MEDIAPIPE -> ModelDownloadManager.getModelPath(this, filename)
+        }
         val views = modelStatusViews[filename] ?: return
 
         if (path != null) {
@@ -394,29 +412,39 @@ class MenuActivity : AppCompatActivity() {
     /** Refreshes all model status rows; called whenever the Models tab is selected. */
     private fun refreshModelStatus() {
         modelStatusViews.entries.forEach { (filename, views) ->
-            updateModelRowUi(filename, views.isYolo)
+            updateModelRowUi(filename, views.group)
         }
     }
 
     /**
      * Downloads a single model on the background thread and updates its row on completion.
+     * Shows an indeterminate progress bar in the row while the download is in progress.
      *
      * @param filename Model filename key, e.g. [MediaPipeProcessor.MODEL_POSE].
-     * @param isYolo   ``true`` if the model belongs to the YOLO group.
+     * @param group    Model group this file belongs to.
      */
-    private fun downloadSingleModel(filename: String, isYolo: Boolean) {
+    private fun downloadSingleModel(filename: String, group: ModelGroup) {
         val views = modelStatusViews[filename] ?: return
-        val url   = if (isYolo) ModelDownloadManager.YOLO_MODEL_URLS[filename]
-                    else        ModelDownloadManager.MODEL_URLS[filename]
+        val url = when (group) {
+            ModelGroup.YOLO    -> ModelDownloadManager.YOLO_MODEL_URLS[filename]
+            ModelGroup.RTMDET  -> ModelDownloadManager.RTMDET_MODEL_URLS[filename]
+            ModelGroup.MEDIAPIPE -> ModelDownloadManager.MODEL_URLS[filename]
+        }
         if (url == null) return
 
         views.btnAction.isEnabled = false
         views.btnAction.text      = getString(R.string.model_btn_downloading)
+        views.progressBar.visibility = View.VISIBLE
 
         downloadExecutor.execute {
-            val success = ModelDownloadManager.downloadModel(this, filename, url)
+            val success = when (group) {
+                ModelGroup.YOLO    -> ModelDownloadManager.downloadYoloModel(this, filename, url)
+                ModelGroup.RTMDET  -> ModelDownloadManager.downloadRtmDetModel(this, filename, url)
+                ModelGroup.MEDIAPIPE -> ModelDownloadManager.downloadModel(this, filename, url)
+            }
             runOnUiThread {
-                updateModelRowUi(filename, isYolo)
+                views.progressBar.visibility = View.GONE
+                updateModelRowUi(filename, group)
                 val msgRes = if (success) R.string.model_download_success else R.string.model_download_failed
                 Toast.makeText(this, getString(msgRes, filename), Toast.LENGTH_SHORT).show()
                 if (!success) {
@@ -428,19 +456,40 @@ class MenuActivity : AppCompatActivity() {
     }
 
     /**
-     * Downloads all missing models for a group (MediaPipe or YOLO) in the background.
+     * Downloads all missing models for a group (MediaPipe, YOLO or RTMDet) in the background.
+     * Shows indeterminate progress bars for all missing rows while the download runs.
      *
-     * @param isYolo ``true`` to download all missing YOLO models,
-     *               ``false`` to download all missing MediaPipe models.
+     * @param group Model group to download.
      */
-    private fun downloadAllModels(isYolo: Boolean) {
+    private fun downloadAllModels(group: ModelGroup) {
+        val groupFilenames = modelStatusViews.entries
+            .filter { it.value.group == group }
+            .map { it.key }
+
+        groupFilenames.forEach { filename ->
+            val views = modelStatusViews[filename] ?: return@forEach
+            val alreadyPresent = when (group) {
+                ModelGroup.YOLO    -> ModelDownloadManager.getYoloModelPath(this, filename) != null
+                ModelGroup.RTMDET  -> ModelDownloadManager.getRtmDetModelPath(this, filename) != null
+                ModelGroup.MEDIAPIPE -> ModelDownloadManager.getModelPath(this, filename) != null
+            }
+            if (!alreadyPresent) {
+                views.progressBar.visibility = View.VISIBLE
+                views.btnAction.isEnabled = false
+                views.btnAction.text = getString(R.string.model_btn_downloading)
+            }
+        }
+
         downloadExecutor.execute {
-            val success = if (isYolo) {
-                ModelDownloadManager.downloadMissingYoloModels(this)
-            } else {
-                ModelDownloadManager.downloadMissingModels(this)
+            val success = when (group) {
+                ModelGroup.YOLO    -> ModelDownloadManager.downloadMissingYoloModels(this)
+                ModelGroup.RTMDET  -> ModelDownloadManager.downloadMissingRtmDetModels(this)
+                ModelGroup.MEDIAPIPE -> ModelDownloadManager.downloadMissingModels(this)
             }
             runOnUiThread {
+                groupFilenames.forEach { filename ->
+                    modelStatusViews[filename]?.progressBar?.visibility = View.GONE
+                }
                 refreshModelStatus()
                 val msgRes = if (success) R.string.model_download_all_success
                              else         R.string.model_download_all_failed
@@ -452,6 +501,31 @@ class MenuActivity : AppCompatActivity() {
     // ------------------------------------------------------------------
     // "O aplikacji" tab
     // ------------------------------------------------------------------
+
+    /**
+     * Shows a one-time suggestion dialog at startup when any downloadable model is absent.
+     * Tapping the positive button navigates directly to the Models tab.
+     */
+    private fun suggestModelsTabIfNeeded() {
+        val mediapipeMissing = !ModelDownloadManager.areAllModelsReady(this)
+        val yoloMissing = ModelDownloadManager.YOLO_MODEL_URLS.keys.any {
+            ModelDownloadManager.getYoloModelPath(this, it) == null
+        }
+        val rtmdetMissing = !ModelDownloadManager.areRtmDetModelsReady(this)
+
+        if (!mediapipeMissing && !yoloMissing && !rtmdetMissing) return
+
+        AlertDialog.Builder(this)
+            .setTitle(R.string.models_missing_title)
+            .setMessage(R.string.models_missing_message)
+            .setPositiveButton(R.string.models_go_to_tab) { _, _ ->
+                binding.tabLayoutMenu.getTabAt(TAB_MODELS)?.select()
+                updateTabVisibility(TAB_MODELS)
+                refreshModelStatus()
+            }
+            .setNegativeButton(R.string.models_later, null)
+            .show()
+    }
 
     /**
      * Populates the About tab with a general app description card followed by

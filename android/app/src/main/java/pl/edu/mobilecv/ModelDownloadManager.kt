@@ -179,6 +179,28 @@ object ModelDownloadManager {
         downloadModel(context, filename, url, modelFile(context, filename))
 
     /**
+     * Download a single YOLO source model file from [url] to the YOLO directory.
+     *
+     * @param context Application or activity context.
+     * @param filename Target filename (e.g. ``"yolov8n.pt"``).
+     * @param url Source URL.
+     * @return ``true`` on success.
+     */
+    fun downloadYoloModel(context: Context, filename: String, url: String): Boolean =
+        downloadModel(context, filename, url, yoloModelFile(context, filename))
+
+    /**
+     * Download a single RTMDet model file from [url] to the RTMDet directory.
+     *
+     * @param context Application or activity context.
+     * @param filename Target filename (e.g. [RtmDetProcessor.MODEL_DETECT]).
+     * @param url Source URL.
+     * @return ``true`` on success.
+     */
+    fun downloadRtmDetModel(context: Context, filename: String, url: String): Boolean =
+        downloadModel(context, filename, url, rtmdetModelFile(context, filename))
+
+    /**
      * Download a single model file from [url] to [dest].
      *
      * Each attempt writes to a temporary file alongside [dest] and atomically renames

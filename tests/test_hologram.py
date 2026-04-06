@@ -193,11 +193,11 @@ class TestComputeFaceOrientation:
 class TestRotationMatrices:
     def test_rotation_y_zero_is_identity(self) -> None:
         rot = _rotation_y(0.0)
-        assert pytest.approx(np.eye(3), abs=1e-10) == rot
+        assert rot == pytest.approx(np.eye(3), abs=1e-10)
 
     def test_rotation_x_zero_is_identity(self) -> None:
         rot = _rotation_x(0.0)
-        assert pytest.approx(np.eye(3), abs=1e-10) == rot
+        assert rot == pytest.approx(np.eye(3), abs=1e-10)
 
     def test_rotation_y_90_maps_x_to_neg_z(self) -> None:
         rot = _rotation_y(math.pi / 2)
@@ -213,11 +213,11 @@ class TestRotationMatrices:
 
     def test_rotation_y_is_orthogonal(self) -> None:
         rot = _rotation_y(0.7)
-        assert pytest.approx(np.eye(3), abs=1e-10) == rot @ rot.T
+        assert rot @ rot.T == pytest.approx(np.eye(3), abs=1e-10)
 
     def test_rotation_x_is_orthogonal(self) -> None:
         rot = _rotation_x(1.2)
-        assert pytest.approx(np.eye(3), abs=1e-10) == rot @ rot.T
+        assert rot @ rot.T == pytest.approx(np.eye(3), abs=1e-10)
 
 
 # ---------------------------------------------------------------------------

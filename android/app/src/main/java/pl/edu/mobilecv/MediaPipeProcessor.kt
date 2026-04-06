@@ -156,7 +156,7 @@ class MediaPipeProcessor(private val context: Context) {
          */
         private const val HOLOGRAM_ORIENT_SCALE = 2.0f
 
-        /** BGR-equivalent teal colour (0xC8FF00 → ARGB 0xFF00FFC8) for hologram edges. */
+        /** Teal-cyan ARGB colour (R=0, G=255, B=200) for hologram edges and vertex dots. */
         private const val HOLOGRAM_EDGE_COLOR = 0xFF00FFC8.toInt()
 
         /** Semi-transparent dark-teal for hologram face fills. */
@@ -251,6 +251,13 @@ class MediaPipeProcessor(private val context: Context) {
         color = HOLOGRAM_EDGE_COLOR
         isAntiAlias = true
         strokeCap = Paint.Cap.ROUND
+    }
+
+    /** Paint for hologram vertex dots (filled circles at cube corners). */
+    private val hologramDotPaint = Paint().apply {
+        style = Paint.Style.FILL
+        color = HOLOGRAM_EDGE_COLOR
+        isAntiAlias = true
     }
 
     /** Paint for hologram face fills (semi-transparent). */
@@ -501,9 +508,8 @@ class MediaPipeProcessor(private val context: Context) {
 
         // Draw vertex dots.
         for ((px, py) in pts2d) {
-            canvas.drawCircle(px, py, 5f, hologramEdgePaint.apply { style = Paint.Style.FILL })
+            canvas.drawCircle(px, py, 5f, hologramDotPaint)
         }
-        hologramEdgePaint.style = Paint.Style.STROKE
 
         // HUD: yaw / pitch readout or "no face" message.
         val hudText = if (faceDetected) {

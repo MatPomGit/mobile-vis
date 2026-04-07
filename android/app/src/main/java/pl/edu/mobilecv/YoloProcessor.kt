@@ -2,6 +2,7 @@ package pl.edu.mobilecv
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Bitmap.createScaledBitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -12,6 +13,7 @@ import org.opencv.core.MatOfFloat
 import org.opencv.core.MatOfRect2d
 import org.opencv.core.Rect2d
 import org.opencv.dnn.Dnn
+import org.pytorch.Device
 import org.pytorch.IValue
 import org.pytorch.LiteModuleLoader
 import org.pytorch.Module
@@ -19,6 +21,8 @@ import org.pytorch.Tensor
 import pl.edu.mobilecv.util.BBoxKalmanFilter
 import java.util.Locale
 import kotlin.math.exp
+import androidx.core.graphics.withRotation
+import androidx.core.graphics.scale
 
 /**
  * Applies YOLO-based detection, segmentation, pose estimation, image classification and
@@ -341,12 +345,24 @@ class YoloProcessor(private val context: Context) {
                 kpts[k * 3 + 1] = (outputData[(6 + k * 3) * numBoxes + i] * scaleY).toFloat()
                 kpts[k * 3 + 2] = outputData[(7 + k * 3) * numBoxes + i]
             }
+
+            // Draw skeleton lines
+            paint.style = Paint.Style.STROKE
+            paint.color = Color.RED
             for (pair in SKELETON) {
                 val p1 = pair.first - 1
                 val p2 = pair.second - 1
                 if (kpts[p1 * 3 + 2] > KEYPOINT_VISIBILITY_THRESHOLD && kpts[p2 * 3 + 2] > KEYPOINT_VISIBILITY_THRESHOLD) {
-                    paint.color = Color.RED
                     canvas.drawLine(kpts[p1 * 3], kpts[p1 * 3 + 1], kpts[p2 * 3], kpts[p2 * 3 + 1], paint)
+                }
+            }
+
+            // Draw keypoint joints
+            paint.style = Paint.Style.FILL
+            paint.color = Color.YELLOW
+            for (k in 0 until NUM_KEYPOINTS) {
+                if (kpts[k * 3 + 2] > KEYPOINT_VISIBILITY_THRESHOLD) {
+                    canvas.drawCircle(kpts[k * 3], kpts[k * 3 + 1], KEYPOINT_RADIUS, paint)
                 }
             }
         }
@@ -399,10 +415,9 @@ class YoloProcessor(private val context: Context) {
             val h = (outputData[3 * numBoxes + i] * scaleY).toFloat()
             val angle = outputData[4 * numBoxes + i]
 
-            canvas.save()
-            canvas.rotate(Math.toDegrees(angle.toDouble()).toFloat(), cx, cy)
-            canvas.drawRect(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2, paint)
-            canvas.restore()
+            canvas.withRotation(Math.toDegrees(angle.toDouble()).toFloat(), cx, cy) {
+                drawRect(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2, paint)
+            }
         }
         return result
     }
@@ -410,7 +425,15 @@ class YoloProcessor(private val context: Context) {
     private fun tryLoadNet(path: String): Module? = try {
         val fullPath = ModelDownloadManager.getYoloModelPath(context, path)
         if (fullPath != null) {
-            LiteModuleLoader.load(fullPath)
+            try {
+                // Try to load with Vulkan for GPU acceleration
+                LiteModuleLoader.load(fullPath, null, Device.VULKAN).also {
+                    Log.i(TAG, "Loaded YOLO model $path with VULKAN")
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Vulkan not available for $path, falling back to CPU: ${e.message}")
+                LiteModuleLoader.load(fullPath, null, Device.CPU)
+            }
         } else {
             Log.e(TAG, "Model file not found: $path")
             null
@@ -423,7 +446,7 @@ class YoloProcessor(private val context: Context) {
 
     private fun bitmapToInputTensor(bitmap: Bitmap, size: Int): Triple<Tensor, Double, Double> {
         val argb = if (bitmap.config == Bitmap.Config.ARGB_8888) bitmap else bitmap.copy(Bitmap.Config.ARGB_8888, false)
-        val resized = Bitmap.createScaledBitmap(argb, size, size, true)
+        val resized = argb.scale(size, size)
         val pixels = IntArray(size * size)
         resized.getPixels(pixels, 0, size, 0, 0, size, size)
 
@@ -480,6 +503,6 @@ class YoloProcessor(private val context: Context) {
         else bitmap.copy(Bitmap.Config.ARGB_8888, true)
 
     private fun logMarkerDiagnostics(detection: MarkerDetection) {
-        // Log.d(TAG, detection.toDiagnosticSummary())
+        Log.d(TAG, detection.toDiagnosticSummary())
     }
 }

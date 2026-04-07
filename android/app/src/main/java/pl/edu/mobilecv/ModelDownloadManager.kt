@@ -58,6 +58,8 @@ object ModelDownloadManager {
             "$BASE_URL/face_detector/face_detector/float16/1/face_detector.task",
         MediaPipeProcessor.MODEL_OBJECTRON to
             "https://github.com/MatPomGit/mobile-vis/releases/download/models/object_detector_3d_shoe.task",
+        MediaPipeProcessor.MODEL_GESTURE to
+            "$BASE_URL/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task",
     )
 
     /**

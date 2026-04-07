@@ -1,6 +1,9 @@
 package pl.edu.mobilecv
 
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
 import android.util.Log
 import org.opencv.android.Utils
 import org.opencv.calib3d.Calib3d
@@ -224,6 +227,8 @@ class ImageProcessor {
     @Volatile
     var benchmarkSampleLimit: Int = 30
     @Volatile
+    var showFpsOverlay: Boolean = true
+    @Volatile
     var poseSmoothingEnabled: Boolean = true
     @Volatile
     var poseTemporalFilterType: PoseTemporalFilterType = PoseTemporalFilterType.EMA
@@ -252,19 +257,27 @@ class ImageProcessor {
             fullOdometryEngine.reset()
         }
         if (filter.isMediaPipe) {
-            return mediaPipeProcessor?.processFrame(bitmap, filter) ?: bitmap.copy(Bitmap.Config.ARGB_8888, false)
+            val result = mediaPipeProcessor?.processFrame(bitmap, filter) ?: bitmap.copy(Bitmap.Config.ARGB_8888, false)
+            if (showFpsOverlay) drawFpsOnBitmap(result)
+            return result
         }
         if (filter.isYolo) {
-            return yoloProcessor?.processFrame(bitmap, filter)
+            val result = yoloProcessor?.processFrame(bitmap, filter)
                 ?: bitmap.copy(Bitmap.Config.ARGB_8888, false)
+            if (showFpsOverlay) drawFpsOnBitmap(result)
+            return result
         }
         if (filter.isRtmDet) {
-            return rtmDetProcessor?.processFrame(bitmap, filter)
+            val result = rtmDetProcessor?.processFrame(bitmap, filter)
                 ?: bitmap.copy(Bitmap.Config.ARGB_8888, false)
+            if (showFpsOverlay) drawFpsOnBitmap(result)
+            return result
         }
         if (filter.isTflite) {
-            return tfliteProcessor?.processFrame(bitmap, filter)
+            val result = tfliteProcessor?.processFrame(bitmap, filter)
                 ?: bitmap.copy(Bitmap.Config.ARGB_8888, false)
+            if (showFpsOverlay) drawFpsOnBitmap(result)
+            return result
         }
 
         val src = ensureMat(srcBuffer, bitmap.height, bitmap.width, CvType.CV_8UC4)
@@ -336,10 +349,30 @@ class ImageProcessor {
 
         val result = createBitmap(processed.cols(), processed.rows())
         Utils.matToBitmap(processed, result)
+
+        if (showFpsOverlay) {
+            drawFpsOnBitmap(result)
+        }
+
         if (shouldReleaseProcessed) processed.release()
         if (isActiveVisionEnabled) baseFrame.release()
         if (shouldBenchmark && benchmarkAfterNs > 0L) updateBenchmark(filter, benchmarkBeforeNs, benchmarkAfterNs)
         return result
+    }
+
+    private val fpsPaint = Paint().apply {
+        color = Color.GREEN
+        textSize = 40f
+        isFakeBoldText = true
+        setShadowLayer(5f, 0f, 0f, Color.BLACK)
+    }
+    private val fpsCounter = FpsCounter()
+
+    private fun drawFpsOnBitmap(bitmap: Bitmap) {
+        fpsCounter.onFrame()
+        val canvas = Canvas(bitmap)
+        val text = "FPS: ${"%.1f".format(fpsCounter.fps)}"
+        canvas.drawText(text, 20f, bitmap.height - 20f, fpsPaint)
     }
 
     private fun ensureMat(mat: Mat, rows: Int, cols: Int, type: Int): Mat {

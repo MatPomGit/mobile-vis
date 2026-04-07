@@ -122,6 +122,12 @@ enum class OpenCvFilter(val displayName: String) {
     OBJECTRON("Objectron 3D"),
 
     /**
+     * MediaPipe Gesture Recognizer: identifies hand gestures in real-time.
+     * Recognizes common gestures like thumbs up, victory, closed fist, etc.
+     */
+    GESTURE_RECOGNIZER("Gesty"),
+
+    /**
      * Lightweight face detection using BlazeFace (MediaPipe Face Detector).
      * Optimized for long-term tracking with lower CPU usage.
      */
@@ -322,6 +328,7 @@ val OpenCvFilter.isMediaPipe: Boolean
         this == OpenCvFilter.EYE_TRACKING ||
         this == OpenCvFilter.HOLOGRAM_3D ||
         this == OpenCvFilter.OBJECTRON ||
+        this == OpenCvFilter.GESTURE_RECOGNIZER ||
         this == OpenCvFilter.FACE_DETECTION_BLAZE
 
 /**

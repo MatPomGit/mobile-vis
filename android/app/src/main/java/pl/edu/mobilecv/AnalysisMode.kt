@@ -80,6 +80,8 @@ enum class AnalysisMode(val displayName: String, val filters: List<OpenCvFilter>
             OpenCvFilter.EYE_TRACKING,
             OpenCvFilter.HOLOGRAM_3D,
             OpenCvFilter.OBJECTRON,
+            OpenCvFilter.GESTURE_RECOGNIZER,
+            OpenCvFilter.FACE_DETECTION_BLAZE,
         )
     ),
 

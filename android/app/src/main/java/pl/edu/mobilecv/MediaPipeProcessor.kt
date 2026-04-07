@@ -11,9 +11,12 @@ import android.util.Log
 import com.google.mediapipe.framework.image.BitmapImageBuilder
 import com.google.mediapipe.tasks.components.containers.NormalizedLandmark
 import com.google.mediapipe.tasks.core.BaseOptions
+import com.google.mediapipe.tasks.core.Delegate
 import com.google.mediapipe.tasks.vision.core.RunningMode
 import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarker
 import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarkerResult
+import com.google.mediapipe.tasks.vision.gesturerecognizer.GestureRecognizer
+import com.google.mediapipe.tasks.vision.gesturerecognizer.GestureRecognizerResult
 import com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarker
 import com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarkerResult
 import com.google.mediapipe.tasks.vision.objectdetector.ObjectDetector
@@ -23,6 +26,7 @@ import com.google.mediapipe.tasks.vision.poselandmarker.PoseLandmarkerResult
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.sin
+import java.util.Locale
 import kotlin.math.sqrt
 
 /**
@@ -53,6 +57,7 @@ class MediaPipeProcessor(private val context: Context) {
         const val MODEL_FACE = "face_landmarker.task"
         const val MODEL_FACE_DETECTOR = "face_detector.task"
         const val MODEL_OBJECTRON = "object_detector_3d_shoe.task"
+        const val MODEL_GESTURE = "gesture_recognizer.task"
 
         // ------------------------------------------------------------------
         // Drawing constants
@@ -212,7 +217,7 @@ class MediaPipeProcessor(private val context: Context) {
         private const val CALIBRATION_POINTS_COUNT = 5
 
         /** Frames to collect per calibration point. */
-        private const val SAMPLES_PER_POINT = 15
+        private const val SAMPLES_PER_POINT = 45
 
         /** Minimum face size (as fraction of frame) for reliable tracking. */
         private const val MIN_FACE_SIZE = 0.15f
@@ -222,12 +227,14 @@ class MediaPipeProcessor(private val context: Context) {
     private var handLandmarker: HandLandmarker? = null
     private var faceLandmarker: FaceLandmarker? = null
     private var objectDetector: ObjectDetector? = null
+    private var gestureRecognizer: GestureRecognizer? = null
 
     private var frameCounter = 0
     private var lastPoseResult: PoseLandmarkerResult? = null
     private var lastHandResult: HandLandmarkerResult? = null
     private var lastFaceResult: FaceLandmarkerResult? = null
     private var lastObjectResult: ObjectDetectorResult? = null
+    private var lastGestureResult: GestureRecognizerResult? = null
 
     // ------------------------------------------------------------------
     // Eye Tracking & Calibration State
@@ -366,10 +373,12 @@ class MediaPipeProcessor(private val context: Context) {
         handLandmarker?.close()
         faceLandmarker?.close()
         objectDetector?.close()
+        gestureRecognizer?.close()
         poseLandmarker = null
         handLandmarker = null
         faceLandmarker = null
         objectDetector = null
+        gestureRecognizer = null
     }
 
     /**
@@ -388,12 +397,58 @@ class MediaPipeProcessor(private val context: Context) {
                 OpenCvFilter.EYE_TRACKING -> applyEyeTracking(bitmap)
                 OpenCvFilter.HOLOGRAM_3D -> applyHologram3D(bitmap)
                 OpenCvFilter.OBJECTRON -> applyObjectron(bitmap)
+                OpenCvFilter.GESTURE_RECOGNIZER -> applyGestureRecognizer(bitmap)
+                OpenCvFilter.FACE_DETECTION_BLAZE -> applyFaceDetector(bitmap)
                 else -> bitmap.copy(Bitmap.Config.ARGB_8888, false)
             }
         } catch (error: Throwable) {
             Log.e(TAG, "MediaPipe processing failed for filter=${filter.name}", error)
             drawModuleError(bitmap, "MediaPipe error: ${filter.displayName}")
         }
+    }
+
+    private fun applyGestureRecognizer(bitmap: Bitmap): Bitmap {
+        val recognizer = gestureRecognizer ?: tryCreateGestureRecognizer().also { gestureRecognizer = it }
+        if (recognizer == null) return overlayMissingModel(
+            bitmap,
+            context.getString(R.string.mediapipe_model_missing_gesture)
+        )
+
+        val argbBitmap = ensureArgb8888(bitmap)
+        val result = recognizer.recognize(BitmapImageBuilder(argbBitmap).build())
+        lastGestureResult = result
+
+        val output = bitmap.copy(Bitmap.Config.ARGB_8888, true)
+        val canvas = Canvas(output)
+        val w = output.width
+        val h = output.height
+
+        // Draw hand landmarks if detected
+        for (landmarks in result.landmarks()) {
+            drawConnections(canvas, landmarks, w, h, Color.WHITE, HAND_CONNECTIONS)
+            drawDots(canvas, landmarks, w, h, Color.CYAN)
+        }
+
+        // Display recognized gestures
+        val gestures = result.gestures()
+        if (gestures.isNotEmpty()) {
+            val topGesture = gestures[0][0]
+            val text = context.getString(R.string.mediapipe_gesture_detected, topGesture.categoryName())
+            
+            infoPaint.color = Color.CYAN
+            infoPaint.getTextBounds(text, 0, text.length, textBoundsRect)
+            val topY = 20f
+            canvas.drawRect(
+                16f,
+                topY,
+                textBoundsRect.width() + 16f + 20f,
+                topY + textBoundsRect.height() + 20f,
+                infoBgPaint
+            )
+            canvas.drawText(text, 26f, topY + 10f + textBoundsRect.height(), infoPaint)
+        }
+
+        return output
     }
 
     private fun applyObjectron(bitmap: Bitmap): Bitmap {
@@ -434,6 +489,40 @@ class MediaPipeProcessor(private val context: Context) {
                 drawObjectronBox(canvas, keypoints, output.width, output.height)
             }
         }
+
+        return output
+    }
+
+    private fun applyFaceDetector(bitmap: Bitmap): Bitmap {
+        val detector = faceLandmarker ?: tryCreateFaceLandmarker().also { faceLandmarker = it }
+        if (detector == null) return overlayMissingModel(
+            bitmap,
+            context.getString(R.string.mediapipe_model_missing_face)
+        )
+
+        val argbBitmap = ensureArgb8888(bitmap)
+        if (frameCounter % detectionInterval == 0 || lastFaceResult == null) {
+            lastFaceResult = detector.detect(BitmapImageBuilder(argbBitmap).build())
+        }
+        val result = lastFaceResult!!
+
+        val output = bitmap.copy(Bitmap.Config.ARGB_8888, true)
+        val canvas = Canvas(output)
+
+        for (face in result.faceLandmarks()) {
+            // In BlazeFace mode, we just draw the bounding box or key landmarks
+            // Using the first 6 keypoints which are typically: left eye, right eye, nose tip, mouth center, left ear, right ear
+            val keypoints = listOf(33, 263, 4, 13, 234, 454) 
+            dotPaint.color = Color.YELLOW
+            for (idx in keypoints) {
+                if (idx < face.size) {
+                    val lm = face[idx]
+                    canvas.drawCircle(lm.x() * output.width, lm.y() * output.height, 6f, dotPaint)
+                }
+            }
+        }
+        
+        drawPersonInfo(canvas, result.faceLandmarks().size)
 
         return output
     }
@@ -657,7 +746,13 @@ class MediaPipeProcessor(private val context: Context) {
                     // Map iris offset (dx, dy) to screen (sx, sy) using linear regression weights.
                     val sx = (weightX[0] + weightX[1] * dx + weightX[2] * dy).coerceIn(0f, 1f)
                     val sy = (weightY[0] + weightY[1] * dx + weightY[2] * dy).coerceIn(0f, 1f)
-                    drawGazeReticle(canvas, sx * w, sy * h)
+                    val px = sx * w
+                    val py = sy * h
+                    drawGazeReticle(canvas, px, py)
+
+                    // Display gaze convergence coordinates
+                    val coordText = String.format(Locale.US, "Gaze: (%.0f, %.0f)", px, py)
+                    canvas.drawText(coordText, px + 40f, py - 40f, hologramHudPaint)
                 }
                 
                 // Still draw basic iris dots for visual feedback.
@@ -681,13 +776,13 @@ class MediaPipeProcessor(private val context: Context) {
         val targetX: Float
         val targetY: Float
 
-        // Calibration point sequence (0.05..0.95 to keep away from screen edges).
+        // Calibration point sequence (0.02..0.98 to maximize distance).
         when (calibrationPointIndex) {
             0 -> { targetX = 0.5f; targetY = 0.5f } // Center
-            1 -> { targetX = 0.1f; targetY = 0.1f } // Top-left
-            2 -> { targetX = 0.9f; targetY = 0.1f } // Top-right
-            3 -> { targetX = 0.1f; targetY = 0.9f } // Bottom-left
-            4 -> { targetX = 0.9f; targetY = 0.9f } // Bottom-right
+            1 -> { targetX = 0.02f; targetY = 0.02f } // Top-left
+            2 -> { targetX = 0.98f; targetY = 0.02f } // Top-right
+            3 -> { targetX = 0.02f; targetY = 0.98f } // Bottom-left
+            4 -> { targetX = 0.98f; targetY = 0.98f } // Bottom-right
             else -> return
         }
 
@@ -993,14 +1088,38 @@ class MediaPipeProcessor(private val context: Context) {
         val modelPath = ModelDownloadManager.getModelPath(context, MODEL_POSE)
             ?: return null.also { Log.d(TAG, "Pose model not available") }
         return try {
+            val baseOptions = BaseOptions.builder()
+                .setModelAssetPath(modelPath)
+                .setDelegate(Delegate.GPU)
+                .build()
             val options = PoseLandmarker.PoseLandmarkerOptions.builder()
-                .setBaseOptions(BaseOptions.builder().setModelAssetPath(modelPath).build())
+                .setBaseOptions(baseOptions)
                 .setRunningMode(RunningMode.IMAGE)
                 .setNumPoses(3) // Detect up to 3 people
                 .build()
+            PoseLandmarker.createFromOptions(context, options).also {
+                Log.i(TAG, "PoseLandmarker created on GPU")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to create PoseLandmarker on GPU, falling back to CPU", e)
+            tryCreatePoseLandmarkerCpu(modelPath)
+        }
+    }
+
+    private fun tryCreatePoseLandmarkerCpu(modelPath: String): PoseLandmarker? {
+        return try {
+            val baseOptions = BaseOptions.builder()
+                .setModelAssetPath(modelPath)
+                .setDelegate(Delegate.CPU)
+                .build()
+            val options = PoseLandmarker.PoseLandmarkerOptions.builder()
+                .setBaseOptions(baseOptions)
+                .setRunningMode(RunningMode.IMAGE)
+                .setNumPoses(3)
+                .build()
             PoseLandmarker.createFromOptions(context, options)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to create PoseLandmarker", e)
+            Log.e(TAG, "Failed to create PoseLandmarker on CPU", e)
             null
         }
     }
@@ -1009,14 +1128,38 @@ class MediaPipeProcessor(private val context: Context) {
         val modelPath = ModelDownloadManager.getModelPath(context, MODEL_HAND)
             ?: return null.also { Log.d(TAG, "Hand model not available") }
         return try {
+            val baseOptions = BaseOptions.builder()
+                .setModelAssetPath(modelPath)
+                .setDelegate(Delegate.GPU)
+                .build()
             val options = HandLandmarker.HandLandmarkerOptions.builder()
-                .setBaseOptions(BaseOptions.builder().setModelAssetPath(modelPath).build())
+                .setBaseOptions(baseOptions)
                 .setRunningMode(RunningMode.IMAGE)
                 .setNumHands(4) // Detect up to 4 hands
                 .build()
+            HandLandmarker.createFromOptions(context, options).also {
+                Log.i(TAG, "HandLandmarker created on GPU")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to create HandLandmarker on GPU, falling back to CPU", e)
+            tryCreateHandLandmarkerCpu(modelPath)
+        }
+    }
+
+    private fun tryCreateHandLandmarkerCpu(modelPath: String): HandLandmarker? {
+        return try {
+            val baseOptions = BaseOptions.builder()
+                .setModelAssetPath(modelPath)
+                .setDelegate(Delegate.CPU)
+                .build()
+            val options = HandLandmarker.HandLandmarkerOptions.builder()
+                .setBaseOptions(baseOptions)
+                .setRunningMode(RunningMode.IMAGE)
+                .setNumHands(4)
+                .build()
             HandLandmarker.createFromOptions(context, options)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to create HandLandmarker", e)
+            Log.e(TAG, "Failed to create HandLandmarker on CPU", e)
             null
         }
     }
@@ -1025,15 +1168,78 @@ class MediaPipeProcessor(private val context: Context) {
         val modelPath = ModelDownloadManager.getModelPath(context, MODEL_FACE)
             ?: return null.also { Log.d(TAG, "Face model not available") }
         return try {
+            val baseOptions = BaseOptions.builder()
+                .setModelAssetPath(modelPath)
+                .setDelegate(Delegate.GPU)
+                .build()
             val options = FaceLandmarker.FaceLandmarkerOptions.builder()
-                .setBaseOptions(BaseOptions.builder().setModelAssetPath(modelPath).build())
+                .setBaseOptions(baseOptions)
                 .setRunningMode(RunningMode.IMAGE)
                 .setNumFaces(3) // Detect up to 3 faces
                 .setOutputFaceBlendshapes(true)
                 .build()
+            FaceLandmarker.createFromOptions(context, options).also {
+                Log.i(TAG, "FaceLandmarker created on GPU")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to create FaceLandmarker on GPU, falling back to CPU", e)
+            tryCreateFaceLandmarkerCpu(modelPath)
+        }
+    }
+
+    private fun tryCreateFaceLandmarkerCpu(modelPath: String): FaceLandmarker? {
+        return try {
+            val baseOptions = BaseOptions.builder()
+                .setModelAssetPath(modelPath)
+                .setDelegate(Delegate.CPU)
+                .build()
+            val options = FaceLandmarker.FaceLandmarkerOptions.builder()
+                .setBaseOptions(baseOptions)
+                .setRunningMode(RunningMode.IMAGE)
+                .setNumFaces(3)
+                .setOutputFaceBlendshapes(true)
+                .build()
             FaceLandmarker.createFromOptions(context, options)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to create FaceLandmarker", e)
+            Log.e(TAG, "Failed to create FaceLandmarker on CPU", e)
+            null
+        }
+    }
+
+    private fun tryCreateGestureRecognizer(): GestureRecognizer? {
+        val modelPath = ModelDownloadManager.getModelPath(context, MODEL_GESTURE)
+            ?: return null.also { Log.d(TAG, "Gesture model not available") }
+        return try {
+            val baseOptions = BaseOptions.builder()
+                .setModelAssetPath(modelPath)
+                .setDelegate(Delegate.GPU)
+                .build()
+            val options = GestureRecognizer.GestureRecognizerOptions.builder()
+                .setBaseOptions(baseOptions)
+                .setRunningMode(RunningMode.IMAGE)
+                .build()
+            GestureRecognizer.createFromOptions(context, options).also {
+                Log.i(TAG, "GestureRecognizer created on GPU")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to create GestureRecognizer on GPU, falling back to CPU", e)
+            tryCreateGestureRecognizerCpu(modelPath)
+        }
+    }
+
+    private fun tryCreateGestureRecognizerCpu(modelPath: String): GestureRecognizer? {
+        return try {
+            val baseOptions = BaseOptions.builder()
+                .setModelAssetPath(modelPath)
+                .setDelegate(Delegate.CPU)
+                .build()
+            val options = GestureRecognizer.GestureRecognizerOptions.builder()
+                .setBaseOptions(baseOptions)
+                .setRunningMode(RunningMode.IMAGE)
+                .build()
+            GestureRecognizer.createFromOptions(context, options)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to create GestureRecognizer on CPU", e)
             null
         }
     }
@@ -1042,14 +1248,38 @@ class MediaPipeProcessor(private val context: Context) {
         val modelPath = ModelDownloadManager.getModelPath(context, MODEL_OBJECTRON)
             ?: return null.also { Log.d(TAG, "Objectron model not available") }
         return try {
+            val baseOptions = BaseOptions.builder()
+                .setModelAssetPath(modelPath)
+                .setDelegate(Delegate.GPU)
+                .build()
             val options = ObjectDetector.ObjectDetectorOptions.builder()
-                .setBaseOptions(BaseOptions.builder().setModelAssetPath(modelPath).build())
+                .setBaseOptions(baseOptions)
+                .setRunningMode(RunningMode.IMAGE)
+                .setScoreThreshold(0.3f)
+                .build()
+            ObjectDetector.createFromOptions(context, options).also {
+                Log.i(TAG, "ObjectDetector created on GPU")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to create ObjectDetector on GPU, falling back to CPU", e)
+            tryCreateObjectDetectorCpu(modelPath)
+        }
+    }
+
+    private fun tryCreateObjectDetectorCpu(modelPath: String): ObjectDetector? {
+        return try {
+            val baseOptions = BaseOptions.builder()
+                .setModelAssetPath(modelPath)
+                .setDelegate(Delegate.CPU)
+                .build()
+            val options = ObjectDetector.ObjectDetectorOptions.builder()
+                .setBaseOptions(baseOptions)
                 .setRunningMode(RunningMode.IMAGE)
                 .setScoreThreshold(0.3f)
                 .build()
             ObjectDetector.createFromOptions(context, options)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to create ObjectDetector for Objectron", e)
+            Log.e(TAG, "Failed to create ObjectDetector on CPU", e)
             null
         }
     }

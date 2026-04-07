@@ -84,7 +84,9 @@
     <string name="hologram_no_face">Brak twarzy</string>
     <string name="hologram_hud_angles">Yaw: %+.1f°  Pitch: %+.1f°</string>
     <string name="mediapipe_model_missing_objectron">Model Objectron niedostępny – pobieranie…</string>
+    <string name="mediapipe_model_missing_gesture">Model gestów niedostępny – pobieranie…</string>
     <string name="mediapipe_object_detected">Wykryto obiekt: %s</string>
+    <string name="mediapipe_gesture_detected">Gest: %s</string>
 
     <!-- Eye Tracking -->
     <string name="eye_tracking_start_calibration">Rozpocznij kalibrację</string>

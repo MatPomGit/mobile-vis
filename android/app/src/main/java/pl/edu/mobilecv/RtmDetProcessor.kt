@@ -22,6 +22,7 @@ import org.opencv.core.Size
 import org.opencv.dnn.Dnn
 import org.opencv.imgproc.Imgproc
 import androidx.core.graphics.createBitmap
+import org.pytorch.Device
 import org.pytorch.IValue
 import org.pytorch.LiteModuleLoader
 import org.pytorch.Module
@@ -354,9 +355,15 @@ class RtmDetProcessor(private val context: Context) {
             return null
         }
         return try {
-            val module = LiteModuleLoader.load(path)
-            Log.i(TAG, "Loaded RTMDet model: $filename")
-            module
+            try {
+                // Try to load with Vulkan for GPU acceleration
+                LiteModuleLoader.load(path, null, Device.VULKAN).also {
+                    Log.i(TAG, "Loaded RTMDet model $filename with VULKAN")
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Vulkan not available for $filename, falling back to CPU: ${e.message}")
+                LiteModuleLoader.load(path, null, Device.CPU)
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to load RTMDet model: $filename", e)
             null

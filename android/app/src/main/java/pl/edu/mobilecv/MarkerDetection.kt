@@ -34,21 +34,21 @@ sealed class MarkerDetection {
     }
 
     open fun toCommonJson(): JSONObject = JSONObject().apply {
-        put("type", type)
-        put("id", id)
-        put("corners", cornersToJsonArray(corners))
-        put("rvec", vectorToJsonArray(rvec))
-        put("tvec", vectorToJsonArray(tvec))
-        put("quality", quality.toJson())
-        put("timestamp", timestamp)
+        put("type", this@MarkerDetection.type)
+        put("id", this@MarkerDetection.id)
+        put("corners", cornersToJsonArray(this@MarkerDetection.corners))
+        put("rvec", vectorToJsonArray(this@MarkerDetection.rvec))
+        put("tvec", vectorToJsonArray(this@MarkerDetection.tvec))
+        put("quality", this@MarkerDetection.quality.toJson())
+        put("timestamp", this@MarkerDetection.timestamp)
     }
 
     fun toDiagnosticSummary(): String = buildString {
-        append("type=$type id=$id timestamp=$timestamp")
-        append(" corners=${corners.size}")
-        append(" ${quality.toOverlayString()}")
-        rvec?.let { append(" rvec=${formatVector(it)}") }
-        tvec?.let { append(" tvec=${formatVector(it)}") }
+        append("type=${this@MarkerDetection.type} id=${this@MarkerDetection.id} timestamp=${this@MarkerDetection.timestamp}")
+        append(" corners=${this@MarkerDetection.corners.size}")
+        append(" ${this@MarkerDetection.quality.toOverlayString()}")
+        this@MarkerDetection.rvec?.let { append(" rvec=${formatVector(it)}") }
+        this@MarkerDetection.tvec?.let { append(" tvec=${formatVector(it)}") }
     }
 
     data class AprilTag(
@@ -183,7 +183,7 @@ sealed class MarkerDetection {
     }
 
     companion object {
-        private fun cornersToJsonArray(corners: List<Pair<Float, Float>>): JSONArray {
+        fun cornersToJsonArray(corners: List<Pair<Float, Float>>): JSONArray {
             val array = JSONArray()
             for ((x, y) in corners) {
                 array.put(JSONObject().apply {
@@ -194,13 +194,13 @@ sealed class MarkerDetection {
             return array
         }
 
-        private fun vectorToJsonArray(vector: List<Double>?): JSONArray {
+        fun vectorToJsonArray(vector: List<Double>?): JSONArray {
             val array = JSONArray()
             vector?.forEach { array.put(it) }
             return array
         }
 
-        private fun formatVector(vector: List<Double>): String {
+        fun formatVector(vector: List<Double>): String {
             return vector.joinToString(prefix = "[", postfix = "]") { "%.3f".format(it) }
         }
     }

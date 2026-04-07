@@ -41,7 +41,7 @@ HOUGH_THRESHOLD: int = 50
 
 # Maximum angular difference (degrees) between two lines to treat them as
 # parallel (same direction cluster).
-ANGLE_CLUSTER_TOLERANCE: float = 5.0
+ANGLE_CLUSTER_TOLERANCE: float = 4.0
 
 # Multiplier applied to RANSAC_THRESHOLD when testing whether a vanishing
 # point lies close enough to a line to count that line as an inlier.
@@ -74,7 +74,7 @@ NORMAL_ARROW_THICKNESS: int = 2
 NORMAL_ARROW_LENGTH: int = 60
 
 # Transparency (alpha) for the plane-mask overlay drawn on top of the image.
-DEFAULT_OVERLAY_ALPHA: float = 0.35
+DEFAULT_OVERLAY_ALPHA: float = 0.25
 
 # Font used for confidence labels.
 LABEL_FONT: int = cv2.FONT_HERSHEY_SIMPLEX
@@ -87,14 +87,14 @@ MIN_SEGMENT_LENGTH_EPSILON: float = 1e-10
 # Hard cap on the number of lines used per vanishing point when fitting a
 # plane.  Once this many lines have been accumulated for a VP the algorithm
 # stops adding more, regardless of the current precision, to bound CPU usage.
-MAX_LINES_PER_VP: int = 50
+MAX_LINES_PER_VP: int = 30
 
 # Precision threshold [0, 1] for early stopping in VP line selection.
 # When the mean perpendicular VP-to-line distance already yields a precision
 # at or above this value, no further lines are added to the VP even if more
 # inliers are available.  Higher values demand a tighter geometric fit before
 # stopping; lower values accept a rougher estimate and stop sooner.
-VP_FIT_PRECISION_THRESHOLD: float = 0.85
+VP_FIT_PRECISION_THRESHOLD: float = 0.90
 
 
 # ---------------------------------------------------------------------------
@@ -227,7 +227,7 @@ def detect_planes(
     image: NDArray[np.uint8] | NDArray[np.float32],
     camera_matrix: NDArray[np.float64] | None = None,
     max_planes: int = MAX_PLANES,
-    min_inliers: int = 5,
+    min_inliers: int = 7,
 ) -> list[PlaneDetection]:
     """Detect planar surfaces in *image* via vanishing-point analysis.
 

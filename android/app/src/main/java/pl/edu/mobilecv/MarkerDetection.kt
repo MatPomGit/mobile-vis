@@ -4,7 +4,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * Unified marker result shared across processing, UI overlay, ROS publishing, and diagnostics.
+ * Unified marker result shared across processing, UI overlay, and diagnostics.
  *
  * Corner order convention: top-left, top-right, bottom-right, bottom-left.
  */

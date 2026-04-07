@@ -529,13 +529,28 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_gravity="center_vertical|end"
-                android:layout_marginEnd="48dp"
+                android:layout_marginEnd="96dp"
                 android:contentDescription="@string/save_point_cloud_description"
                 android:visibility="gone"
                 app:backgroundTint="#4DFFFFFF"
                 app:elevation="0dp"
                 app:fabSize="mini"
                 app:srcCompat="@android:drawable/ic_menu_save"
+                app:tint="@android:color/white" />
+
+            <!-- Eye Tracking Calibration FAB -->
+            <com.google.android.material.floatingactionbutton.FloatingActionButton
+                android:id="@+id/fabEyeTrackingCalibration"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_vertical|end"
+                android:layout_marginEnd="48dp"
+                android:contentDescription="@string/eye_tracking_start_calibration"
+                android:visibility="gone"
+                app:backgroundTint="#80FF0000"
+                app:elevation="0dp"
+                app:fabSize="mini"
+                app:srcCompat="@android:drawable/ic_menu_view"
                 app:tint="@android:color/white" />
 
             <!-- Calibration (optional FAB, visible when in calibration mode) -->

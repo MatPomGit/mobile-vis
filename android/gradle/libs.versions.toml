@@ -10,6 +10,8 @@ activity = "1.13.0"
 okhttp = "5.3.2"
 mediapipe = "0.10.14"
 pytorch = "2.1.0"
+tflite = "2.17.0"
+tfliteSupport = "0.5.0"
 junit = "4.13.2"
 
 
@@ -27,8 +29,11 @@ androidx-camera-view = { group = "androidx.camera", name = "camera-view", versio
 opencv = { group = "org.opencv", name = "opencv", version.ref = "opencv" }
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 mediapipe-tasks-vision = { group = "com.google.mediapipe", name = "tasks-vision", version.ref = "mediapipe" }
-pytorch-android = { group = "org.pytorch", name = "pytorch_android", version.ref = "pytorch" }
-pytorch-android-torchvision = { group = "org.pytorch", name = "pytorch_android_torchvision", version.ref = "pytorch" }
+pytorch-android = { group = "org.pytorch", name = "pytorch_android_lite", version.ref = "pytorch" }
+pytorch-android-torchvision = { group = "org.pytorch", name = "pytorch_android_torchvision_lite", version.ref = "pytorch" }
+tflite-main = { group = "org.tensorflow", name = "tensorflow-lite", version.ref = "tflite" }
+tflite-gpu = { group = "org.tensorflow", name = "tensorflow-lite-gpu", version.ref = "tflite" }
+tflite-support = { group = "org.tensorflow", name = "tensorflow-lite-support", version.ref = "tfliteSupport" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 
 

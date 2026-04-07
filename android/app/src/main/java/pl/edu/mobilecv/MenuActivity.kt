@@ -17,6 +17,7 @@ import com.google.android.material.tabs.TabLayout
 import pl.edu.mobilecv.databinding.ActivityMenuBinding
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import kotlin.jvm.java
 
 /**
  * Launcher activity that presents a main menu with all available analysis modes.
@@ -51,7 +52,7 @@ class MenuActivity : AppCompatActivity() {
     }
 
     /** Groups of downloadable models shown in the Models tab. */
-    private enum class ModelGroup { MEDIAPIPE, YOLO, RTMDET }
+    private enum class ModelGroup { MEDIAPIPE, YOLO, RTMDET, MOBILINT }
 
     private lateinit var binding: ActivityMenuBinding
 
@@ -84,6 +85,7 @@ class MenuActivity : AppCompatActivity() {
             AnalysisMode.CALIBRATION     to getString(R.string.mode_desc_calibration),
             AnalysisMode.YOLO            to getString(R.string.mode_desc_yolo),
             AnalysisMode.RTMDET          to getString(R.string.mode_desc_rtmdet),
+            AnalysisMode.MOBILINT        to getString(R.string.mode_desc_mobilint),
             AnalysisMode.EFFECTS         to getString(R.string.mode_desc_effects),
         )
     }
@@ -204,31 +206,58 @@ class MenuActivity : AppCompatActivity() {
     // ------------------------------------------------------------------
 
     /**
+     * Inflates an [R.layout.item_mode_card], sets title + description,
+     * applies a coloured stroke and wires the click listener.
+     */
+    private fun addCustomCard(
+        container: LinearLayout,
+        title: String,
+        description: String,
+        strokeColorRes: Int,
+        onClick: () -> Unit
+    ): View {
+        val card = layoutInflater.inflate(R.layout.item_mode_card, container, false)
+        card.findViewById<TextView>(R.id.textModeName).text = title
+        card.findViewById<TextView>(R.id.textModeDescription).text = description
+        if (strokeColorRes != 0) {
+            applyGroupStroke(card, strokeColorRes)
+        }
+        card.setOnClickListener { onClick() }
+        container.addView(card)
+        return card
+    }
+
+    /**
      * Inflates an instructions card and inserts it as the first item in the processing
      * container. Tapping the card opens a dialog with a step-by-step usage guide.
      */
     private fun buildInstructionsCard() {
-        val card = layoutInflater.inflate(R.layout.item_mode_card, binding.modeListContainer, false)
-        card.findViewById<TextView>(R.id.textModeName).text = getString(R.string.instructions_card_title)
-        card.findViewById<TextView>(R.id.textModeDescription).text = getString(R.string.instructions_card_description)
-        card.setOnClickListener { showInstructionsDialog() }
-        binding.modeListContainer.addView(card)
+        addCustomCard(
+            container = binding.modeListContainer,
+            title = getString(R.string.instructions_card_title),
+            description = getString(R.string.instructions_card_description),
+            strokeColorRes = R.color.group_processing // Default for first tab
+        ) {
+            showInstructionsDialog()
+        }
     }
 
     /**
-     * Inflates a card that opens the [OdometryTutorialActivity].
-     * The card is placed in the modes list so the user can learn about visual odometry
-     * before selecting the corresponding camera mode.
+     * Inflates a tutorial card that launches [OdometryTutorialActivity].
+     *
+     * This card is added to the 3D Analysis container to provide users with
+     * educational context regarding visual odometry and SLAM (Simultaneous
+     * Localization and Mapping) before they use the live tracking modes.
      */
     private fun buildOdometryTutorialCard() {
-        val card = layoutInflater.inflate(R.layout.item_mode_card, binding.analysisContainer, false)
-        card.findViewById<TextView>(R.id.textModeName).text = getString(R.string.tutorial_card_title)
-        card.findViewById<TextView>(R.id.textModeDescription).text = getString(R.string.tutorial_card_description)
-        applyGroupStroke(card, R.color.group_analysis)
-        card.setOnClickListener {
+        addCustomCard(
+            container = binding.analysisContainer,
+            title = getString(R.string.tutorial_card_title),
+            description = getString(R.string.tutorial_card_description),
+            strokeColorRes = R.color.group_analysis
+        ) {
             startActivity(Intent(this, OdometryTutorialActivity::class.java))
         }
-        binding.analysisContainer.addView(card)
     }
 
     /** Displays a scrollable dialog with the app's usage instructions. */
@@ -262,7 +291,13 @@ class MenuActivity : AppCompatActivity() {
      */
     private fun buildDetectionCards() {
         addGroupDescription(binding.detectionContainer, getString(R.string.group_desc_detection))
-        val modes = listOf(AnalysisMode.MARKERS, AnalysisMode.YOLO, AnalysisMode.RTMDET, AnalysisMode.POSE)
+        val modes = listOf(
+            AnalysisMode.MARKERS,
+            AnalysisMode.YOLO,
+            AnalysisMode.RTMDET,
+            AnalysisMode.MOBILINT,
+            AnalysisMode.POSE
+        )
         modes.forEach { mode ->
             addModeCard(binding.detectionContainer, mode, R.color.group_detection)
         }
@@ -289,14 +324,14 @@ class MenuActivity : AppCompatActivity() {
 
     /** Appends a special card to open the point cloud viewer (not a live-camera mode). */
     private fun buildPointCloudViewerCard() {
-        val card = layoutInflater.inflate(R.layout.item_mode_card, binding.analysisContainer, false)
-        card.findViewById<TextView>(R.id.textModeName).text = getString(R.string.mode_point_cloud_viewer)
-        card.findViewById<TextView>(R.id.textModeDescription).text = getString(R.string.mode_desc_point_cloud_viewer)
-        applyGroupStroke(card, R.color.group_analysis)
-        card.setOnClickListener {
+        addCustomCard(
+            container = binding.analysisContainer,
+            title = getString(R.string.mode_point_cloud_viewer),
+            description = getString(R.string.mode_desc_point_cloud_viewer),
+            strokeColorRes = R.color.group_analysis
+        ) {
             startActivity(Intent(this, PointCloudViewerActivity::class.java))
         }
-        binding.analysisContainer.addView(card)
     }
 
     // ------------------------------------------------------------------
@@ -316,17 +351,18 @@ class MenuActivity : AppCompatActivity() {
         addModelRow(container, MediaPipeProcessor.MODEL_POSE,  getString(R.string.model_name_pose_landmarker),  ModelGroup.MEDIAPIPE)
         addModelRow(container, MediaPipeProcessor.MODEL_HAND,  getString(R.string.model_name_hand_landmarker),  ModelGroup.MEDIAPIPE)
         addModelRow(container, MediaPipeProcessor.MODEL_FACE,  getString(R.string.model_name_face_landmarker),  ModelGroup.MEDIAPIPE)
+        addModelRow(container, MediaPipeProcessor.MODEL_FACE_DETECTOR, getString(R.string.model_name_face_detector), ModelGroup.MEDIAPIPE)
         addDownloadAllButton(container, ModelGroup.MEDIAPIPE)
 
-        // YOLO section -- rows keyed by the *.pte filenames from YOLO_MODEL_URLS
+        // YOLO section -- rows keyed by the *.pt filenames from YOLO_MODEL_URLS
         addSectionHeader(container, getString(R.string.models_yolo_title))
         addGroupDescription(container, getString(R.string.models_yolo_description))
 
-        addModelRow(container, "yolov8n.pte",       getString(R.string.model_name_yolo_detect),   ModelGroup.YOLO)
-        addModelRow(container, "yolov8n-seg.pte",   getString(R.string.model_name_yolo_segment),  ModelGroup.YOLO)
-        addModelRow(container, "yolov8n-pose.pte",  getString(R.string.model_name_yolo_pose),     ModelGroup.YOLO)
-        addModelRow(container, "yolov8n-cls.pte",   getString(R.string.model_name_yolo_classify), ModelGroup.YOLO)
-        addModelRow(container, "yolov8n-obb.pte",   getString(R.string.model_name_yolo_obb),      ModelGroup.YOLO)
+        addModelRow(container, "yolov8n.pt",       getString(R.string.model_name_yolo_detect),   ModelGroup.YOLO)
+        addModelRow(container, "yolov8n-seg.pt",   getString(R.string.model_name_yolo_segment),  ModelGroup.YOLO)
+        addModelRow(container, "yolov8n-pose.pt",  getString(R.string.model_name_yolo_pose),     ModelGroup.YOLO)
+        addModelRow(container, "yolov8n-cls.pt",   getString(R.string.model_name_yolo_classify), ModelGroup.YOLO)
+        addModelRow(container, "yolov8n-obb.pt",   getString(R.string.model_name_yolo_obb),      ModelGroup.YOLO)
         addDownloadAllButton(container, ModelGroup.YOLO)
 
         // RTMDet section
@@ -336,6 +372,13 @@ class MenuActivity : AppCompatActivity() {
         addModelRow(container, RtmDetProcessor.MODEL_DETECT,   getString(R.string.model_name_rtmdet_detect),   ModelGroup.RTMDET)
         addModelRow(container, RtmDetProcessor.MODEL_ROTATED,  getString(R.string.model_name_rtmdet_rotated),  ModelGroup.RTMDET)
         addDownloadAllButton(container, ModelGroup.RTMDET)
+
+        // Mobilint section
+        addSectionHeader(container, getString(R.string.models_mobilint_title))
+        addGroupDescription(container, getString(R.string.models_mobilint_description))
+
+        addModelRow(container, "mobilint_detect.mbl", getString(R.string.model_name_mobilint_detect), ModelGroup.MOBILINT)
+        addDownloadAllButton(container, ModelGroup.MOBILINT)
     }
 
     /**
@@ -386,6 +429,7 @@ class MenuActivity : AppCompatActivity() {
             ModelGroup.YOLO    -> ModelDownloadManager.getYoloModelPath(this, filename)
             ModelGroup.RTMDET  -> ModelDownloadManager.getRtmDetModelPath(this, filename)
             ModelGroup.MEDIAPIPE -> ModelDownloadManager.getModelPath(this, filename)
+            ModelGroup.MOBILINT  -> ModelDownloadManager.getMobilintModelPath(this, filename)
         }
         val views = modelStatusViews[filename] ?: return
 
@@ -429,6 +473,7 @@ class MenuActivity : AppCompatActivity() {
             ModelGroup.YOLO    -> ModelDownloadManager.YOLO_MODEL_URLS[filename]
             ModelGroup.RTMDET  -> ModelDownloadManager.RTMDET_MODEL_URLS[filename]
             ModelGroup.MEDIAPIPE -> ModelDownloadManager.MODEL_URLS[filename]
+            ModelGroup.MOBILINT  -> ModelDownloadManager.MOBILINT_MODEL_URLS[filename]
         }
         if (url == null) return
 
@@ -441,6 +486,7 @@ class MenuActivity : AppCompatActivity() {
                 ModelGroup.YOLO    -> ModelDownloadManager.downloadYoloModel(this, filename, url)
                 ModelGroup.RTMDET  -> ModelDownloadManager.downloadRtmDetModel(this, filename, url)
                 ModelGroup.MEDIAPIPE -> ModelDownloadManager.downloadModel(this, filename, url)
+                ModelGroup.MOBILINT  -> ModelDownloadManager.downloadMobilintModel(this, filename, url)
             }
             runOnUiThread {
                 views.progressBar.visibility = View.GONE
@@ -472,6 +518,7 @@ class MenuActivity : AppCompatActivity() {
                 ModelGroup.YOLO    -> ModelDownloadManager.getYoloModelPath(this, filename) != null
                 ModelGroup.RTMDET  -> ModelDownloadManager.getRtmDetModelPath(this, filename) != null
                 ModelGroup.MEDIAPIPE -> ModelDownloadManager.getModelPath(this, filename) != null
+                ModelGroup.MOBILINT  -> ModelDownloadManager.getMobilintModelPath(this, filename) != null
             }
             if (!alreadyPresent) {
                 views.progressBar.visibility = View.VISIBLE
@@ -485,6 +532,7 @@ class MenuActivity : AppCompatActivity() {
                 ModelGroup.YOLO    -> ModelDownloadManager.downloadMissingYoloModels(this)
                 ModelGroup.RTMDET  -> ModelDownloadManager.downloadMissingRtmDetModels(this)
                 ModelGroup.MEDIAPIPE -> ModelDownloadManager.downloadMissingModels(this)
+                ModelGroup.MOBILINT  -> ModelDownloadManager.downloadMissingMobilintModels(this)
             }
             runOnUiThread {
                 groupFilenames.forEach { filename ->
@@ -545,12 +593,17 @@ class MenuActivity : AppCompatActivity() {
 
     /** Adds a card at the top of the About tab describing the application. */
     private fun addAppDescriptionCard() {
-        val card = layoutInflater.inflate(R.layout.item_mode_card, binding.aboutContainer, false)
-        card.findViewById<TextView>(R.id.textModeName).text = getString(R.string.app_name)
-        card.findViewById<TextView>(R.id.textModeDescription).text =
-            getString(R.string.about_app_description)
-        card.isClickable = false
-        binding.aboutContainer.addView(card)
+        addCustomCard(
+            container = binding.aboutContainer,
+            title = getString(R.string.app_name),
+            description = getString(R.string.about_app_description),
+            strokeColorRes = 0 // No stroke for general info
+        ) {
+            // No action
+        }.apply {
+            isClickable = false
+            isFocusable = false
+        }
     }
 
     /**
@@ -558,11 +611,17 @@ class MenuActivity : AppCompatActivity() {
      * The card shows the mode name and its high-level description.
      */
     private fun addModeSectionCard(mode: AnalysisMode) {
-        val card = layoutInflater.inflate(R.layout.item_mode_card, binding.aboutContainer, false)
-        card.findViewById<TextView>(R.id.textModeName).text = mode.displayName
-        card.findViewById<TextView>(R.id.textModeDescription).text = modeDescriptions[mode] ?: ""
-        card.isClickable = false
-        binding.aboutContainer.addView(card)
+        addCustomCard(
+            container = binding.aboutContainer,
+            title = mode.displayName,
+            description = modeDescriptions[mode] ?: "",
+            strokeColorRes = 0
+        ) {
+            // No action
+        }.apply {
+            isClickable = false
+            isFocusable = false
+        }
     }
 
     /**
@@ -618,12 +677,14 @@ class MenuActivity : AppCompatActivity() {
      * @param strokeColorRes Colour resource ID for the card stroke.
      */
     private fun addModeCard(container: LinearLayout, mode: AnalysisMode, strokeColorRes: Int) {
-        val card = layoutInflater.inflate(R.layout.item_mode_card, container, false)
-        card.findViewById<TextView>(R.id.textModeName).text = mode.displayName
-        card.findViewById<TextView>(R.id.textModeDescription).text = modeDescriptions[mode] ?: ""
-        applyGroupStroke(card, strokeColorRes)
-        card.setOnClickListener { launchMainActivity(mode) }
-        container.addView(card)
+        addCustomCard(
+            container = container,
+            title = mode.displayName,
+            description = modeDescriptions[mode] ?: "",
+            strokeColorRes = strokeColorRes
+        ) {
+            launchMainActivity(mode)
+        }
     }
 
     /**
@@ -666,7 +727,7 @@ class MenuActivity : AppCompatActivity() {
 
     /**
      * Adds a bold section-header [TextView] to [container].
-     * Used to separate the MediaPipe and YOLO sub-sections in the Models tab.
+     * Used to separate the MediaPipe and YOLO subsections in the Models tab.
      *
      * @param container The [LinearLayout] to append the header to.
      * @param text      Header title text.

@@ -74,6 +74,12 @@ class ImageProcessor {
         val metrics: PoseOverlayMetrics,
     )
 
+    private data class CircleData(
+        val center: Point,
+        val radius: Float,
+        val circularity: Double
+    )
+
     var calibrator: CameraCalibrator? = null
     var mediaPipeProcessor: MediaPipeProcessor? = null
     var yoloProcessor: YoloProcessor? = null
@@ -148,9 +154,9 @@ class ImageProcessor {
 
     private val detectorParameters by lazy {
         DetectorParameters().apply {
-            set_adaptiveThreshWinSizeMin(3)
-            set_adaptiveThreshWinSizeMax(23)
-            set_adaptiveThreshWinSizeStep(10)
+            _adaptiveThreshWinSizeMin = 3
+            _adaptiveThreshWinSizeMax = 23
+            _adaptiveThreshWinSizeStep = 10
         }
     }
 
@@ -181,6 +187,12 @@ class ImageProcessor {
         private const val FULL_ODOMETRY_HUD_X = 20.0
         private const val FULL_ODOMETRY_HUD_LINE_HEIGHT = 28.0
         private const val EPSILON_THRESHOLD = 1e-6
+
+        private const val CCTAG_MIN_CONTOUR_AREA = 50.0
+        private const val CCTAG_MIN_CIRCULARITY = 0.5
+        private const val CCTAG_MAX_CENTRE_OFFSET_FRACTION = 0.25
+        private const val CCTAG_MIN_RINGS = 2
+        private const val CCTAG_MAX_RINGS = 5
     }
 
     private val srcBuffer = Mat()
@@ -381,7 +393,10 @@ class ImageProcessor {
         val res = src.clone(); val corners = ArrayList<Mat>(); val ids = Mat()
         val gray = Mat(); Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
         aprilTagDetector.detectMarkers(gray, corners, ids)
-        gray.release()
+        
+        // Manual detection for CCTag if needed (assuming CCTag logic would be similar)
+        // For now, let's ensure we are not missing results due to empty ids
+        
         if (ids.rows() > 0) {
             Objdetect.drawDetectedMarkers(res, corners, ids, Scalar(0.0, 255.0, 0.0, 255.0))
             for (i in 0 until corners.size) {
@@ -393,7 +408,7 @@ class ImageProcessor {
                 drawMarkerLabel(res, detection, poseEstimate?.metrics)
             }
         }
-        ids.release(); return res
+        gray.release(); ids.release(); return res
     }
 
     private fun applyArucoDetection(src: Mat): Mat {
@@ -548,7 +563,123 @@ class ImageProcessor {
         gray.release(); points.release(); return res
     }
 
-    private fun applyCCTagDetection(src: Mat): Mat = src.clone()
+    private fun applyCCTagDetection(src: Mat): Mat {
+        val res = src.clone()
+        val gray = Mat()
+        Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
+        val blurred = Mat()
+        Imgproc.GaussianBlur(gray, blurred, Size(5.0, 5.0), 0.0)
+        val binary = Mat()
+        Imgproc.threshold(blurred, binary, 0.0, 255.0, Imgproc.THRESH_BINARY or Imgproc.THRESH_OTSU)
+
+        val contours = mutableListOf<MatOfPoint>()
+        val hierarchy = Mat()
+        Imgproc.findContours(binary, contours, hierarchy, Imgproc.RETR_TREE, Imgproc.CHAIN_APPROX_SIMPLE)
+
+        if (hierarchy.empty()) {
+            gray.release(); blurred.release(); binary.release(); hierarchy.release()
+            return res
+        }
+
+        val candidates = mutableListOf<CircleData>()
+        for (i in contours.indices) {
+            val h = hierarchy.get(0, i)
+            if (h == null || h[3].toInt() == -1) continue // Skip top-level contours
+
+            val contour = contours[i]
+            val area = Imgproc.contourArea(contour)
+            if (area < CCTAG_MIN_CONTOUR_AREA) continue
+
+            val contour2f = MatOfPoint2f(*contour.toArray())
+            val perimeter = Imgproc.arcLength(contour2f, true)
+            if (perimeter <= 0) {
+                contour2f.release()
+                continue
+            }
+            val circularity = 4.0 * Math.PI * area / (perimeter * perimeter)
+            if (circularity < CCTAG_MIN_CIRCULARITY) {
+                contour2f.release()
+                continue
+            }
+
+            val center = Point()
+            val radius = FloatArray(1)
+            Imgproc.minEnclosingCircle(contour2f, center, radius)
+            candidates.add(CircleData(center, radius[0], circularity))
+            contour2f.release()
+        }
+
+        // Group concentric circles
+        val sortedCandidates = candidates.sortedByDescending { it.radius }
+        val used = BooleanArray(sortedCandidates.size)
+        val groups = mutableListOf<List<CircleData>>()
+
+        for (i in sortedCandidates.indices) {
+            if (used[i]) continue
+            val outer = sortedCandidates[i]
+            val group = mutableListOf(outer)
+            used[i] = true
+
+            for (j in sortedCandidates.indices) {
+                if (i == j || used[j]) continue
+                val inner = sortedCandidates[j]
+                if (inner.radius >= outer.radius) continue
+
+                val dx = outer.center.x - inner.center.x
+                val dy = outer.center.y - inner.center.y
+                val dist = sqrt(dx * dx + dy * dy)
+                if (dist <= CCTAG_MAX_CENTRE_OFFSET_FRACTION * outer.radius) {
+                    group.add(inner)
+                    used[j] = true
+                }
+            }
+
+            if (group.size in CCTAG_MIN_RINGS..CCTAG_MAX_RINGS) {
+                groups.add(group)
+            }
+        }
+
+        for (group in groups) {
+            val outer = group[0]
+            val tagId = group.size
+            val confidence = group.map { it.circularity }.average()
+
+            // Draw circle and center
+            Imgproc.circle(res, outer.center, outer.radius.toInt(), Scalar(0.0, 165.0, 255.0, 255.0), 2)
+            Imgproc.circle(res, outer.center, 2, Scalar(0.0, 165.0, 255.0, 255.0), -1)
+
+            // Generate corners for pose estimation (square corners)
+            val r = outer.radius.toDouble()
+            val cx = outer.center.x
+            val cy = outer.center.y
+            // top-left, top-right, bottom-right, bottom-left
+            val corners = listOf(
+                Pair((cx - r).toFloat(), (cy - r).toFloat()),
+                Pair((cx + r).toFloat(), (cy - r).toFloat()),
+                Pair((cx + r).toFloat(), (cy + r).toFloat()),
+                Pair((cx - r).toFloat(), (cy + r).toFloat())
+            )
+
+            val poseEstimate = drawMarkerPoseOverlay(res, corners, "cctag:$tagId", "CCTag#$tagId")
+            val detection = MarkerDetection.CCTag(
+                tagId,
+                Pair(cx.toFloat(), cy.toFloat()),
+                outer.radius,
+                corners,
+                poseEstimate?.rvec,
+                poseEstimate?.tvec,
+                poseEstimate?.quality ?: MarkerDetection.Quality(confidence)
+            )
+            drawCornerOutlineWithOrder(res, corners)
+            drawMarkerLabel(res, detection, poseEstimate?.metrics)
+        }
+
+        // Cleanup
+        gray.release(); blurred.release(); binary.release(); hierarchy.release()
+        contours.forEach { it.release() }
+
+        return res
+    }
 
     private fun applyChessboardCalibration(src: Mat): Mat {
         val res = src.clone(); val gray = Mat()
@@ -645,9 +776,11 @@ class ImageProcessor {
         fullOdometryEngine.processFrameRgba(geometryInput, calibrator)
         val tracks = fullOdometryEngine.currentTracks
         for (track in tracks) {
-            if (track.size < 2) continue
-            for (i in 0 until track.size - 1) Imgproc.line(res, track[i], track[i + 1], Scalar(0.0, 255.0, 0.0, 255.0), 1)
-            Imgproc.circle(res, track.last(), 3, Scalar(255.0, 80.0, 0.0, 255.0), -1)
+            val color = if (track.isInlier) Scalar(0.0, 255.0, 0.0, 255.0) else Scalar(255.0, 0.0, 0.0, 200.0)
+            Imgproc.line(res, track.p1, track.p2, color, 1)
+            if (track.isInlier) {
+                Imgproc.circle(res, track.p2, 3, Scalar(255.0, 80.0, 0.0, 255.0), -1)
+            }
         }
         val state = fullOdometryEngine.lastOdometryState; var y = 40.0
         Imgproc.putText(res, "$labelFullOdometryTracks: ${tracks.size}", Point(FULL_ODOMETRY_HUD_X, y), Imgproc.FONT_HERSHEY_SIMPLEX, 0.65, Scalar(255.0, 255.0, 255.0, 255.0), 2)

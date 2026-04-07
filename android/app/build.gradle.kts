@@ -14,6 +14,10 @@ android {
         targetSdk = 36
         versionName = rootProject.extra["app_version_name"].toString()
         versionCode = rootProject.extra["app_version_code"] as Int
+
+        ndk {
+            abiFilters.addAll(listOf("armeabi-v7a", "arm64-v8a"))
+        }
     }
 
     signingConfigs {
@@ -29,8 +33,10 @@ android {
     buildTypes {
         release {
             signingConfig = signingConfigs.getByName("release")
-            // Disable minification for release
-            isMinifyEnabled = false
+            // Enable minification, obfuscation, and optimization
+            isMinifyEnabled = true
+            // Enable resource shrinking
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
@@ -38,6 +44,18 @@ android {
         }
         getByName("debug") {
             signingConfig = signingConfigs.getByName("debug")
+        }
+    }
+
+    bundle {
+        abi {
+            enableSplit = true
+        }
+        density {
+            enableSplit = true
+        }
+        language {
+            enableSplit = true
         }
     }
 
@@ -79,5 +97,8 @@ dependencies {
     implementation(libs.mediapipe.tasks.vision)
     implementation(libs.pytorch.android)
     implementation(libs.pytorch.android.torchvision)
+    implementation(libs.tflite.main)
+    implementation(libs.tflite.gpu)
+    implementation(libs.tflite.support)
     testImplementation(libs.junit)
 }

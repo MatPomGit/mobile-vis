@@ -77,6 +77,7 @@ enum class AnalysisMode(val displayName: String, val filters: List<OpenCvFilter>
             OpenCvFilter.HOLISTIC_HANDS,
             OpenCvFilter.HOLISTIC_FACE,
             OpenCvFilter.IRIS,
+            OpenCvFilter.EYE_TRACKING,
             OpenCvFilter.HOLOGRAM_3D,
         )
     ),
@@ -161,6 +162,20 @@ enum class AnalysisMode(val displayName: String, val filters: List<OpenCvFilter>
         listOf(
             OpenCvFilter.RTMDET_DETECT,
             OpenCvFilter.RTMDET_ROTATED,
+        )
+    ),
+
+    /**
+     * Real-time object detection accelerated by the Mobilint NPU hardware.
+     *
+     * This mode uses models specifically optimized for the Mobilint Ares NPU,
+     * providing significant speedups and energy efficiency compared to
+     * CPU-based inference.
+     */
+    MOBILINT(
+        "Mobilint NPU",
+        listOf(
+            OpenCvFilter.MOBILINT_DETECT,
         )
     ),
 

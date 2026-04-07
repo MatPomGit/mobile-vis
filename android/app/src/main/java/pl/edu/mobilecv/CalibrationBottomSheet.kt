@@ -121,7 +121,7 @@ class CalibrationBottomSheet : BottomSheetDialogFragment() {
     private fun scheduleStatusRefresh() {
         handler.postDelayed(object : Runnable {
             override fun run() {
-                val b = _binding ?: return
+                _binding ?: return
                 // Bezpieczny dostęp do aktywności - unikanie requireActivity(), które rzuca wyjątek po odpięciu
                 val act = activity as? MainActivity ?: return
                 val cal = act.cameraCalibrator

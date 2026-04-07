@@ -22,7 +22,7 @@ class BBoxKalmanFilter {
         transitionMatrix.put(1, 5, dt)
         transitionMatrix.put(2, 6, dt)
         transitionMatrix.put(3, 7, dt)
-        kf.set_transitionMatrix(transitionMatrix)
+        kf._transitionMatrix = transitionMatrix
 
         // Measurement matrix (H)
         val measurementMatrix = Mat.zeros(4, 8, CvType.CV_32F)
@@ -30,7 +30,7 @@ class BBoxKalmanFilter {
         measurementMatrix.put(1, 1, 1.0)
         measurementMatrix.put(2, 2, 1.0)
         measurementMatrix.put(3, 3, 1.0)
-        kf.set_measurementMatrix(measurementMatrix)
+        kf._measurementMatrix = measurementMatrix
 
         // Process noise covariance (Q)
         val processNoise = Mat.eye(8, 8, CvType.CV_32F)
@@ -42,7 +42,7 @@ class BBoxKalmanFilter {
         processNoise.put(5, 5, 1e-1)
         processNoise.put(6, 6, 1e-1)
         processNoise.put(7, 7, 1e-1)
-        kf.set_processNoiseCov(processNoise)
+        kf._processNoiseCov = processNoise
 
         // Measurement noise covariance (R)
         val measurementNoise = Mat.eye(4, 4, CvType.CV_32F)
@@ -50,7 +50,7 @@ class BBoxKalmanFilter {
         measurementNoise.put(1, 1, 1e-1)
         measurementNoise.put(2, 2, 1e-1)
         measurementNoise.put(3, 3, 1e-1)
-        kf.set_measurementNoiseCov(measurementNoise)
+        kf._measurementNoiseCov = measurementNoise
 
         // Posterior error covariance (P)
         val errorCovPost = Mat.eye(8, 8, CvType.CV_32F)
@@ -62,7 +62,7 @@ class BBoxKalmanFilter {
         errorCovPost.put(5, 5, 1.0)
         errorCovPost.put(6, 6, 1.0)
         errorCovPost.put(7, 7, 1.0)
-        kf.set_errorCovPost(errorCovPost)
+        kf._errorCovPost = errorCovPost
     }
 
     fun predict(): FloatArray {
@@ -82,7 +82,7 @@ class BBoxKalmanFilter {
             state.put(1, 0, y.toDouble())
             state.put(2, 0, w.toDouble())
             state.put(3, 0, h.toDouble())
-            kf.set_statePost(state)
+            kf._statePost = state
             isInitialized = true
             return floatArrayOf(x, y, w, h)
         }

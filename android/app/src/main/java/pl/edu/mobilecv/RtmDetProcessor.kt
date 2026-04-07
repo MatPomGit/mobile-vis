@@ -23,6 +23,7 @@ import org.opencv.dnn.Dnn
 import org.opencv.imgproc.Imgproc
 import androidx.core.graphics.createBitmap
 import org.pytorch.IValue
+import org.pytorch.LiteModuleLoader
 import org.pytorch.Module
 import org.pytorch.Tensor
 import kotlin.math.cos
@@ -57,8 +58,8 @@ class RtmDetProcessor(private val context: Context) {
         private const val TAG = "RtmDetProcessor"
 
         /** PyTorch model filenames stored in internal storage by [ModelDownloadManager]. */
-        const val MODEL_DETECT = "rtmdet_nano_det.pte"
-        const val MODEL_ROTATED = "rtmdet_nano_rotated.pte"
+        const val MODEL_DETECT = "rtmdet_nano_det.pt"
+        const val MODEL_ROTATED = "rtmdet_nano_rotated.pt"
 
         /** RTMDet inference input size (square). */
         private const val INPUT_SIZE = 640
@@ -170,8 +171,6 @@ class RtmDetProcessor(private val context: Context) {
      * @param bitmap Input camera frame (any config, will be converted to ARGB_8888).
      * @param filter One of [OpenCvFilter.RTMDET_DETECT] or
      *               [OpenCvFilter.RTMDET_ROTATED].
-     * @param onDetections Optional callback invoked with RTMDet detections for
-     *                     ROS publishing.  Called only when detections are non-empty.
      * @return Annotated [Bitmap] in ARGB_8888 format.
      */
     fun processFrame(
@@ -355,7 +354,7 @@ class RtmDetProcessor(private val context: Context) {
             return null
         }
         return try {
-            val module = Module.load(path)
+            val module = LiteModuleLoader.load(path)
             Log.i(TAG, "Loaded RTMDet model: $filename")
             module
         } catch (e: Exception) {

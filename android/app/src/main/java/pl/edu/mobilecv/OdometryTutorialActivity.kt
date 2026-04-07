@@ -20,7 +20,7 @@ import androidx.appcompat.app.AppCompatActivity
  * 5. Triangulation and 3-D reconstruction
  * 6. Trajectory and map accumulation (pose composition)
  * 7. From pixel to 3-D world point (camera matrix K, ray casting, parallax)
- * 8. Robot control using full odometry (velocity, ROS 2, navigation)
+ * 8. Robot control using full odometry (velocity, navigation)
  *
  * A button at the bottom launches [MainActivity] pre-set to [AnalysisMode.FULL_ODOMETRY_3D]
  * so the user can immediately try the real pipeline after reading the theory.

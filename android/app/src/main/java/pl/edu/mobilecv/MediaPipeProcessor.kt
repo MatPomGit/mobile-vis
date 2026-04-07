@@ -49,6 +49,7 @@ class MediaPipeProcessor(private val context: Context) {
         const val MODEL_POSE = "pose_landmarker_lite.task"
         const val MODEL_HAND = "hand_landmarker.task"
         const val MODEL_FACE = "face_landmarker.task"
+        const val MODEL_FACE_DETECTOR = "face_detector.task"
 
         // ------------------------------------------------------------------
         // Drawing constants
@@ -199,11 +200,54 @@ class MediaPipeProcessor(private val context: Context) {
 
         /** Text size for the hologram orientation HUD overlay. */
         private const val HOLOGRAM_HUD_TEXT_SIZE = 36f
+
+        // ------------------------------------------------------------------
+        // Eye Tracking Calibration
+        // ------------------------------------------------------------------
+
+        /** Number of calibration points (e.g., 5-point calibration: corners + center). */
+        private const val CALIBRATION_POINTS_COUNT = 5
+
+        /** Frames to collect per calibration point. */
+        private const val SAMPLES_PER_POINT = 15
+
+        /** Minimum face size (as fraction of frame) for reliable tracking. */
+        private const val MIN_FACE_SIZE = 0.15f
     }
 
     private var poseLandmarker: PoseLandmarker? = null
     private var handLandmarker: HandLandmarker? = null
     private var faceLandmarker: FaceLandmarker? = null
+
+    private var frameCounter = 0
+    private var lastPoseResult: PoseLandmarkerResult? = null
+    private var lastHandResult: HandLandmarkerResult? = null
+    private var lastFaceResult: FaceLandmarkerResult? = null
+
+    // ------------------------------------------------------------------
+    // Eye Tracking & Calibration State
+    // ------------------------------------------------------------------
+
+    private var isCalibrating = false
+    private var calibrationPointIndex = 0
+    private var samplesCollectedCount = 0
+
+    /** Storage for iris-to-screen training data. Keys: (ScreenX, ScreenY). Values: List of (IrisOffsetX, IrisOffsetY). */
+    private val calibrationSamples = mutableListOf<CalibrationSample>()
+
+    /** Linear regression weights for mapping iris offset to screen coordinates. */
+    private var weightX = floatArrayOf(0f, 0f, 0f) // [const, dx, dy]
+    private var weightY = floatArrayOf(0f, 0f, 0f) // [const, dx, dy]
+    private var isCalibrated = false
+
+    private data class CalibrationSample(
+        val screenX: Float, // Normalised 0..1
+        val screenY: Float, // Normalised 0..1
+        val irisOffsetX: Float,
+        val irisOffsetY: Float
+    )
+
+    private val detectionInterval = 3 // Run detection every 3 frames to save CPU
 
     private val dotPaint = Paint().apply {
         style = Paint.Style.FILL
@@ -274,6 +318,28 @@ class MediaPipeProcessor(private val context: Context) {
         setShadowLayer(4f, 0f, 0f, Color.BLACK)
     }
 
+    /** Paint for calibration target (red circle with white stroke). */
+    private val calibrationTargetPaint = Paint().apply {
+        style = Paint.Style.FILL
+        color = Color.RED
+        isAntiAlias = true
+    }
+
+    private val calibrationStrokePaint = Paint().apply {
+        style = Paint.Style.STROKE
+        color = Color.WHITE
+        strokeWidth = 4f
+        isAntiAlias = true
+    }
+
+    /** Paint for gaze reticle on the screen. */
+    private val gazeReticlePaint = Paint().apply {
+        style = Paint.Style.STROKE
+        color = 0xFF00FF00.toInt() // Green
+        strokeWidth = 6f
+        isAntiAlias = true
+    }
+
     /** Reusable Rect used for text-bounds measurement to avoid per-frame allocations. */
     private val textBoundsRect = Rect()
 
@@ -305,12 +371,14 @@ class MediaPipeProcessor(private val context: Context) {
      * Returns a new [Bitmap] containing the visualized landmarks.
      */
     fun processFrame(bitmap: Bitmap, filter: OpenCvFilter): Bitmap {
+        frameCounter++
         return try {
             when (filter) {
                 OpenCvFilter.HOLISTIC_BODY -> applyPoseLandmarker(bitmap)
                 OpenCvFilter.HOLISTIC_HANDS -> applyHandLandmarker(bitmap)
                 OpenCvFilter.HOLISTIC_FACE -> applyFaceLandmarker(bitmap, false)
                 OpenCvFilter.IRIS -> applyFaceLandmarker(bitmap, true)
+                OpenCvFilter.EYE_TRACKING -> applyEyeTracking(bitmap)
                 OpenCvFilter.HOLOGRAM_3D -> applyHologram3D(bitmap)
                 else -> bitmap.copy(Bitmap.Config.ARGB_8888, false)
             }
@@ -341,7 +409,11 @@ class MediaPipeProcessor(private val context: Context) {
         )
 
         val argbBitmap = ensureArgb8888(bitmap)
-        val result: PoseLandmarkerResult = detector.detect(BitmapImageBuilder(argbBitmap).build())
+        
+        if (frameCounter % detectionInterval == 0 || lastPoseResult == null) {
+            lastPoseResult = detector.detect(BitmapImageBuilder(argbBitmap).build())
+        }
+        val result = lastPoseResult!!
 
         val output = bitmap.copy(Bitmap.Config.ARGB_8888, true)
         val canvas = Canvas(output)
@@ -382,8 +454,11 @@ class MediaPipeProcessor(private val context: Context) {
             context.getString(R.string.mediapipe_model_missing_hands)
         )
 
-        val mpImage = BitmapImageBuilder(ensureArgb8888(bitmap)).build()
-        val result: HandLandmarkerResult = detector.detect(mpImage)
+        val argbBitmap = ensureArgb8888(bitmap)
+        if (frameCounter % detectionInterval == 0 || lastHandResult == null) {
+            lastHandResult = detector.detect(BitmapImageBuilder(argbBitmap).build())
+        }
+        val result = lastHandResult!!
 
         val output = bitmap.copy(Bitmap.Config.ARGB_8888, true)
         val canvas = Canvas(output)
@@ -409,8 +484,11 @@ class MediaPipeProcessor(private val context: Context) {
             return overlayMissingModel(bitmap, missingMsg)
         }
 
-        val mpImage = BitmapImageBuilder(ensureArgb8888(bitmap)).build()
-        val result: FaceLandmarkerResult = detector.detect(mpImage)
+        val argbBitmap = ensureArgb8888(bitmap)
+        if (frameCounter % detectionInterval == 0 || lastFaceResult == null) {
+            lastFaceResult = detector.detect(BitmapImageBuilder(argbBitmap).build())
+        }
+        val result = lastFaceResult!!
 
         val output = bitmap.copy(Bitmap.Config.ARGB_8888, true)
         val canvas = Canvas(output)
@@ -435,6 +513,172 @@ class MediaPipeProcessor(private val context: Context) {
         }
 
         return output
+    }
+
+    /**
+     * Start/Reset eye tracking calibration.
+     */
+    fun startEyeTrackingCalibration() {
+        isCalibrating = true
+        calibrationPointIndex = 0
+        samplesCollectedCount = 0
+        calibrationSamples.clear()
+        isCalibrated = false
+    }
+
+    private fun applyEyeTracking(bitmap: Bitmap): Bitmap {
+        val detector = faceLandmarker ?: tryCreateFaceLandmarker().also { faceLandmarker = it }
+        if (detector == null) return overlayMissingModel(
+            bitmap,
+            context.getString(R.string.mediapipe_model_missing_face)
+        )
+
+        val argbBitmap = ensureArgb8888(bitmap)
+        val result = detector.detect(BitmapImageBuilder(argbBitmap).build())
+        val output = bitmap.copy(Bitmap.Config.ARGB_8888, true)
+        val canvas = Canvas(output)
+        val w = output.width.toFloat()
+        val h = output.height.toFloat()
+
+        if (result.faceLandmarks().isNotEmpty()) {
+            val face = result.faceLandmarks()[0]
+            if (face.size >= 478) {
+                // Get iris and eye corner landmarks.
+                val lIris = face[LEFT_IRIS_CENTER]
+                val rIris = face[RIGHT_IRIS_CENTER]
+                val lOuter = face[LEFT_EYE_OUTER]
+                val lInner = face[LEFT_EYE_INNER]
+                val rOuter = face[RIGHT_EYE_OUTER]
+                val rInner = face[RIGHT_EYE_INNER]
+
+                // Eye midpoints (normalised).
+                val lEyeMidX = (lOuter.x() + lInner.x()) / 2f
+                val lEyeMidY = (lOuter.y() + lInner.y()) / 2f
+                val rEyeMidX = (rOuter.x() + rInner.x()) / 2f
+                val rEyeMidY = (rOuter.y() + rInner.y()) / 2f
+
+                // Iris offset from eye midpoint (normalised).
+                val dx = ((lIris.x() - lEyeMidX) + (rIris.x() - rEyeMidX)) / 2f
+                val dy = ((lIris.y() - lEyeMidY) + (rIris.y() - rEyeMidY)) / 2f
+
+                if (isCalibrating) {
+                    processCalibrationFrame(canvas, w, h, dx, dy)
+                } else if (isCalibrated) {
+                    // Map iris offset (dx, dy) to screen (sx, sy) using linear regression weights.
+                    val sx = (weightX[0] + weightX[1] * dx + weightX[2] * dy).coerceIn(0f, 1f)
+                    val sy = (weightY[0] + weightY[1] * dx + weightY[2] * dy).coerceIn(0f, 1f)
+                    drawGazeReticle(canvas, sx * w, sy * h)
+                }
+                
+                // Still draw basic iris dots for visual feedback.
+                drawIrisCircle(canvas, face, output.width, output.height, LEFT_IRIS_INDICES, IRIS_COLOR_LEFT)
+                drawIrisCircle(canvas, face, output.width, output.height, RIGHT_IRIS_INDICES, IRIS_COLOR_RIGHT)
+            }
+        }
+
+        // HUD overlay.
+        val hudText = when {
+            isCalibrating -> context.getString(R.string.eye_tracking_calibration_point)
+            isCalibrated -> context.getString(R.string.eye_tracking_status_calibrated)
+            else -> context.getString(R.string.eye_tracking_status_not_calibrated)
+        }
+        canvas.drawText(hudText, 16f, h - 20f, hologramHudPaint)
+
+        return output
+    }
+
+    private fun processCalibrationFrame(canvas: Canvas, w: Float, h: Float, dx: Float, dy: Float) {
+        val targetX: Float
+        val targetY: Float
+
+        // Calibration point sequence (0.05..0.95 to keep away from screen edges).
+        when (calibrationPointIndex) {
+            0 -> { targetX = 0.5f; targetY = 0.5f } // Center
+            1 -> { targetX = 0.1f; targetY = 0.1f } // Top-left
+            2 -> { targetX = 0.9f; targetY = 0.1f } // Top-right
+            3 -> { targetX = 0.1f; targetY = 0.9f } // Bottom-left
+            4 -> { targetX = 0.9f; targetY = 0.9f } // Bottom-right
+            else -> return
+        }
+
+        // Draw target on screen.
+        val tx = targetX * w
+        val ty = targetY * h
+        canvas.drawCircle(tx, ty, 40f, calibrationTargetPaint)
+        canvas.drawCircle(tx, ty, 40f, calibrationStrokePaint)
+        canvas.drawCircle(tx, ty, 10f, calibrationStrokePaint)
+
+        // Collect samples.
+        samplesCollectedCount++
+        calibrationSamples.add(CalibrationSample(targetX, targetY, dx, dy))
+
+        if (samplesCollectedCount >= SAMPLES_PER_POINT) {
+            samplesCollectedCount = 0
+            calibrationPointIndex++
+            if (calibrationPointIndex >= CALIBRATION_POINTS_COUNT) {
+                finishCalibration()
+            }
+        }
+    }
+
+    private fun finishCalibration() {
+        isCalibrating = false
+        // Perform simple multi-variable linear regression for sx = f(dx, dy) and sy = f(dx, dy).
+        // Since we have fixed calibration points, we could use a more robust solver,
+        // but for now, we'll use a simplified mean-based mapping for demonstration.
+        // For a proper solution, one would use Least Squares.
+        
+        // sx = a + b*dx + c*dy
+        // sy = d + e*dx + f*dy
+        
+        // Simplified least-squares estimate for the weights.
+        val n = calibrationSamples.size.toDouble()
+        if (n < 5) return
+
+        var sumX = 0.0; var sumY = 0.0; var sumDX = 0.0; var sumDY = 0.0
+        var sumDX2 = 0.0; var sumDY2 = 0.0; var sumDXDY = 0.0
+        var sumXDX = 0.0; var sumXDY = 0.0; var sumYDX = 0.0; var sumYDY = 0.0
+
+        for (s in calibrationSamples) {
+            val sx = s.screenX.toDouble(); val sy = s.screenY.toDouble()
+            val dx = s.irisOffsetX.toDouble(); val dy = s.irisOffsetY.toDouble()
+            sumX += sx; sumY += sy; sumDX += dx; sumDY += dy
+            sumDX2 += dx * dx; sumDY2 += dy * dy; sumDXDY += dx * dy
+            sumXDX += sx * dx; sumXDY += sx * dy
+            sumYDX += sy * dx; sumYDY += sy * dy
+        }
+
+        // Solve systems:
+        // [ n     sumDX  sumDY  ] [ a ]   [ sumX   ]
+        // [ sumDX sumDX2 sumDXDY] [ b ] = [ sumXDX ]
+        // [ sumDY sumDXDY sumDY2] [ c ]   [ sumXDY ]
+        
+        weightX = solve3x3(n, sumDX, sumDY, sumDX2, sumDXDY, sumDY2, sumX, sumXDX, sumXDY)
+        weightY = solve3x3(n, sumDX, sumDY, sumDX2, sumDXDY, sumDY2, sumY, sumYDX, sumYDY)
+        
+        isCalibrated = true
+    }
+
+    private fun solve3x3(
+        n: Double, sd: Double, se: Double,
+        sd2: Double, sde: Double, se2: Double,
+        sz: Double, szd: Double, sze: Double
+    ): FloatArray {
+        // Determinant using Sarrus rule.
+        val det = n * (sd2 * se2 - sde * sde) - sd * (sd * se2 - sde * se) + se * (sd * sde - sd2 * se)
+        if (abs(det) < 1e-9) return floatArrayOf(0.5f, 0f, 0f)
+
+        val a = (sz * (sd2 * se2 - sde * sde) - sd * (szd * se2 - sze * sde) + se * (szd * sde - sze * sd2)) / det
+        val b = (n * (szd * se2 - sze * sde) - sz * (sd * se2 - se * sde) + se * (sd * sze - szd * se)) / det
+        val c = (n * (sd2 * sze - sde * szd) - sd * (sd * sze - se * szd) + sz * (sd * sde - sd2 * se)) / det
+        
+        return floatArrayOf(a.toFloat(), b.toFloat(), c.toFloat())
+    }
+
+    private fun drawGazeReticle(canvas: Canvas, x: Float, y: Float) {
+        canvas.drawCircle(x, y, 30f, gazeReticlePaint)
+        canvas.drawLine(x - 40, y, x + 40, y, gazeReticlePaint)
+        canvas.drawLine(x, y - 40, x, y + 40, gazeReticlePaint)
     }
 
     /**
@@ -662,7 +906,7 @@ class MediaPipeProcessor(private val context: Context) {
             val options = PoseLandmarker.PoseLandmarkerOptions.builder()
                 .setBaseOptions(BaseOptions.builder().setModelAssetPath(modelPath).build())
                 .setRunningMode(RunningMode.IMAGE)
-                .setNumPoses(1)
+                .setNumPoses(3) // Detect up to 3 people
                 .build()
             PoseLandmarker.createFromOptions(context, options)
         } catch (e: Exception) {
@@ -678,7 +922,7 @@ class MediaPipeProcessor(private val context: Context) {
             val options = HandLandmarker.HandLandmarkerOptions.builder()
                 .setBaseOptions(BaseOptions.builder().setModelAssetPath(modelPath).build())
                 .setRunningMode(RunningMode.IMAGE)
-                .setNumHands(2)
+                .setNumHands(4) // Detect up to 4 hands
                 .build()
             HandLandmarker.createFromOptions(context, options)
         } catch (e: Exception) {
@@ -694,7 +938,7 @@ class MediaPipeProcessor(private val context: Context) {
             val options = FaceLandmarker.FaceLandmarkerOptions.builder()
                 .setBaseOptions(BaseOptions.builder().setModelAssetPath(modelPath).build())
                 .setRunningMode(RunningMode.IMAGE)
-                .setNumFaces(1)
+                .setNumFaces(3) // Detect up to 3 faces
                 .setOutputFaceBlendshapes(true)
                 .build()
             FaceLandmarker.createFromOptions(context, options)

@@ -13,6 +13,7 @@ import org.opencv.core.MatOfRect2d
 import org.opencv.core.Rect2d
 import org.opencv.dnn.Dnn
 import org.pytorch.IValue
+import org.pytorch.LiteModuleLoader
 import org.pytorch.Module
 import org.pytorch.Tensor
 import pl.edu.mobilecv.util.BBoxKalmanFilter
@@ -28,11 +29,11 @@ class YoloProcessor(private val context: Context) {
     companion object {
         private const val TAG = "YoloProcessor"
 
-        const val MODEL_DETECT = "yolov8n.pte"
-        const val MODEL_SEGMENT = "yolov8n-seg.pte"
-        const val MODEL_POSE = "yolov8n-pose.pte"
-        const val MODEL_CLASSIFY = "yolov8n-cls.pte"
-        const val MODEL_OBB = "yolov8n-obb.pte"
+        const val MODEL_DETECT = "yolov8n.pt"
+        const val MODEL_SEGMENT = "yolov8n-seg.pt"
+        const val MODEL_POSE = "yolov8n-pose.pt"
+        const val MODEL_CLASSIFY = "yolov8n-cls.pt"
+        const val MODEL_OBB = "yolov8n-obb.pt"
 
         private const val INPUT_SIZE = 640
         private const val CLS_INPUT_SIZE = 224
@@ -378,7 +379,7 @@ class YoloProcessor(private val context: Context) {
         val outputData = outputTensor.dataAsFloatArray
         val shape = outputTensor.shape()
         val numBoxes = shape[2].toInt()
-        val numAttribs = shape[1].toInt()
+        shape[1].toInt()
 
         val result = ensureArgb8888(bitmap)
         val canvas = Canvas(result)
@@ -409,7 +410,7 @@ class YoloProcessor(private val context: Context) {
     private fun tryLoadNet(path: String): Module? = try {
         val fullPath = ModelDownloadManager.getYoloModelPath(context, path)
         if (fullPath != null) {
-            Module.load(fullPath)
+            LiteModuleLoader.load(fullPath)
         } else {
             Log.e(TAG, "Model file not found: $path")
             null

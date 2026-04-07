@@ -54,30 +54,32 @@ object ModelDownloadManager {
             "$BASE_URL/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
         MediaPipeProcessor.MODEL_FACE to
             "$BASE_URL/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
+        MediaPipeProcessor.MODEL_FACE_DETECTOR to
+            "$BASE_URL/face_detector/face_detector/float16/1/face_detector.task",
     )
 
     /**
-     * Remote download URLs for YOLOv8-nano models exported to the ``.pte`` format.
+     * Remote download URLs for YOLOv8-nano models exported to the ``.pt`` format.
      *
-     * These ``*.pte`` files are hosted in the project's GitHub Releases. Each model
+     * These ``*.pt`` files are hosted in the project's GitHub Releases. Each model
      * has been pre-exported from the base Ultralytics weights to be compatible with
      * the mobile runtime.
      *
-     * The resulting ``*.pte`` files (see [YoloProcessor.MODEL_DETECT] etc.) are what
+     * The resulting ``*.pt`` files (see [YoloProcessor.MODEL_DETECT] etc.) are what
      * the Android app loads via ``Module.load()``.  Place the converted files in the YOLO
      * model directory ([getYoloModelPath]) before starting inference.
      */
     val YOLO_MODEL_URLS: Map<String, String> = mapOf(
-        "yolov8n.pte" to
-            "https://github.com/MatPomGit/mobile-vis/releases/download/models/yolov8n.pte",
-        "yolov8n-seg.pte" to
-            "https://github.com/MatPomGit/mobile-vis/releases/download/models/yolov8n-seg.pte",
-        "yolov8n-pose.pte" to
-            "https://github.com/MatPomGit/mobile-vis/releases/download/models/yolov8n-pose.pte",
-        "yolov8n-cls.pte" to
-            "https://github.com/MatPomGit/mobile-vis/releases/download/models/yolov8n-cls.pte",
-        "yolov8n-obb.pte" to
-            "https://github.com/MatPomGit/mobile-vis/releases/download/models/yolov8n-obb.pte",
+        "yolov8n.pt" to
+            "https://github.com/MatPomGit/mobile-vis/releases/download/models/yolov8n.pt",
+        "yolov8n-seg.pt" to
+            "https://github.com/MatPomGit/mobile-vis/releases/download/models/yolov8n-seg.pt",
+        "yolov8n-pose.pt" to
+            "https://github.com/MatPomGit/mobile-vis/releases/download/models/yolov8n-pose.pt",
+        "yolov8n-cls.pt" to
+            "https://github.com/MatPomGit/mobile-vis/releases/download/models/yolov8n-cls.pt",
+        "yolov8n-obb.pt" to
+            "https://github.com/MatPomGit/mobile-vis/releases/download/models/yolov8n-obb.pt",
     )
 
     private const val YOLO_DIR = "yolo"
@@ -92,12 +94,25 @@ object ModelDownloadManager {
      */
     val RTMDET_MODEL_URLS: Map<String, String> = mapOf(
         RtmDetProcessor.MODEL_DETECT to
-            "https://github.com/MatPomGit/mobile-vis/releases/download/models/rtmdet_nano_det.pte",
+            "https://github.com/MatPomGit/mobile-vis/releases/download/models/rtmdet_nano_det.pt",
         RtmDetProcessor.MODEL_ROTATED to
-            "https://github.com/MatPomGit/mobile-vis/releases/download/models/rtmdet_nano_rotated.pte",
+            "https://github.com/MatPomGit/mobile-vis/releases/download/models/rtmdet_nano_rotated.pt",
     )
 
     private const val RTMDET_DIR = "rtmdet"
+
+    /**
+     * Remote download URLs for Mobilint Ares NPU optimized models.
+     *
+     * These models are specially compiled for the Mobilint hardware and
+     * are hosted in the project's GitHub Releases.
+     */
+    val MOBILINT_MODEL_URLS: Map<String, String> = mapOf(
+        "mobilint_detect.mbl" to
+            "https://github.com/MatPomGit/mobile-vis/releases/download/models/mobilint_detect.mbl",
+    )
+
+    private const val MOBILINT_DIR = "mobilint"
 
     private val httpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
@@ -177,7 +192,7 @@ object ModelDownloadManager {
      * Download a single YOLO source model file from [url] to the YOLO directory.
      *
      * @param context Application or activity context.
-     * @param filename Target filename (e.g. ``"yolov8n.pte"``).
+     * @param filename Target filename (e.g. ``"yolov8n.pt"``).
      * @param url Source URL.
      * @return ``true`` on success.
      */
@@ -208,6 +223,10 @@ object ModelDownloadManager {
      * @param dest Destination [File] on internal storage.
      * @return ``true`` on success.
      */
+    fun downloadMobilintModel(context: Context, modelName: String, url: String): Boolean {
+        return downloadModel(context, modelName, url, mobilintModelFile(context, modelName))
+    }
+
     private fun downloadModel(context: Context, filename: String, url: String, dest: File): Boolean {
         dest.parentFile?.mkdirs()
 
@@ -419,6 +438,41 @@ object ModelDownloadManager {
     }
 
     // ------------------------------------------------------------------
+    // Mobilint Model Management
+    // ------------------------------------------------------------------
+
+    fun getMobilintModelPath(context: Context, modelName: String): String? {
+        val file = mobilintModelFile(context, modelName)
+        return if (file.exists()) file.absolutePath else null
+    }
+
+    fun areMobilintModelsReady(context: Context): Boolean {
+        return MOBILINT_MODEL_URLS.keys.all { mobilintModelFile(context, it).exists() }
+    }
+
+    fun downloadMissingMobilintModels(context: Context, onProgress: ((downloaded: Int, total: Int) -> Unit)? = null): Boolean {
+        val missing = MOBILINT_MODEL_URLS.keys.filter { !mobilintModelFile(context, it).exists() }
+        if (missing.isEmpty()) return true
+
+        var successCount = 0
+        missing.forEach { modelName ->
+            val url = MOBILINT_MODEL_URLS[modelName]!!
+            val file = mobilintModelFile(context, modelName)
+            if (downloadModel(context, modelName, url, file)) {
+                successCount++
+                onProgress?.invoke(successCount, missing.size)
+            }
+        }
+        return successCount == missing.size
+    }
+
+    fun deleteAllMobilintModels(context: Context) {
+        val dir = mobilintDir(context)
+        dir.listFiles()?.forEach { it.delete() }
+        Log.i(TAG, "All Mobilint models deleted")
+    }
+
+    // ------------------------------------------------------------------
     // Internal helpers
     // ------------------------------------------------------------------
 
@@ -439,4 +493,10 @@ object ModelDownloadManager {
 
     private fun rtmdetModelFile(context: Context, filename: String): File =
         File(rtmdetDir(context), filename)
+
+    private fun mobilintDir(context: Context): File =
+        File(context.filesDir, MOBILINT_DIR).also { it.mkdirs() }
+
+    private fun mobilintModelFile(context: Context, filename: String): File =
+        File(mobilintDir(context), filename)
 }

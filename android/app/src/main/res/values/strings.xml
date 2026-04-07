@@ -46,23 +46,6 @@
     <string name="calibration_overlay_board_not_found" tools:keep="@string/calibration_overlay_board_not_found">Brak szachownicy</string>
     <string name="calibration_overlay_no_calibration" tools:keep="@string/calibration_overlay_no_calibration">Brak kalibracji</string>
 
-    <!-- Robot / ROS2 connection -->
-    <string name="robot_connection_description">Połącz z robotem (ROSBridge)</string>
-    <string name="robot_connection_title">Połączenie z robotem (ROS2)</string>
-    <string name="robot_host_hint">Address IP robota</string>
-    <string name="robot_port_hint">Port ROSBridge (domyślnie 9090)</string>
-    <string name="robot_btn_connect">Połącz</string>
-    <string name="robot_btn_disconnect">Rozłącz</string>
-    <string name="robot_status_disconnected">Status: Rozłączony</string>
-    <string name="robot_status_connecting">Status: Łączenie…</string>
-    <string name="robot_status_connected">Status: Połączony</string>
-    <string name="robot_status_error">Status: Błąd połączenia</string>
-    <string name="robot_toast_connected" tools:keep="@string/robot_toast_connected">Połączono z robotem</string>
-    <string name="robot_toast_disconnected" tools:keep="@string/robot_toast_disconnected">Rozłączono od robota</string>
-    <string name="robot_toast_error" tools:keep="@string/robot_toast_error">Błąd połączenia z robotem</string>
-    <string name="robot_host_empty_error">Address IP nie może być pusty</string>
-    <string name="robot_port_invalid_error">Port musi być liczbą od 1 do 65535</string>
-
     <!-- Camera resolution picker -->
     <string name="resolution_fab_description">Zmień rozdzielczość kamery</string>
     <string name="resolution_title">Rozdzielczość kamery</string>
@@ -101,6 +84,15 @@
     <string name="hologram_no_face">Brak twarzy</string>
     <string name="hologram_hud_angles">Yaw: %+.1f°  Pitch: %+.1f°</string>
 
+    <!-- Eye Tracking -->
+    <string name="eye_tracking_start_calibration">Rozpocznij kalibrację</string>
+    <string name="eye_tracking_calibration_point">Patrz na czerwony punkt</string>
+    <string name="eye_tracking_calibration_complete">Kalibracja zakończona!</string>
+    <string name="eye_tracking_status_calibrated">Skalibrowano</string>
+    <string name="eye_tracking_status_not_calibrated">Brak kalibracji wzroku</string>
+    <string name="eye_tracking_reset_calibration">Resetuj kalibrację</string>
+    <string name="eye_tracking_calibration_started">Rozpoczęto kalibrację wzroku</string>
+
     <!-- YOLO object detection -->
     <string name="yolo_models_downloading">Pobieranie modeli YOLO w tle…</string>
     <string name="yolo_models_ready">Modele YOLO gotowe</string>
@@ -110,6 +102,11 @@
     <string name="rtmdet_models_downloading">Pobieranie modeli RTMDet w tle…</string>
     <string name="rtmdet_models_ready">Modele RTMDet gotowe</string>
     <string name="rtmdet_models_download_failed">Nie udało się pobrać modeli RTMDet. Sprawdź połączenie z internetem.</string>
+
+    <!-- Mobilint NPU -->
+    <string name="mobilint_models_downloading">Pobieranie modeli Mobilint w tle…</string>
+    <string name="mobilint_models_ready">Modele Mobilint gotowe</string>
+    <string name="mobilint_models_download_failed">Nie udało się pobrać modeli Mobilint. Sprawdź połączenie z internetem.</string>
 
     <string name="vo_overlay_tracks" tools:keep="@string/vo_overlay_tracks">Ścieżki VO</string>
     <string name="vo_overlay_point_cloud" tools:keep="@string/vo_overlay_point_cloud">Chmura</string>
@@ -125,7 +122,7 @@
     <string name="instructions_card_title">Instrukcja obsługi</string>
     <string name="instructions_card_description">Jak korzystać z aplikacji MobileCV</string>
     <string name="instructions_title">Instrukcja obsługi MobileCV</string>
-    <string name="instructions_content">Witaj w MobileCV – aplikacji do analizy obrazu w czasie rzeczywistym.\n\nJak korzystać z aplikacji:\n1. Wybierz tryb analizy z poniższego menu.\n2. Kamera otworzy się z wybranym filtrem.\n3. Zmień filtr przyciskami na dole ekranu.\n4. Naciśnij przycisk migawki, aby zrobić zdjęcie.\n5. Przytrzymaj przycisk migawki, aby nagrywać wideo.\n\nDostępne tryby:\n• Filtry – podstawowe filtry obrazu (skala szarości, rozmycie, progowanie)\n• Krawędzie – detekcja krawędzi (Canny, Sobel, Laplacian)\n• Morfologia – dylatacja, erozja, otwarcie, zamknięcie\n• Markery – detekcja ArUco, AprilTag, QR, CCTag\n• Poza / Twarz – śledzenie ciała i twarzy (MediaPipe)\n• Odometria 3D – odometria wizualna i chmura punktów\n• Geometria 3D – detekcja płaszczyzn i punkty zbieżności\n• Kalibracja – kalibracja kamery wzorcem szachownicy\n• YOLO – detekcja obiektów, segmentacja i poza (YOLOv8)\n\nUwaga: tryby Poza i YOLO wymagają pobrania modeli przy pierwszym użyciu (wymagane połączenie z internetem).\n\nPołączenie z robotem (ROS2): użyj ikony anteny w prawym dolnym rogu.\nZmiana rozdzielczości: ikona klucza w prawym dolnym rogu.\nKalibracja: ikona szachownicy (dostępna w trybie Kalibracja).</string>
+    <string name="instructions_content">Witaj w MobileCV – aplikacji do analizy obrazu w czasie rzeczywistym.\n\nJak korzystać z aplikacji:\n1. Wybierz tryb analizy z poniższego menu.\n2. Kamera otworzy się z wybranym filtrem.\n3. Zmień filtr przyciskami na dole ekranu.\n4. Naciśnij przycisk migawki, aby zrobić zdjęcie.\n5. Przytrzymaj przycisk migawki, aby nagrywać wideo.\n\nDostępne tryby:\n• Filtry – podstawowe filtry obrazu (skala szarości, rozmycie, progowanie)\n• Krawędzie – detekcja krawędzi (Canny, Sobel, Laplacian)\n• Morfologia – dylatacja, erozja, otwarcie, zamknięcie\n• Markery – detekcja ArUco, AprilTag, QR, CCTag\n• Poza / Twarz – śledzenie ciała i twarzy (MediaPipe)\n• Odometria 3D – odometria wizualna i chmura punktów\n• Geometria 3D – detekcja płaszczyzn i punkty zbieżności\n• Kalibracja – kalibracja kamery wzorcem szachownicy\n• YOLO – detekcja obiektów, segmentacja i poza (YOLOv8)\n\nUwaga: tryby Poza i YOLO wymagają pobrania modeli przy pierwszym użyciu (wymagane połączenie z internetem).\n\nZmiana rozdzielczości: ikona klucza w prawym dolnym rogu.\nKalibracja: ikona szachownicy (dostępna w trybie Kalibracja).</string>
     <string name="instructions_close">Zamknij</string>
 
     <!-- Main menu tabs -->
@@ -177,6 +174,7 @@
     <string name="filter_desc_body">Śledzenie pozy ciała: MediaPipe Pose Landmarker rysuje 33 punkty szkieletu całego ciała w czasie rzeczywistym.</string>
     <string name="filter_desc_hands">Śledzenie rąk: MediaPipe Hand Landmarker wykrywa 21 punktów na każdej dłoni (obie ręce jednocześnie).</string>
     <string name="filter_desc_face">Siatka twarzy: MediaPipe Face Landmarker rysuje 468 punktów charakterystycznych twarzy.</string>
+    <string name="filter_desc_face_blaze">Detekcja twarzy (BlazeFace): szybki model MediaPipe Face Detector zoptymalizowany pod kątem niskiego zużycia energii (inferencja co 10 klatek).</string>
     <string name="filter_desc_iris">Śledzenie wzroku (Iris): 478 punktów twarzy z 10 dodatkowymi dla tęczówek. Wizualizuje kierunek patrzenia.</string>
     <string name="filter_desc_hologram_3d">Hologram 3D: wyświetla obracający się sześcian 3D. Kąt obrotu zależy od pozycji twarzy względem środka ekranu (yaw i pitch z nosa).</string>
 
@@ -213,6 +211,7 @@
     <string name="filter_desc_rtmdet_detect">Detekcja obiektów RTMDet-nano: wykrywa obiekty w czasie rzeczywistym, rysuje ramki z etykietami klas i poziomem pewności (format end2end TorchScript).</string>
     <string name="filter_desc_rtmdet_rotated">Detekcja z obróconymi ramkami RTMDet-nano (RTMDet-R): wykrywa obiekty i rysuje zorientowane prostokąty zgodne z osią obiektu.</string>
     <string name="mode_desc_rtmdet">Detekcja obiektów z ramkami prostopadłymi i zorientowanymi z użyciem RTMDet-nano (OpenMMLab)</string>
+    <string name="mode_desc_mobilint">Akceleracja sprzętowa NPU przy użyciu układów Mobilint Ares do detekcji obiektów w czasie rzeczywistym</string>
 
     <!-- About tab – filter descriptions (FULL_ODOMETRY_3D mode) -->
     <string name="filter_desc_full_odometry">Pełna odometria 3D: estymuje pozę kamery metodą macierzy zasadniczej, akumuluje trajektorię i wyświetla HUD ze statystykami ruchu.</string>
@@ -240,9 +239,12 @@
     <string name="models_yolo_description">Pliki źródłowe YOLOv8-nano pobierane bezpośrednio od producenta (Ultralytics). Obejmują detekcję obiektów (Detect), segmentację (Segment), estymację pozy (Pose), klasyfikację (Classify) i orientowane ramki (OBB). Po pobraniu wymagają konwersji do TorchScript w celu uruchomienia na urządzeniu.</string>
     <string name="models_rtmdet_title">Modele RTMDet</string>
     <string name="models_rtmdet_description">Modele RTMDet-nano w formacie TorchScript do detekcji obiektów (Detect) i detekcji z obróconymi ramkami (Rotated) używane w trybie RTMDet.</string>
+    <string name="models_mobilint_title">Modele Mobilint NPU</string>
+    <string name="models_mobilint_description">Modele zoptymalizowane pod kątem akceleratora Mobilint NPU. Zapewniają najwyższą wydajność inferencji przy minimalnym zużyciu energii.</string>
     <string name="model_name_pose_landmarker">Pose Landmarker (ciało)</string>
     <string name="model_name_hand_landmarker">Hand Landmarker (ręce)</string>
     <string name="model_name_face_landmarker">Face Landmarker (twarz)</string>
+    <string name="model_name_face_detector">Face Detector (BlazeFace)</string>
     <string name="model_name_yolo_detect">YOLOv8n Detect (detekcja obiektów)</string>
     <string name="model_name_yolo_segment">YOLOv8n Segment (segmentacja)</string>
     <string name="model_name_yolo_pose">YOLOv8n Pose (estymacja pozy)</string>
@@ -250,6 +252,7 @@
     <string name="model_name_yolo_obb">YOLOv8n OBB (orientowane ramki, DOTAv1)</string>
     <string name="model_name_rtmdet_detect">RTMDet-nano Detect (detekcja obiektów COCO)</string>
     <string name="model_name_rtmdet_rotated">RTMDet-nano Rotated (orientowane ramki)</string>
+    <string name="model_name_mobilint_detect">Mobilint Detect (NPU Optimized)</string>
     <string name="model_status_available">Pobrano • %1$s</string>
     <string name="model_status_missing">Nie pobrano</string>
     <string name="model_btn_download">Pobierz</string>
@@ -361,5 +364,5 @@
     <!-- Stage 8: Robot control via odometry -->
     <string name="tutorial_stage8_emoji">🤖</string>
     <string name="tutorial_stage8_title">Sterowanie robotem na podstawie odometrii</string>
-    <string name="tutorial_stage8_desc">Zgromadzona trajektoria kamery T[n] dostarcza robotowi szacunkowej pozycji i orientacji w czasie rzeczywistym – bez konieczności stosowania GPS ani enkoderów kół.\n\nTyp danych wysyłanych do robota:\n• Pozycja: wektor translacji t_world = [X, Y, Z] – aktualne współrzędne w układzie świata.\n• Orientacja: macierz rotacji R lub kąty Eulera (roll, pitch, yaw).\n• Prędkość liniowa i kątowa: obliczona jako różnica między kolejnymi pozami T[n] i T[n-1] podzielona przez czas klatki Δt.\n\nAplikacja MobileCV przesyła te dane protokołem ROSBridge WebSocket do węzła ROS 2 (temat /mobilecv/detections). Robot, znając aktualną pozę kamery, może:\n1. Planować trasę w zbudowanej mapie 3D.\n2. Unikać przeszkód widocznych w chmurze punktów.\n3. Powracać do punktu startowego (wykrywając pętle zamknięte).\n4. Utrzymywać zadany dystans od śledzonych obiektów.\n\nUwaga: odometria monokularna dostarcza pozycji tylko do skali – robot musi znać skalę bezwzględną (np. z rozmiaru znacznika ArUco) lub korzystać z dodatkowych sensorów (IMU, głębokościowy) do kalibracji skali.</string>
+    <string name="tutorial_stage8_desc">Zgromadzona trajektoria kamery T[n] dostarcza robotowi szacunkowej pozycji i orientacji w czasie rzeczywistym – bez konieczności stosowania GPS ani enkoderów kół.\n\nTyp danych wysyłanych do robota:\n• Pozycja: wektor translacji t_world = [X, Y, Z] – aktualne współrzędne w układzie świata.\n• Orientacja: macierz rotacji R lub kąty Eulera (roll, pitch, yaw).\n• Prędkość liniowa i kątowa: obliczona jako różnica między kolejnymi pozami T[n] i T[n-1] podzielona przez czas klatki Δt.\n\nAplikacja MobileCV przesyła te dane do zewnętrznych systemów sterowania (np. przez sieć). Robot, znając aktualną pozę kamery, może:\n1. Planować trasę w zbudowanej mapie 3D.\n2. Unikać przeszkód widocznych w chmurze punktów.\n3. Powracać do punktu startowego (wykrywając pętle zamknięte).\n4. Utrzymywać zadany dystans od śledzonych obiektów.\n\nUwaga: odometria monokularna dostarcza pozycji tylko do skali – robot musi znać skalę bezwzględną (np. z rozmiaru znacznika ArUco) lub korzystać z dodatkowych sensorów (IMU, głębokościowy) do kalibracji skali.</string>
 </resources>

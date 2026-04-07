@@ -83,8 +83,8 @@ class FullOdometryEngine {
         private const val MIN_TRACK_COUNT = 30
         private const val MAX_TRAJECTORY_POINTS = 1000
         private const val MAX_MAP_POINTS = 5000
-        private const val MAX_DEPTH = 500.0
-        private const val MIN_DEPTH = 0.1
+        private const val MAX_DEPTH = 80.0
+        private const val MIN_DEPTH = 0.2
         private const val FEATURE_QUALITY_LEVEL = 0.005
         private const val FEATURE_MIN_DISTANCE = 5.0
         private const val RANSAC_CONFIDENCE = 0.999
@@ -136,7 +136,14 @@ class FullOdometryEngine {
     private val activeLandmarks = mutableMapOf<Int, Landmark>()
     private var nextLandmarkId = 0
     private val trajectoryHistory = mutableListOf<Point3>()
-    private var lastTracks = mutableListOf<List<Point>>()
+    /** Information about feature tracking for visualization. */
+    data class VisualTrack(
+        val p1: Point,
+        val p2: Point,
+        val isInlier: Boolean
+    )
+
+    private var lastTracks = mutableListOf<VisualTrack>()
     private var lastState: FullOdometryState? = null
 
     // Tracking indices between frames
@@ -153,7 +160,7 @@ class FullOdometryEngine {
     // Public accessors
     // ---------------------------------------------------------------
 
-    val currentTracks: List<List<Point>>
+    val currentTracks: List<VisualTrack>
         get() = synchronized(this) { lastTracks.toList() }
 
     val lastOdometryState: FullOdometryState?
@@ -247,22 +254,16 @@ class FullOdometryEngine {
             nextPts.release()
             synchronized(this) { 
                 lastTracks.clear() 
-                activeLandmarks.clear() // Clear map on loss of tracking for simplicity in this module
-                nextLandmarkId = 0
+                // Do not clear activeLandmarks here to prevent losing the map on transient tracking loss
             }
             return
-        }
-
-        synchronized(this) {
-            lastTracks = goodNextList.indices
-                .map { i -> listOf(goodPrevList[i], goodNextList[i]) }
-                .toMutableList()
         }
 
         val goodPrev = MatOfPoint2f(*goodPrevList.toTypedArray())
         val goodNext = MatOfPoint2f(*goodNextList.toTypedArray())
 
         // --- Camera intrinsics -----------------------------------------------
+        val kCreatedLocally = calibratorRef?.getCalibrationProfile(gray.size()) == null
         val calibProfile = calibratorRef?.getCalibrationProfile(gray.size())
         val k = calibProfile?.calibration?.cameraMatrix
             ?: buildDefaultK(gray.cols().toDouble(), gray.rows().toDouble())
@@ -273,6 +274,7 @@ class FullOdometryEngine {
         } catch (e: CvException) {
             android.util.Log.w(TAG, "findEssentialMat failed (pts=${goodNextList.size}): ${e.message}")
             goodPrev.release(); goodNext.release(); nextPts.release()
+            if (kCreatedLocally) k.release()
             return
         }
 
@@ -285,6 +287,7 @@ class FullOdometryEngine {
             android.util.Log.w(TAG, "recoverPose failed: ${e.message}")
             essential.release(); relR.release(); relT.release(); poseMask.release()
             goodPrev.release(); goodNext.release(); nextPts.release()
+            if (kCreatedLocally) k.release()
             return
         }
         essential.release()
@@ -298,13 +301,26 @@ class FullOdometryEngine {
         val inlierNext = mutableListOf<Point>()
         val inlierIds = mutableListOf<Int>()
         
-        for (i in maskArr.indices) {
-            if (i < goodPrevList.size && maskArr[i].toInt() != 0) {
+        val newTracks = mutableListOf<VisualTrack>()
+
+        // Rebuild the tracks for visualization with inlier status
+        for (i in goodNextList.indices) {
+            val isInlier = i < maskArr.size && maskArr[i].toInt() != 0
+            newTracks.add(VisualTrack(goodPrevList[i], goodNextList[i], isInlier))
+            if (isInlier) {
                 inlierPrev.add(goodPrevList[i])
                 inlierNext.add(goodNextList[i])
                 inlierIds.add(goodIds[i])
             }
         }
+
+        synchronized(this) {
+            lastTracks = newTracks
+        }
+
+        // Store previous pose for triangulation
+        val prevR = globalR.clone()
+        val prevT = globalT.clone()
 
         // --- Pose accumulation -----------------------------------------------
         val tNorm = vectorNorm(relT)
@@ -313,9 +329,11 @@ class FullOdometryEngine {
             val scaledRelT = Mat()
             Core.multiply(relT, org.opencv.core.Scalar(1.0 / tNorm), scaledRelT)
 
-            val worldStep = Mat()
-            Core.gemm(globalR, scaledRelT, 1.0, Mat(), 0.0, worldStep)
-            Core.add(globalT, worldStep, globalT)
+            // Update accumulated pose: [R_curr | t_curr] = [R_rel | t_rel] * [R_prev | t_prev]
+            val newT = Mat()
+            Core.gemm(relR, globalT, 1.0, scaledRelT, 1.0, newT)
+            globalT.release()
+            globalT = newT
 
             val newR = Mat()
             Core.gemm(relR, globalR, 1.0, Mat(), 0.0, newR)
@@ -324,12 +342,11 @@ class FullOdometryEngine {
 
             stepCount++
             scaledRelT.release()
-            worldStep.release()
         }
         relT.release()
         relR.release()
 
-        // --- Camera position ---
+        // --- Camera position (center in world frame) ---
         val rT = globalR.t()
         val camPosMat = Mat()
         Core.gemm(rT, globalT, -1.0, Mat(), 0.0, camPosMat)
@@ -352,8 +369,12 @@ class FullOdometryEngine {
 
         // --- Triangulate and Update Landmarks --------------------------------
         if (inlierPrev.size >= 4) {
-            triangulateAndUpdateLandmarks(inlierPrev, inlierNext, inlierIds, k, srcRgba)
+            triangulateAndUpdateLandmarks(inlierPrev, inlierNext, inlierIds, k, srcRgba, prevR, prevT)
         }
+
+        prevR.release()
+        prevT.release()
+        if (kCreatedLocally) k.release()
 
         // --- Prepare next iteration ------------------------------------------
         gray.copyTo(prevGray)
@@ -376,9 +397,11 @@ class FullOdometryEngine {
         nextInliers: List<Point>,
         inlierIds: List<Int>,
         k: Mat,
-        srcRgba: Mat
+        srcRgba: Mat,
+        prevR: Mat,
+        prevT: Mat
     ) {
-        val p1 = buildProjectionMatrix(Mat.eye(3, 3, CvType.CV_64F), Mat.zeros(3, 1, CvType.CV_64F), k)
+        val p1 = buildProjectionMatrix(prevR, prevT, k)
         val p2 = buildProjectionMatrix(globalR, globalT, k)
 
         val pts1 = MatOfPoint2f(*prevInliers.toTypedArray())
@@ -391,17 +414,24 @@ class FullOdometryEngine {
                 val w = pts4d.get(3, i)[0]
                 if (abs(w) < MIN_HOMOGENEOUS_COORDINATE) continue
                 
-                val x = pts4d.get(0, i)[0] / w
-                val y = pts4d.get(1, i)[0] / w
-                val z = pts4d.get(2, i)[0] / w
+                val wx = pts4d.get(0, i)[0] / w
+                val wy = pts4d.get(1, i)[0] / w
+                val wz = pts4d.get(2, i)[0] / w
                 
-                if (z > MIN_DEPTH && z < MAX_DEPTH) {
-                    val pos = Point3(x, y, z)
+                // Check if point is in front of the current camera
+                val xw = Mat(3, 1, CvType.CV_64F)
+                xw.put(0, 0, wx); xw.put(1, 0, wy); xw.put(2, 0, wz)
+                val xc = Mat()
+                Core.gemm(globalR, xw, 1.0, globalT, 1.0, xc)
+                val depth = xc.get(2, 0)[0]
+                xc.release(); xw.release()
+
+                if (depth > MIN_DEPTH && depth < MAX_DEPTH) {
+                    val pos = Point3(wx, wy, wz)
                     val id = inlierIds[i]
                     
                     if (id != -1 && activeLandmarks.containsKey(id)) {
                         val landmark = activeLandmarks[id]!!
-                        // Exponential moving average for position refinement
                         val alpha = 0.2
                         landmark.position = Point3(
                             landmark.position.x * (1 - alpha) + pos.x * alpha,
@@ -410,12 +440,6 @@ class FullOdometryEngine {
                         )
                         landmark.lastSeenPoint = nextInliers[i]
                         landmark.observedCount++
-                        
-                        // Refine color? For now just keep first or update
-                        val ix = nextInliers[i].x.toInt().coerceIn(0, srcRgba.cols() - 1)
-                        val iy = nextInliers[i].y.toInt().coerceIn(0, srcRgba.rows() - 1)
-                        val rgba = srcRgba.get(iy, ix)
-                        landmark.color = Color.rgb(rgba[0].toInt(), rgba[1].toInt(), rgba[2].toInt())
                     } else if (id != -1) {
                         val ix = nextInliers[i].x.toInt().coerceIn(0, srcRgba.cols() - 1)
                         val iy = nextInliers[i].y.toInt().coerceIn(0, srcRgba.rows() - 1)
@@ -426,10 +450,11 @@ class FullOdometryEngine {
                 }
             }
             
-            // Maintenance: remove old landmarks if too many
             if (activeLandmarks.size > MAX_MAP_POINTS) {
-                val toRemove = activeLandmarks.size - MAX_MAP_POINTS
-                val keysToRemove = activeLandmarks.keys.take(toRemove)
+                val keysToRemove = activeLandmarks.entries
+                    .sortedBy { it.value.observedCount }
+                    .take(activeLandmarks.size - MAX_MAP_POINTS)
+                    .map { it.key }
                 keysToRemove.forEach { activeLandmarks.remove(it) }
             }
         }

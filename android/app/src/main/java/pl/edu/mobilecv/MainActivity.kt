@@ -85,6 +85,7 @@ class MainActivity : AppCompatActivity() {
     @Volatile private var mediaPipeDownloadInProgress = false
     private val yoloDownloadInProgress = AtomicBoolean(false)
     private val rtmDetDownloadInProgress = AtomicBoolean(false)
+    private val mobilintDownloadInProgress = AtomicBoolean(false)
     @Volatile private var currentFilter = OpenCvFilter.ORIGINAL
     @Volatile private var currentMode: AnalysisMode = AnalysisMode.entries.first()
     @Volatile private var isActiveVisionEnabled = false
@@ -238,6 +239,7 @@ class MainActivity : AppCompatActivity() {
         setupCameraSwitchButton()
         setupCaptureButton()
         setupCalibrationFab()
+        setupEyeTrackingCalibrationFab()
         setupResolutionFab()
         setupSavePointCloudFab()
         setupBackToMenuButton()
@@ -439,10 +441,12 @@ class MainActivity : AppCompatActivity() {
         binding.layoutPoseTemporalControls.visibility = if (mode == AnalysisMode.MARKERS) View.VISIBLE else View.GONE
 
         binding.fabCalibrationMenu.visibility = if (mode == AnalysisMode.CALIBRATION) View.VISIBLE else View.GONE
+        binding.fabEyeTrackingCalibration.visibility = if (mode == AnalysisMode.POSE && currentFilter == OpenCvFilter.EYE_TRACKING) View.VISIBLE else View.GONE
 
         if (mode == AnalysisMode.POSE && !ModelDownloadManager.areAllModelsReady(this)) startMediaPipeModelDownload()
         if ((mode == AnalysisMode.YOLO || mode == AnalysisMode.TRACKING) && !ModelDownloadManager.areYoloModelsReady(this)) startYoloModelDownload()
         if (mode == AnalysisMode.RTMDET && !ModelDownloadManager.areRtmDetModelsReady(this)) startRtmDetModelDownload()
+        if (mode == AnalysisMode.MOBILINT && !ModelDownloadManager.areMobilintModelsReady(this)) startMobilintModelDownload()
 
         updateContextualControls()
     }
@@ -456,6 +460,8 @@ class MainActivity : AppCompatActivity() {
             if (isFiltersMode && isActiveVisionEnabled) View.VISIBLE else View.GONE
         binding.fabSavePointCloud.visibility =
             if (currentFilter == OpenCvFilter.POINT_CLOUD) View.VISIBLE else View.GONE
+        binding.fabEyeTrackingCalibration.visibility =
+            if (currentMode == AnalysisMode.POSE && currentFilter == OpenCvFilter.EYE_TRACKING) View.VISIBLE else View.GONE
         
         binding.layoutGeometryMaxPlanes.visibility = if (isGeometryMode && currentFilter == OpenCvFilter.PLANE_DETECTION) View.VISIBLE else View.GONE
     }
@@ -550,6 +556,43 @@ class MainActivity : AppCompatActivity() {
             } finally {
                 rtmDetDownloadInProgress.set(false)
             }
+        }
+    }
+
+    private fun startMobilintModelDownload() {
+        if (!mobilintDownloadInProgress.compareAndSet(false, true)) return
+        runOnUiThread { Toast.makeText(this, getString(R.string.mobilint_models_downloading), Toast.LENGTH_LONG).show() }
+        backgroundExecutor.execute {
+            try {
+                if (ModelDownloadManager.downloadMissingMobilintModels(this)) {
+                    // Mobilint-specific processor initialization would go here
+                    runOnUiThread {
+                        if (!isDestroyed && !isFinishing)
+                            Toast.makeText(this, getString(R.string.mobilint_models_ready), Toast.LENGTH_SHORT).show()
+                    }
+                } else {
+                    runOnUiThread {
+                        if (!isDestroyed && !isFinishing)
+                            Toast.makeText(this, getString(R.string.mobilint_models_download_failed), Toast.LENGTH_LONG).show()
+                    }
+                }
+            } catch (e: Exception) {
+                logExceptionTelemetry("mobilint_download", "unexpected", e)
+                Log.e(TAG, "Mobilint model download failed", e)
+                runOnUiThread {
+                    if (!isDestroyed && !isFinishing)
+                        Toast.makeText(this, getString(R.string.mobilint_models_download_failed), Toast.LENGTH_LONG).show()
+                }
+            } finally {
+                mobilintDownloadInProgress.set(false)
+            }
+        }
+    }
+
+    private fun setupEyeTrackingCalibrationFab() {
+        binding.fabEyeTrackingCalibration.setOnClickListener {
+            mediaPipeProcessor.startEyeTrackingCalibration()
+            Toast.makeText(this, getString(R.string.eye_tracking_calibration_started), Toast.LENGTH_SHORT).show()
         }
     }
 

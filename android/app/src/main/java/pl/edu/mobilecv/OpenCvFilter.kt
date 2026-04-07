@@ -96,6 +96,13 @@ enum class OpenCvFilter(val displayName: String) {
     IRIS("Wzrok (Iris)"),
 
     /**
+     * Advanced eye tracking with screen-space calibration.
+     * Maps iris landmarks to actual screen coordinates using a multi-point
+     * calibration procedure.
+     */
+    EYE_TRACKING("Eye Tracking"),
+
+    /**
      * Renders a 3D hologram object (wireframe cube) whose rotation is driven
      * by the viewer's face position relative to the screen centre.
      *
@@ -106,6 +113,12 @@ enum class OpenCvFilter(val displayName: String) {
      * to the viewer's gaze.
      */
     HOLOGRAM_3D("Hologram 3D"),
+
+    /**
+     * Lightweight face detection using BlazeFace (MediaPipe Face Detector).
+     * Optimized for long-term tracking with lower CPU usage.
+     */
+    FACE_DETECTION_BLAZE("Detekcja twarzy (Blaze)"),
 
     /** Estimates sparse monocular visual odometry from tracked feature points. */
     VISUAL_ODOMETRY("Odometria wizyjna"),
@@ -245,6 +258,16 @@ enum class OpenCvFilter(val displayName: String) {
     RTMDET_ROTATED("RTMDet Rotated"),
 
     // ------------------------------------------------------------------
+    // Mobilint NPU hardware acceleration
+    // ------------------------------------------------------------------
+
+    /**
+     * High-performance object detection accelerated by Mobilint Ares NPU.
+     * Uses a specialized model optimized for hardware-level execution.
+     */
+    MOBILINT_DETECT("Mobilint Detect (NPU)"),
+
+    // ------------------------------------------------------------------
     // Full 3-D odometry
     // ------------------------------------------------------------------
 
@@ -279,7 +302,9 @@ val OpenCvFilter.isMediaPipe: Boolean
         this == OpenCvFilter.HOLISTIC_HANDS ||
         this == OpenCvFilter.HOLISTIC_FACE ||
         this == OpenCvFilter.IRIS ||
-        this == OpenCvFilter.HOLOGRAM_3D
+        this == OpenCvFilter.EYE_TRACKING ||
+        this == OpenCvFilter.HOLOGRAM_3D ||
+        this == OpenCvFilter.FACE_DETECTION_BLAZE
 
 /**
  * Returns ``true`` if this filter requires the YOLO processing pipeline
@@ -300,6 +325,12 @@ val OpenCvFilter.isYolo: Boolean
 val OpenCvFilter.isRtmDet: Boolean
     get() = this == OpenCvFilter.RTMDET_DETECT ||
         this == OpenCvFilter.RTMDET_ROTATED
+
+/**
+ * Returns ``true`` if this filter requires the TensorFlow Lite processing pipeline.
+ */
+val OpenCvFilter.isTflite: Boolean
+    get() = this == OpenCvFilter.TFLITE_DETECT
 
 /**
  * Returns ``true`` if this filter belongs to the full 3-D odometry pipeline

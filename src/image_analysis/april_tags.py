@@ -24,7 +24,7 @@ APRILTAG_FAMILY_TO_DICTIONARY: dict[str, int] = {
     "tag36h10": cv2.aruco.DICT_APRILTAG_36h10,
     "tag36h11": cv2.aruco.DICT_APRILTAG_36h11,
 }
-DEFAULT_APRILTAG_FAMILY = "tag36h11"
+DEFAULT_APRILTAG_FAMILY = "tag16h5"
 
 
 @dataclass(frozen=True)
@@ -33,7 +33,7 @@ class AprilTagDetection:
 
     Attributes:
         tag_id: Integer identifier decoded from the tag.
-        family: AprilTag family name, e.g. ``"tag36h11"``.
+        family: AprilTag family name, e.g. ``"tag16h5"``.
         corners: Tag corners as ``(top-left, top-right, bottom-right, bottom-left)``
             in pixel coordinates with shape ``(4, 2)`` and dtype ``float32``.
         center: Tag center point as ``(x, y)`` in pixel coordinates.

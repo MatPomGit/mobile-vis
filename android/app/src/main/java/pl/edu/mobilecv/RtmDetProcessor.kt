@@ -178,10 +178,15 @@ class RtmDetProcessor(private val context: Context) {
         bitmap: Bitmap,
         filter: OpenCvFilter,
     ): Bitmap {
-        return when (filter) {
-            OpenCvFilter.RTMDET_DETECT -> applyDetection(bitmap)
-            OpenCvFilter.RTMDET_ROTATED -> applyRotatedDetection(bitmap)
-            else -> bitmap.copy(Bitmap.Config.ARGB_8888, false)
+        return try {
+            when (filter) {
+                OpenCvFilter.RTMDET_DETECT -> applyDetection(bitmap)
+                OpenCvFilter.RTMDET_ROTATED -> applyRotatedDetection(bitmap)
+                else -> bitmap.copy(Bitmap.Config.ARGB_8888, false)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "RTMDet processing failed for filter=${filter.name}", e)
+            drawModuleError(bitmap, "RTMDet error: ${filter.displayName}")
         }
     }
 
@@ -605,6 +610,20 @@ class RtmDetProcessor(private val context: Context) {
         }
         canvas.drawText("Model missing: $modelName", 30f, 60f, paint)
         canvas.drawText("Select RTMDet tab to download", 30f, 110f, paint)
+        return result
+    }
+
+    /** Overlay a processing error message without crashing other modules. */
+    private fun drawModuleError(bitmap: Bitmap, message: String): Bitmap {
+        val result = ensureArgb8888(bitmap)
+        val canvas = Canvas(result)
+        val paint = Paint().apply {
+            color = Color.RED
+            textSize = 40f
+            isAntiAlias = true
+            isFakeBoldText = true
+        }
+        canvas.drawText(message, 30f, 60f, paint)
         return result
     }
 

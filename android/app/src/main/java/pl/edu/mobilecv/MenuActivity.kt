@@ -318,15 +318,15 @@ class MenuActivity : AppCompatActivity() {
         addModelRow(container, MediaPipeProcessor.MODEL_FACE,  getString(R.string.model_name_face_landmarker),  ModelGroup.MEDIAPIPE)
         addDownloadAllButton(container, ModelGroup.MEDIAPIPE)
 
-        // YOLO section -- rows keyed by the *.pt source-model filenames from YOLO_MODEL_URLS
+        // YOLO section -- rows keyed by the *.pte filenames from YOLO_MODEL_URLS
         addSectionHeader(container, getString(R.string.models_yolo_title))
         addGroupDescription(container, getString(R.string.models_yolo_description))
 
-        addModelRow(container, "yolov8n.pt",       getString(R.string.model_name_yolo_detect),   ModelGroup.YOLO)
-        addModelRow(container, "yolov8n-seg.pt",   getString(R.string.model_name_yolo_segment),  ModelGroup.YOLO)
-        addModelRow(container, "yolov8n-pose.pt",  getString(R.string.model_name_yolo_pose),     ModelGroup.YOLO)
-        addModelRow(container, "yolov8n-cls.pt",   getString(R.string.model_name_yolo_classify), ModelGroup.YOLO)
-        addModelRow(container, "yolov8n-obb.pt",   getString(R.string.model_name_yolo_obb),      ModelGroup.YOLO)
+        addModelRow(container, "yolov8n.pte",       getString(R.string.model_name_yolo_detect),   ModelGroup.YOLO)
+        addModelRow(container, "yolov8n-seg.pte",   getString(R.string.model_name_yolo_segment),  ModelGroup.YOLO)
+        addModelRow(container, "yolov8n-pose.pte",  getString(R.string.model_name_yolo_pose),     ModelGroup.YOLO)
+        addModelRow(container, "yolov8n-cls.pte",   getString(R.string.model_name_yolo_classify), ModelGroup.YOLO)
+        addModelRow(container, "yolov8n-obb.pte",   getString(R.string.model_name_yolo_obb),      ModelGroup.YOLO)
         addDownloadAllButton(container, ModelGroup.YOLO)
 
         // RTMDet section

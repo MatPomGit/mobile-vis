@@ -56,9 +56,9 @@ class RtmDetProcessor(private val context: Context) {
     companion object {
         private const val TAG = "RtmDetProcessor"
 
-        /** TorchScript model filenames stored in internal storage by [ModelDownloadManager]. */
-        const val MODEL_DETECT = "rtmdet_nano_det.torchscript"
-        const val MODEL_ROTATED = "rtmdet_nano_rotated.torchscript"
+        /** PyTorch model filenames stored in internal storage by [ModelDownloadManager]. */
+        const val MODEL_DETECT = "rtmdet_nano_det.pte"
+        const val MODEL_ROTATED = "rtmdet_nano_rotated.pte"
 
         /** RTMDet inference input size (square). */
         private const val INPUT_SIZE = 640

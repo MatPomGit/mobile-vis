@@ -28,11 +28,11 @@ class YoloProcessor(private val context: Context) {
     companion object {
         private const val TAG = "YoloProcessor"
 
-        const val MODEL_DETECT = "yolov8n.torchscript"
-        const val MODEL_SEGMENT = "yolov8n-seg.torchscript"
-        const val MODEL_POSE = "yolov8n-pose.torchscript"
-        const val MODEL_CLASSIFY = "yolov8n-cls.torchscript"
-        const val MODEL_OBB = "yolov8n-obb.torchscript"
+        const val MODEL_DETECT = "yolov8n.pte"
+        const val MODEL_SEGMENT = "yolov8n-seg.pte"
+        const val MODEL_POSE = "yolov8n-pose.pte"
+        const val MODEL_CLASSIFY = "yolov8n-cls.pte"
+        const val MODEL_OBB = "yolov8n-obb.pte"
 
         private const val INPUT_SIZE = 640
         private const val CLS_INPUT_SIZE = 224
@@ -407,7 +407,13 @@ class YoloProcessor(private val context: Context) {
     }
 
     private fun tryLoadNet(path: String): Module? = try {
-        Module.load(context.filesDir.absolutePath + "/" + path)
+        val fullPath = ModelDownloadManager.getYoloModelPath(context, path)
+        if (fullPath != null) {
+            Module.load(fullPath)
+        } else {
+            Log.e(TAG, "Model file not found: $path")
+            null
+        }
     } catch (e: Exception) {
         Log.e(TAG, "Error loading model $path: ${e.message}"); null
     }

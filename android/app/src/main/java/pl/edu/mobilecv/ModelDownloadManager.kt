@@ -57,32 +57,27 @@ object ModelDownloadManager {
     )
 
     /**
-     * Remote download URLs for the base YOLOv8-nano PyTorch weights hosted on the official
-     * Ultralytics GitHub releases.
+     * Remote download URLs for YOLOv8-nano models exported to the ``.pte`` format.
      *
-     * These ``*.pt`` files are the **source models** downloaded directly from the producer
-     * (Ultralytics).  Before deploying to Android, each ``*.pt`` file must be exported to
-     * TorchScript format using the Python helper::
+     * These ``*.pte`` files are hosted in the project's GitHub Releases. Each model
+     * has been pre-exported from the base Ultralytics weights to be compatible with
+     * the mobile runtime.
      *
-     *     from image_analysis.yolo import export_yolo_to_torchscript
-     *     export_yolo_to_torchscript("yolov8n.pt")  # → yolov8n.torchscript
-     *
-     * The resulting ``*.torchscript`` files (see [YoloProcessor.MODEL_DETECT] etc.) are what
+     * The resulting ``*.pte`` files (see [YoloProcessor.MODEL_DETECT] etc.) are what
      * the Android app loads via ``Module.load()``.  Place the converted files in the YOLO
-     * model directory ([getYoloModelPath]) before starting inference, or distribute them
-     * through a CDN/release channel that matches the [YoloProcessor] model filenames.
+     * model directory ([getYoloModelPath]) before starting inference.
      */
     val YOLO_MODEL_URLS: Map<String, String> = mapOf(
-        "yolov8n.pt" to
-            "https://github.com/ultralytics/assets/releases/download/v8.3.0/yolov8n.pt",
-        "yolov8n-seg.pt" to
-            "https://github.com/ultralytics/assets/releases/download/v8.3.0/yolov8n-seg.pt",
-        "yolov8n-pose.pt" to
-            "https://github.com/ultralytics/assets/releases/download/v8.3.0/yolov8n-pose.pt",
-        "yolov8n-cls.pt" to
-            "https://github.com/ultralytics/assets/releases/download/v8.3.0/yolov8n-cls.pt",
-        "yolov8n-obb.pt" to
-            "https://github.com/ultralytics/assets/releases/download/v8.3.0/yolov8n-obb.pt",
+        "yolov8n.pte" to
+            "https://github.com/MatPomGit/mobile-vis/releases/download/models/yolov8n.pte",
+        "yolov8n-seg.pte" to
+            "https://github.com/MatPomGit/mobile-vis/releases/download/models/yolov8n-seg.pte",
+        "yolov8n-pose.pte" to
+            "https://github.com/MatPomGit/mobile-vis/releases/download/models/yolov8n-pose.pte",
+        "yolov8n-cls.pte" to
+            "https://github.com/MatPomGit/mobile-vis/releases/download/models/yolov8n-cls.pte",
+        "yolov8n-obb.pte" to
+            "https://github.com/MatPomGit/mobile-vis/releases/download/models/yolov8n-obb.pte",
     )
 
     private const val YOLO_DIR = "yolo"
@@ -97,9 +92,9 @@ object ModelDownloadManager {
      */
     val RTMDET_MODEL_URLS: Map<String, String> = mapOf(
         RtmDetProcessor.MODEL_DETECT to
-            "https://github.com/MatPomGit/mobile-vis/releases/download/models/rtmdet_nano_det.torchscript",
+            "https://github.com/MatPomGit/mobile-vis/releases/download/models/rtmdet_nano_det.pte",
         RtmDetProcessor.MODEL_ROTATED to
-            "https://github.com/MatPomGit/mobile-vis/releases/download/models/rtmdet_nano_rotated.torchscript",
+            "https://github.com/MatPomGit/mobile-vis/releases/download/models/rtmdet_nano_rotated.pte",
     )
 
     private const val RTMDET_DIR = "rtmdet"
@@ -182,7 +177,7 @@ object ModelDownloadManager {
      * Download a single YOLO source model file from [url] to the YOLO directory.
      *
      * @param context Application or activity context.
-     * @param filename Target filename (e.g. ``"yolov8n.pt"``).
+     * @param filename Target filename (e.g. ``"yolov8n.pte"``).
      * @param url Source URL.
      * @return ``true`` on success.
      */
@@ -290,44 +285,29 @@ object ModelDownloadManager {
     }
 
     /**
-     * Return ``true`` if **all** YOLO TorchScript model files are present and non-empty.
-     *
-     * Checks for the [YoloProcessor.MODEL_DETECT] etc. ``*.torchscript`` files that are
-     * loaded by [YoloProcessor] at runtime.  Returns ``false`` until the developer-supplied
-     * TorchScript exports have been placed in the YOLO model directory.
+     * Return ``true`` if **all** YOLO model files are present and non-empty.
      *
      * @param context Application or activity context.
      */
     fun areYoloModelsReady(context: Context): Boolean {
-        val torchscriptModels = listOf(
+        val models = listOf(
             YoloProcessor.MODEL_DETECT,
             YoloProcessor.MODEL_SEGMENT,
             YoloProcessor.MODEL_POSE,
             YoloProcessor.MODEL_CLASSIFY,
             YoloProcessor.MODEL_OBB,
         )
-        return torchscriptModels.all { getYoloModelPath(context, it) != null }
+        return models.all { getYoloModelPath(context, it) != null }
     }
 
     /**
-     * Download all missing base PyTorch ``*.pt`` model files from Ultralytics.
-     *
-     * Downloads the official YOLOv8-nano ``*.pt`` weights directly from the Ultralytics
-     * GitHub releases ([YOLO_MODEL_URLS]) to internal storage.  These files are the
-     * **source models** for the TorchScript conversion workflow; they are **not** directly
-     * usable by [YoloProcessor] without first being exported via::
-     *
-     *     from image_analysis.yolo import export_yolo_to_torchscript
-     *     export_yolo_to_torchscript("yolov8n.pt")  # → yolov8n.torchscript
-     *
-     * Place the resulting ``*.torchscript`` files in the YOLO model directory so that
-     * [areYoloModelsReady] returns ``true`` and [YoloProcessor] can load them.
+     * Download all missing YOLO model files from Ultralytics.
      *
      * This is a blocking call; run it on a background thread.
      *
      * @param context Application or activity context.
      * @param onProgress Optional callback invoked with current and total file count.
-     * @return ``true`` if all source ``*.pt`` files are now available; ``false`` if any
+     * @return ``true`` if all files are now available; ``false`` if any
      *         download failed.
      */
     fun downloadMissingYoloModels(

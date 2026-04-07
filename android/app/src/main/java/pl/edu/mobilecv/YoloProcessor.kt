@@ -147,13 +147,19 @@ class YoloProcessor(private val context: Context) {
         }
         lastFilter = filter
 
-        return when (filter) {
-            OpenCvFilter.YOLO_DETECT, OpenCvFilter.YOLO_KALMAN -> applyDetection(bitmap, filter == OpenCvFilter.YOLO_KALMAN)
-            OpenCvFilter.YOLO_SEGMENT -> applySegmentation(bitmap)
-            OpenCvFilter.YOLO_POSE -> applyPose(bitmap)
-            OpenCvFilter.YOLO_CLASSIFY -> applyClassify(bitmap)
-            OpenCvFilter.YOLO_OBB -> applyObb(bitmap)
-            else -> bitmap.copy(Bitmap.Config.ARGB_8888, false)
+        return try {
+            when (filter) {
+                OpenCvFilter.YOLO_DETECT, OpenCvFilter.YOLO_KALMAN ->
+                    applyDetection(bitmap, filter == OpenCvFilter.YOLO_KALMAN)
+                OpenCvFilter.YOLO_SEGMENT -> applySegmentation(bitmap)
+                OpenCvFilter.YOLO_POSE -> applyPose(bitmap)
+                OpenCvFilter.YOLO_CLASSIFY -> applyClassify(bitmap)
+                OpenCvFilter.YOLO_OBB -> applyObb(bitmap)
+                else -> bitmap.copy(Bitmap.Config.ARGB_8888, false)
+            }
+        } catch (error: Throwable) {
+            Log.e(TAG, "YOLO processing failed for filter=${filter.name}", error)
+            drawModuleError(bitmap, "YOLO error: ${filter.displayName}")
         }
     }
 
@@ -451,6 +457,14 @@ class YoloProcessor(private val context: Context) {
         val canvas = Canvas(result)
         val paint = Paint().apply { color = Color.RED; textSize = 40f; isFakeBoldText = true }
         canvas.drawText("Model missing: $model", 50f, 100f, paint)
+        return result
+    }
+
+    private fun drawModuleError(bitmap: Bitmap, message: String): Bitmap {
+        val result = ensureArgb8888(bitmap)
+        val canvas = Canvas(result)
+        val paint = Paint().apply { color = Color.RED; textSize = 40f; isFakeBoldText = true }
+        canvas.drawText(message, 50f, 100f, paint)
         return result
     }
 

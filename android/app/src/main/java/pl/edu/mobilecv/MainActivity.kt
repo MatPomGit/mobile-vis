@@ -160,12 +160,27 @@ class MainActivity : AppCompatActivity() {
         imageProcessor.labelVpError = getString(R.string.overlay_vp_error)
 
         backgroundExecutor.execute {
-            mediaPipeProcessor.initialize()
-            imageProcessor.mediaPipeProcessor = mediaPipeProcessor
-            yoloProcessor.initialize()
-            imageProcessor.yoloProcessor = yoloProcessor
-            rtmDetProcessor.initialize()
-            imageProcessor.rtmDetProcessor = rtmDetProcessor
+            try {
+                mediaPipeProcessor.initialize()
+                imageProcessor.mediaPipeProcessor = mediaPipeProcessor
+            } catch (error: Throwable) {
+                logExceptionTelemetry("startup_module_init", "mediapipe", error)
+                Log.e(TAG, "MediaPipe initialization failed. Other modules remain available.", error)
+            }
+            try {
+                yoloProcessor.initialize()
+                imageProcessor.yoloProcessor = yoloProcessor
+            } catch (error: Throwable) {
+                logExceptionTelemetry("startup_module_init", "yolo", error)
+                Log.e(TAG, "YOLO initialization failed. Other modules remain available.", error)
+            }
+            try {
+                rtmDetProcessor.initialize()
+                imageProcessor.rtmDetProcessor = rtmDetProcessor
+            } catch (error: Throwable) {
+                logExceptionTelemetry("startup_module_init", "rtmdet", error)
+                Log.e(TAG, "RTMDet initialization failed. Other modules remain available.", error)
+            }
 
             // Automatically download missing YOLO models in the background at startup
             // so they are ready regardless of which tab the user opens first.

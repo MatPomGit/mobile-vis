@@ -157,8 +157,8 @@ class YoloProcessor(private val context: Context) {
                 OpenCvFilter.YOLO_OBB -> applyObb(bitmap)
                 else -> bitmap.copy(Bitmap.Config.ARGB_8888, false)
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "YOLO processing failed for filter=${filter.name}", e)
+        } catch (error: Throwable) {
+            Log.e(TAG, "YOLO processing failed for filter=${filter.name}", error)
             drawModuleError(bitmap, "YOLO error: ${filter.displayName}")
         }
     }

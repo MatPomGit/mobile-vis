@@ -163,23 +163,23 @@ class MainActivity : AppCompatActivity() {
             try {
                 mediaPipeProcessor.initialize()
                 imageProcessor.mediaPipeProcessor = mediaPipeProcessor
-            } catch (e: Exception) {
-                logExceptionTelemetry("startup_module_init", "mediapipe", e)
-                Log.e(TAG, "MediaPipe initialization failed. Other modules remain available.", e)
+            } catch (error: Throwable) {
+                logExceptionTelemetry("startup_module_init", "mediapipe", error)
+                Log.e(TAG, "MediaPipe initialization failed. Other modules remain available.", error)
             }
             try {
                 yoloProcessor.initialize()
                 imageProcessor.yoloProcessor = yoloProcessor
-            } catch (e: Exception) {
-                logExceptionTelemetry("startup_module_init", "yolo", e)
-                Log.e(TAG, "YOLO initialization failed. Other modules remain available.", e)
+            } catch (error: Throwable) {
+                logExceptionTelemetry("startup_module_init", "yolo", error)
+                Log.e(TAG, "YOLO initialization failed. Other modules remain available.", error)
             }
             try {
                 rtmDetProcessor.initialize()
                 imageProcessor.rtmDetProcessor = rtmDetProcessor
-            } catch (e: Exception) {
-                logExceptionTelemetry("startup_module_init", "rtmdet", e)
-                Log.e(TAG, "RTMDet initialization failed. Other modules remain available.", e)
+            } catch (error: Throwable) {
+                logExceptionTelemetry("startup_module_init", "rtmdet", error)
+                Log.e(TAG, "RTMDet initialization failed. Other modules remain available.", error)
             }
 
             // Automatically download missing YOLO models in the background at startup

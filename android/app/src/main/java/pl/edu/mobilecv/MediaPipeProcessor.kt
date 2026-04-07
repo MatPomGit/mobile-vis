@@ -305,14 +305,32 @@ class MediaPipeProcessor(private val context: Context) {
      * Returns a new [Bitmap] containing the visualized landmarks.
      */
     fun processFrame(bitmap: Bitmap, filter: OpenCvFilter): Bitmap {
-        return when (filter) {
-            OpenCvFilter.HOLISTIC_BODY -> applyPoseLandmarker(bitmap)
-            OpenCvFilter.HOLISTIC_HANDS -> applyHandLandmarker(bitmap)
-            OpenCvFilter.HOLISTIC_FACE -> applyFaceLandmarker(bitmap, false)
-            OpenCvFilter.IRIS -> applyFaceLandmarker(bitmap, true)
-            OpenCvFilter.HOLOGRAM_3D -> applyHologram3D(bitmap)
-            else -> bitmap
+        return try {
+            when (filter) {
+                OpenCvFilter.HOLISTIC_BODY -> applyPoseLandmarker(bitmap)
+                OpenCvFilter.HOLISTIC_HANDS -> applyHandLandmarker(bitmap)
+                OpenCvFilter.HOLISTIC_FACE -> applyFaceLandmarker(bitmap, false)
+                OpenCvFilter.IRIS -> applyFaceLandmarker(bitmap, true)
+                OpenCvFilter.HOLOGRAM_3D -> applyHologram3D(bitmap)
+                else -> bitmap.copy(Bitmap.Config.ARGB_8888, false)
+            }
+        } catch (error: Throwable) {
+            Log.e(TAG, "MediaPipe processing failed for filter=${filter.name}", error)
+            drawModuleError(bitmap, "MediaPipe error: ${filter.displayName}")
         }
+    }
+
+    private fun drawModuleError(bitmap: Bitmap, message: String): Bitmap {
+        val output = ensureArgb8888(bitmap)
+        val canvas = Canvas(output)
+        val paint = Paint().apply {
+            color = Color.RED
+            textSize = 40f
+            isFakeBoldText = true
+            isAntiAlias = true
+        }
+        canvas.drawText(message, 30f, 60f, paint)
+        return output
     }
 
     private fun applyPoseLandmarker(bitmap: Bitmap): Bitmap {

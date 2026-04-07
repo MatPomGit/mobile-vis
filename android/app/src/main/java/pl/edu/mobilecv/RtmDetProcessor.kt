@@ -184,8 +184,8 @@ class RtmDetProcessor(private val context: Context) {
                 OpenCvFilter.RTMDET_ROTATED -> applyRotatedDetection(bitmap)
                 else -> bitmap.copy(Bitmap.Config.ARGB_8888, false)
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "RTMDet processing failed for filter=${filter.name}", e)
+        } catch (error: Throwable) {
+            Log.e(TAG, "RTMDet processing failed for filter=${filter.name}", error)
             drawModuleError(bitmap, "RTMDet error: ${filter.displayName}")
         }
     }

@@ -81,11 +81,13 @@ class MainActivity : AppCompatActivity() {
     private val mediaPipeProcessor: MediaPipeProcessor by lazy { MediaPipeProcessor(this) }
     private val yoloProcessor: YoloProcessor by lazy { YoloProcessor(this) }
     private val rtmDetProcessor: RtmDetProcessor by lazy { RtmDetProcessor(this) }
+    private val tfliteProcessor: TfliteProcessor by lazy { TfliteProcessor(this) }
 
     @Volatile private var mediaPipeDownloadInProgress = false
     private val yoloDownloadInProgress = AtomicBoolean(false)
     private val rtmDetDownloadInProgress = AtomicBoolean(false)
     private val mobilintDownloadInProgress = AtomicBoolean(false)
+    private val tfliteDownloadInProgress = AtomicBoolean(false)
     @Volatile private var currentFilter = OpenCvFilter.ORIGINAL
     @Volatile private var currentMode: AnalysisMode = AnalysisMode.entries.first()
     @Volatile private var isActiveVisionEnabled = false
@@ -181,6 +183,13 @@ class MainActivity : AppCompatActivity() {
             } catch (error: Throwable) {
                 logExceptionTelemetry("startup_module_init", "rtmdet", error)
                 Log.e(TAG, "RTMDet initialization failed. Other modules remain available.", error)
+            }
+            try {
+                tfliteProcessor.initialize()
+                imageProcessor.tfliteProcessor = tfliteProcessor
+            } catch (error: Throwable) {
+                logExceptionTelemetry("startup_module_init", "tflite", error)
+                Log.e(TAG, "TFLite initialization failed. Other modules remain available.", error)
             }
 
             // Automatically download missing YOLO models in the background at startup
@@ -447,6 +456,7 @@ class MainActivity : AppCompatActivity() {
         if ((mode == AnalysisMode.YOLO || mode == AnalysisMode.TRACKING) && !ModelDownloadManager.areYoloModelsReady(this)) startYoloModelDownload()
         if (mode == AnalysisMode.RTMDET && !ModelDownloadManager.areRtmDetModelsReady(this)) startRtmDetModelDownload()
         if (mode == AnalysisMode.MOBILINT && !ModelDownloadManager.areMobilintModelsReady(this)) startMobilintModelDownload()
+        if (mode == AnalysisMode.TFLITE && !ModelDownloadManager.areTfliteModelsReady(this)) startTfliteModelDownload()
 
         updateContextualControls()
     }
@@ -582,9 +592,41 @@ class MainActivity : AppCompatActivity() {
                 runOnUiThread {
                     if (!isDestroyed && !isFinishing)
                         Toast.makeText(this, getString(R.string.mobilint_models_download_failed), Toast.LENGTH_LONG).show()
-                }
+                    }
             } finally {
                 mobilintDownloadInProgress.set(false)
+            }
+        }
+    }
+
+    private fun startTfliteModelDownload() {
+        if (!tfliteDownloadInProgress.compareAndSet(false, true)) return
+        runOnUiThread { Toast.makeText(this, getString(R.string.tflite_models_downloading), Toast.LENGTH_LONG).show() }
+        backgroundExecutor.execute {
+            try {
+                if (ModelDownloadManager.downloadMissingTfliteModels(this)) {
+                    tfliteProcessor.close()
+                    tfliteProcessor.initialize()
+                    imageProcessor.tfliteProcessor = tfliteProcessor
+                    runOnUiThread {
+                        if (!isDestroyed && !isFinishing)
+                            Toast.makeText(this, getString(R.string.tflite_models_ready), Toast.LENGTH_SHORT).show()
+                    }
+                } else {
+                    runOnUiThread {
+                        if (!isDestroyed && !isFinishing)
+                            Toast.makeText(this, getString(R.string.tflite_models_download_failed), Toast.LENGTH_LONG).show()
+                    }
+                }
+            } catch (e: Exception) {
+                logExceptionTelemetry("tflite_download", "unexpected", e)
+                Log.e(TAG, "TFLite model download failed", e)
+                runOnUiThread {
+                    if (!isDestroyed && !isFinishing)
+                        Toast.makeText(this, getString(R.string.tflite_models_download_failed), Toast.LENGTH_LONG).show()
+                }
+            } finally {
+                tfliteDownloadInProgress.set(false)
             }
         }
     }

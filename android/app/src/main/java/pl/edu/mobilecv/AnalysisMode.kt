@@ -79,6 +79,7 @@ enum class AnalysisMode(val displayName: String, val filters: List<OpenCvFilter>
             OpenCvFilter.IRIS,
             OpenCvFilter.EYE_TRACKING,
             OpenCvFilter.HOLOGRAM_3D,
+            OpenCvFilter.OBJECTRON,
         )
     ),
 
@@ -176,6 +177,19 @@ enum class AnalysisMode(val displayName: String, val filters: List<OpenCvFilter>
         "Mobilint NPU",
         listOf(
             OpenCvFilter.MOBILINT_DETECT,
+        )
+    ),
+
+    /**
+     * Standard object detection using TensorFlow Lite (SSD MobileNet V2).
+     *
+     * TFLite is the industry-standard mobile inference engine. This mode
+     * demonstrates CPU and GPU-accelerated inference for common objects.
+     */
+    TFLITE(
+        "TFLite",
+        listOf(
+            OpenCvFilter.TFLITE_DETECT,
         )
     ),
 

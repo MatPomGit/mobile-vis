@@ -115,6 +115,13 @@ enum class OpenCvFilter(val displayName: String) {
     HOLOGRAM_3D("Hologram 3D"),
 
     /**
+     * MediaPipe Objectron: 3D object detection and bounding box estimation.
+     * Detects objects like shoes, chairs, or cups and overlays a 3D wireframe
+     * box aligned with the object's real-world orientation.
+     */
+    OBJECTRON("Objectron 3D"),
+
+    /**
      * Lightweight face detection using BlazeFace (MediaPipe Face Detector).
      * Optimized for long-term tracking with lower CPU usage.
      */
@@ -268,6 +275,16 @@ enum class OpenCvFilter(val displayName: String) {
     MOBILINT_DETECT("Mobilint Detect (NPU)"),
 
     // ------------------------------------------------------------------
+    // TFLite object detection
+    // ------------------------------------------------------------------
+
+    /**
+     * Standard object detection using TensorFlow Lite (SSD MobileNet).
+     * Runs on CPU or GPU delegate if available.
+     */
+    TFLITE_DETECT("TFLite Detect"),
+
+    // ------------------------------------------------------------------
     // Full 3-D odometry
     // ------------------------------------------------------------------
 
@@ -304,6 +321,7 @@ val OpenCvFilter.isMediaPipe: Boolean
         this == OpenCvFilter.IRIS ||
         this == OpenCvFilter.EYE_TRACKING ||
         this == OpenCvFilter.HOLOGRAM_3D ||
+        this == OpenCvFilter.OBJECTRON ||
         this == OpenCvFilter.FACE_DETECTION_BLAZE
 
 /**

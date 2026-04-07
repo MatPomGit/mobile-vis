@@ -28,6 +28,7 @@
 
         <activity
             android:name=".MenuActivity"
+            android:configChanges="orientation|screenSize|keyboardHidden"
             android:exported="true"
             android:screenOrientation="fullSensor">
             <intent-filter>
@@ -38,16 +39,19 @@
 
         <activity
             android:name=".MainActivity"
+            android:configChanges="orientation|screenSize|keyboardHidden"
             android:exported="false"
             android:screenOrientation="fullSensor" />
 
         <activity
             android:name=".PointCloudViewerActivity"
+            android:configChanges="orientation|screenSize|keyboardHidden"
             android:exported="false"
             android:screenOrientation="fullSensor" />
 
         <activity
             android:name=".OdometryTutorialActivity"
+            android:configChanges="orientation|screenSize|keyboardHidden"
             android:exported="false"
             android:screenOrientation="fullSensor" />
 

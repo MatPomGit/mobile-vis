@@ -84,6 +84,7 @@ class ImageProcessor {
     var mediaPipeProcessor: MediaPipeProcessor? = null
     var yoloProcessor: YoloProcessor? = null
     var rtmDetProcessor: RtmDetProcessor? = null
+    var tfliteProcessor: TfliteProcessor? = null
 
     var labelFrameCountSuffix: String = "klatek"
     var labelBoardNotFound: String = "Brak szachownicy"
@@ -261,6 +262,10 @@ class ImageProcessor {
             return rtmDetProcessor?.processFrame(bitmap, filter)
                 ?: bitmap.copy(Bitmap.Config.ARGB_8888, false)
         }
+        if (filter.isTflite) {
+            return tfliteProcessor?.processFrame(bitmap, filter)
+                ?: bitmap.copy(Bitmap.Config.ARGB_8888, false)
+        }
 
         val src = ensureMat(srcBuffer, bitmap.height, bitmap.width, CvType.CV_8UC4)
         Utils.bitmapToMat(bitmap, src)
@@ -392,42 +397,50 @@ class ImageProcessor {
     private fun applyAprilTagDetection(src: Mat): Mat {
         val res = src.clone(); val corners = ArrayList<Mat>(); val ids = Mat()
         val gray = Mat(); Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
-        aprilTagDetector.detectMarkers(gray, corners, ids)
-        
-        // Manual detection for CCTag if needed (assuming CCTag logic would be similar)
-        // For now, let's ensure we are not missing results due to empty ids
-        
-        if (ids.rows() > 0) {
-            Objdetect.drawDetectedMarkers(res, corners, ids, Scalar(0.0, 255.0, 0.0, 255.0))
-            for (i in 0 until corners.size) {
-                val pts = ptsToList(corners[i])
-                val markerId = ids.get(i, 0)[0].toInt()
-                val poseEstimate = drawMarkerPoseOverlay(res, pts, "april:$markerId", "AprilTag#$markerId")
-                val detection = MarkerDetection.AprilTag(markerId, pts, poseEstimate?.rvec, poseEstimate?.tvec, poseEstimate?.quality ?: MarkerDetection.Quality())
-                drawCornerOutlineWithOrder(res, pts)
-                drawMarkerLabel(res, detection, poseEstimate?.metrics)
+        try {
+            aprilTagDetector.detectMarkers(gray, corners, ids)
+            
+            if (ids.rows() > 0) {
+                Objdetect.drawDetectedMarkers(res, corners, ids, Scalar(0.0, 255.0, 0.0, 255.0))
+                for (i in 0 until corners.size) {
+                    val pts = ptsToList(corners[i])
+                    val markerId = ids.get(i, 0)[0].toInt()
+                    val poseEstimate = drawMarkerPoseOverlay(res, pts, "april:$markerId", "AprilTag#$markerId")
+                    val detection = MarkerDetection.AprilTag(markerId, pts, poseEstimate?.rvec, poseEstimate?.tvec, poseEstimate?.quality ?: MarkerDetection.Quality())
+                    drawCornerOutlineWithOrder(res, pts)
+                    drawMarkerLabel(res, detection, poseEstimate?.metrics)
+                }
             }
+        } finally {
+            gray.release()
+            ids.release()
+            corners.forEach { it.release() }
         }
-        gray.release(); ids.release(); return res
+        return res
     }
 
     private fun applyArucoDetection(src: Mat): Mat {
         val res = src.clone(); val corners = ArrayList<Mat>(); val ids = Mat()
         val gray = Mat(); Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
-        arucoDetector.detectMarkers(gray, corners, ids)
-        gray.release()
-        if (ids.rows() > 0) {
-            Objdetect.drawDetectedMarkers(res, corners, ids, Scalar(255.0, 255.0, 0.0, 255.0))
-            for (i in 0 until corners.size) {
-                val pts = ptsToList(corners[i])
-                val markerId = ids.get(i, 0)[0].toInt()
-                val poseEstimate = drawMarkerPoseOverlay(res, pts, "aruco:$markerId", "ArUco#$markerId")
-                val detection = MarkerDetection.Aruco(markerId, pts, poseEstimate?.rvec, poseEstimate?.tvec, poseEstimate?.quality ?: MarkerDetection.Quality())
-                drawCornerOutlineWithOrder(res, pts)
-                drawMarkerLabel(res, detection, poseEstimate?.metrics)
+        try {
+            arucoDetector.detectMarkers(gray, corners, ids)
+            if (ids.rows() > 0) {
+                Objdetect.drawDetectedMarkers(res, corners, ids, Scalar(255.0, 255.0, 0.0, 255.0))
+                for (i in 0 until corners.size) {
+                    val pts = ptsToList(corners[i])
+                    val markerId = ids.get(i, 0)[0].toInt()
+                    val poseEstimate = drawMarkerPoseOverlay(res, pts, "aruco:$markerId", "ArUco#$markerId")
+                    val detection = MarkerDetection.Aruco(markerId, pts, poseEstimate?.rvec, poseEstimate?.tvec, poseEstimate?.quality ?: MarkerDetection.Quality())
+                    drawCornerOutlineWithOrder(res, pts)
+                    drawMarkerLabel(res, detection, poseEstimate?.metrics)
+                }
             }
+        } finally {
+            gray.release()
+            ids.release()
+            corners.forEach { it.release() }
         }
-        ids.release(); return res
+        return res
     }
 
     private fun ptsToList(c: Mat): List<Pair<Float, Float>> {
@@ -550,17 +563,26 @@ class ImageProcessor {
 
     private fun applyQrCodeDetection(src: Mat): Mat {
         val res = src.clone(); val points = Mat(); val gray = Mat()
-        Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
-        val data = qrCodeDetector.detectAndDecode(gray, points)
-        if (!data.isNullOrEmpty()) {
-            val pts = MatOfPoint2f(); points.convertTo(pts, CvType.CV_32F)
-            for (i in 0 until pts.rows()) {
-                val p = Point(pts.get(i, 0)[0], pts.get(i, 0)[1])
-                Imgproc.line(res, p, Point(pts.get((i+1)%pts.rows(), 0)[0], pts.get((i+1)%pts.rows(), 0)[1]), Scalar(255.0, 0.0, 0.0, 255.0), 3)
+        try {
+            Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
+            val data = qrCodeDetector.detectAndDecode(gray, points)
+            if (!data.isNullOrEmpty()) {
+                val pts = MatOfPoint2f()
+                try {
+                    points.convertTo(pts, CvType.CV_32F)
+                    for (i in 0 until pts.rows()) {
+                        val p = Point(pts.get(i, 0)[0], pts.get(i, 0)[1])
+                        Imgproc.line(res, p, Point(pts.get((i + 1) % pts.rows(), 0)[0], pts.get((i + 1) % pts.rows(), 0)[1]), Scalar(255.0, 0.0, 0.0, 255.0), 3)
+                    }
+                } finally {
+                    pts.release()
+                }
             }
-            pts.release()
+        } finally {
+            gray.release()
+            points.release()
         }
-        gray.release(); points.release(); return res
+        return res
     }
 
     private fun applyCCTagDetection(src: Mat): Mat {

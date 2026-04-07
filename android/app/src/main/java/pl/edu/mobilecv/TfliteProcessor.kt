@@ -10,13 +10,10 @@ import android.util.Log
 import org.tensorflow.lite.Interpreter
 import org.tensorflow.lite.gpu.CompatibilityList
 import org.tensorflow.lite.gpu.GpuDelegate
-import org.tensorflow.lite.support.common.FileUtil
-import org.tensorflow.lite.support.common.ops.NormalizeOp
 import org.tensorflow.lite.support.image.ImageProcessor
 import org.tensorflow.lite.support.image.TensorImage
 import org.tensorflow.lite.support.image.ops.ResizeOp
 import java.io.File
-import java.nio.MappedByteBuffer
 
 /**
  * Handles TensorFlow Lite model inference for object detection.
@@ -58,8 +55,9 @@ class TfliteProcessor(private val context: Context) {
 
             if (compatList.isDelegateSupportedOnThisDevice) {
                 val delegateOptions = compatList.bestOptionsForThisDevice
-                gpuDelegate = GpuDelegate(delegateOptions)
-                options.addDelegate(gpuDelegate)
+                val gDelegate = GpuDelegate(delegateOptions)
+                gpuDelegate = gDelegate
+                options.addDelegate(gDelegate)
                 Log.i(TAG, "TFLite using GPU acceleration")
             } else {
                 options.setNumThreads(4)
@@ -104,7 +102,7 @@ class TfliteProcessor(private val context: Context) {
             tensorImage.load(bitmap)
             
             val imageProcessor = ImageProcessor.Builder()
-                .add(ResizeOp(inputImageSize, inputImageSize, ResizeOp.Method.BILINEAR))
+                .add(ResizeOp(inputImageSize, inputImageSize, ResizeOp.ResizeMethod.BILINEAR))
                 .build()
             
             val processedImage = imageProcessor.process(tensorImage)

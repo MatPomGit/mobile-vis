@@ -52,7 +52,7 @@ class MenuActivity : AppCompatActivity() {
     }
 
     /** Groups of downloadable models shown in the Models tab. */
-    private enum class ModelGroup { MEDIAPIPE, YOLO, RTMDET, MOBILINT }
+    private enum class ModelGroup { MEDIAPIPE, YOLO, RTMDET, MOBILINT, TFLITE }
 
     private lateinit var binding: ActivityMenuBinding
 
@@ -86,6 +86,7 @@ class MenuActivity : AppCompatActivity() {
             AnalysisMode.YOLO            to getString(R.string.mode_desc_yolo),
             AnalysisMode.RTMDET          to getString(R.string.mode_desc_rtmdet),
             AnalysisMode.MOBILINT        to getString(R.string.mode_desc_mobilint),
+            AnalysisMode.TFLITE          to getString(R.string.mode_desc_tflite),
             AnalysisMode.EFFECTS         to getString(R.string.mode_desc_effects),
         )
     }
@@ -136,6 +137,7 @@ class MenuActivity : AppCompatActivity() {
             OpenCvFilter.YOLO_OBB              to getString(R.string.filter_desc_yolo_obb),
             OpenCvFilter.RTMDET_DETECT         to getString(R.string.filter_desc_rtmdet_detect),
             OpenCvFilter.RTMDET_ROTATED        to getString(R.string.filter_desc_rtmdet_rotated),
+            OpenCvFilter.TFLITE_DETECT         to getString(R.string.filter_desc_tflite_detect),
             OpenCvFilter.FULL_ODOMETRY         to getString(R.string.filter_desc_full_odometry),
             OpenCvFilter.ODOMETRY_TRAJECTORY   to getString(R.string.filter_desc_odometry_trajectory),
             OpenCvFilter.ODOMETRY_MAP          to getString(R.string.filter_desc_odometry_map),
@@ -296,6 +298,7 @@ class MenuActivity : AppCompatActivity() {
             AnalysisMode.YOLO,
             AnalysisMode.RTMDET,
             AnalysisMode.MOBILINT,
+            AnalysisMode.TFLITE,
             AnalysisMode.POSE
         )
         modes.forEach { mode ->
@@ -379,6 +382,13 @@ class MenuActivity : AppCompatActivity() {
 
         addModelRow(container, "mobilint_detect.mbl", getString(R.string.model_name_mobilint_detect), ModelGroup.MOBILINT)
         addDownloadAllButton(container, ModelGroup.MOBILINT)
+
+        // TFLite section
+        addSectionHeader(container, getString(R.string.models_tflite_title))
+        addGroupDescription(container, getString(R.string.models_tflite_description))
+
+        addModelRow(container, ModelDownloadManager.MODEL_TFLITE_DETECT, getString(R.string.model_name_tflite_detect), ModelGroup.TFLITE)
+        addDownloadAllButton(container, ModelGroup.TFLITE)
     }
 
     /**
@@ -430,6 +440,7 @@ class MenuActivity : AppCompatActivity() {
             ModelGroup.RTMDET  -> ModelDownloadManager.getRtmDetModelPath(this, filename)
             ModelGroup.MEDIAPIPE -> ModelDownloadManager.getModelPath(this, filename)
             ModelGroup.MOBILINT  -> ModelDownloadManager.getMobilintModelPath(this, filename)
+            ModelGroup.TFLITE    -> ModelDownloadManager.getTfliteModelPath(this, filename)
         }
         val views = modelStatusViews[filename] ?: return
 
@@ -474,6 +485,7 @@ class MenuActivity : AppCompatActivity() {
             ModelGroup.RTMDET  -> ModelDownloadManager.RTMDET_MODEL_URLS[filename]
             ModelGroup.MEDIAPIPE -> ModelDownloadManager.MODEL_URLS[filename]
             ModelGroup.MOBILINT  -> ModelDownloadManager.MOBILINT_MODEL_URLS[filename]
+            ModelGroup.TFLITE    -> ModelDownloadManager.TFLITE_MODEL_URLS[filename]
         }
         if (url == null) return
 
@@ -487,6 +499,7 @@ class MenuActivity : AppCompatActivity() {
                 ModelGroup.RTMDET  -> ModelDownloadManager.downloadRtmDetModel(this, filename, url)
                 ModelGroup.MEDIAPIPE -> ModelDownloadManager.downloadModel(this, filename, url)
                 ModelGroup.MOBILINT  -> ModelDownloadManager.downloadMobilintModel(this, filename, url)
+                ModelGroup.TFLITE    -> ModelDownloadManager.downloadTfliteModel(this, filename, url)
             }
             runOnUiThread {
                 views.progressBar.visibility = View.GONE
@@ -519,6 +532,7 @@ class MenuActivity : AppCompatActivity() {
                 ModelGroup.RTMDET  -> ModelDownloadManager.getRtmDetModelPath(this, filename) != null
                 ModelGroup.MEDIAPIPE -> ModelDownloadManager.getModelPath(this, filename) != null
                 ModelGroup.MOBILINT  -> ModelDownloadManager.getMobilintModelPath(this, filename) != null
+                ModelGroup.TFLITE    -> ModelDownloadManager.getTfliteModelPath(this, filename) != null
             }
             if (!alreadyPresent) {
                 views.progressBar.visibility = View.VISIBLE
@@ -533,6 +547,7 @@ class MenuActivity : AppCompatActivity() {
                 ModelGroup.RTMDET  -> ModelDownloadManager.downloadMissingRtmDetModels(this)
                 ModelGroup.MEDIAPIPE -> ModelDownloadManager.downloadMissingModels(this)
                 ModelGroup.MOBILINT  -> ModelDownloadManager.downloadMissingMobilintModels(this)
+                ModelGroup.TFLITE    -> ModelDownloadManager.downloadMissingTfliteModels(this)
             }
             runOnUiThread {
                 groupFilenames.forEach { filename ->
@@ -560,8 +575,9 @@ class MenuActivity : AppCompatActivity() {
             ModelDownloadManager.getYoloModelPath(this, it) == null
         }
         val rtmdetMissing = !ModelDownloadManager.areRtmDetModelsReady(this)
+        val tfliteMissing = !ModelDownloadManager.areTfliteModelsReady(this)
 
-        if (!mediapipeMissing && !yoloMissing && !rtmdetMissing) return
+        if (!mediapipeMissing && !yoloMissing && !rtmdetMissing && !tfliteMissing) return
 
         AlertDialog.Builder(this)
             .setTitle(R.string.models_missing_title)

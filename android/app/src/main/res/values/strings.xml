@@ -83,6 +83,8 @@
     <string name="mediapipe_speaking">Mówi!</string>
     <string name="hologram_no_face">Brak twarzy</string>
     <string name="hologram_hud_angles">Yaw: %+.1f°  Pitch: %+.1f°</string>
+    <string name="mediapipe_model_missing_objectron">Model Objectron niedostępny – pobieranie…</string>
+    <string name="mediapipe_object_detected">Wykryto obiekt: %s</string>
 
     <!-- Eye Tracking -->
     <string name="eye_tracking_start_calibration">Rozpocznij kalibrację</string>
@@ -107,6 +109,11 @@
     <string name="mobilint_models_downloading">Pobieranie modeli Mobilint w tle…</string>
     <string name="mobilint_models_ready">Modele Mobilint gotowe</string>
     <string name="mobilint_models_download_failed">Nie udało się pobrać modeli Mobilint. Sprawdź połączenie z internetem.</string>
+
+    <!-- TFLite object detection -->
+    <string name="tflite_models_downloading">Pobieranie modeli TFLite w tle…</string>
+    <string name="tflite_models_ready">Modele TFLite gotowe</string>
+    <string name="tflite_models_download_failed">Nie udało się pobrać modeli TFLite. Sprawdź połączenie z internetem.</string>
 
     <string name="vo_overlay_tracks" tools:keep="@string/vo_overlay_tracks">Ścieżki VO</string>
     <string name="vo_overlay_point_cloud" tools:keep="@string/vo_overlay_point_cloud">Chmura</string>
@@ -210,8 +217,10 @@
     <!-- About tab – filter descriptions (RTMDET mode) -->
     <string name="filter_desc_rtmdet_detect">Detekcja obiektów RTMDet-nano: wykrywa obiekty w czasie rzeczywistym, rysuje ramki z etykietami klas i poziomem pewności (format end2end TorchScript).</string>
     <string name="filter_desc_rtmdet_rotated">Detekcja z obróconymi ramkami RTMDet-nano (RTMDet-R): wykrywa obiekty i rysuje zorientowane prostokąty zgodne z osią obiektu.</string>
+    <string name="filter_desc_tflite_detect">Detekcja obiektów TensorFlow Lite (SSD MobileNet V2): standardowa detekcja obiektów z akceleracją GPU (jeśli dostępna).</string>
     <string name="mode_desc_rtmdet">Detekcja obiektów z ramkami prostopadłymi i zorientowanymi z użyciem RTMDet-nano (OpenMMLab)</string>
     <string name="mode_desc_mobilint">Akceleracja sprzętowa NPU przy użyciu układów Mobilint Ares do detekcji obiektów w czasie rzeczywistym</string>
+    <string name="mode_desc_tflite">Standardowa detekcja obiektów przy użyciu silnika TensorFlow Lite i modelu SSD MobileNet V2</string>
 
     <!-- About tab – filter descriptions (FULL_ODOMETRY_3D mode) -->
     <string name="filter_desc_full_odometry">Pełna odometria 3D: estymuje pozę kamery metodą macierzy zasadniczej, akumuluje trajektorię i wyświetla HUD ze statystykami ruchu.</string>
@@ -241,6 +250,8 @@
     <string name="models_rtmdet_description">Modele RTMDet-nano w formacie TorchScript do detekcji obiektów (Detect) i detekcji z obróconymi ramkami (Rotated) używane w trybie RTMDet.</string>
     <string name="models_mobilint_title">Modele Mobilint NPU</string>
     <string name="models_mobilint_description">Modele zoptymalizowane pod kątem akceleratora Mobilint NPU. Zapewniają najwyższą wydajność inferencji przy minimalnym zużyciu energii.</string>
+    <string name="models_tflite_title">Modele TensorFlow Lite</string>
+    <string name="models_tflite_description">Modele w formacie TFLite do detekcji obiektów. SSD MobileNet V2 to lekki i szybki model zoptymalizowany dla urządzeń mobilnych.</string>
     <string name="model_name_pose_landmarker">Pose Landmarker (ciało)</string>
     <string name="model_name_hand_landmarker">Hand Landmarker (ręce)</string>
     <string name="model_name_face_landmarker">Face Landmarker (twarz)</string>
@@ -253,6 +264,7 @@
     <string name="model_name_rtmdet_detect">RTMDet-nano Detect (detekcja obiektów COCO)</string>
     <string name="model_name_rtmdet_rotated">RTMDet-nano Rotated (orientowane ramki)</string>
     <string name="model_name_mobilint_detect">Mobilint Detect (NPU Optimized)</string>
+    <string name="model_name_tflite_detect">SSD MobileNet V2 (TFLite)</string>
     <string name="model_status_available">Pobrano • %1$s</string>
     <string name="model_status_missing">Nie pobrano</string>
     <string name="model_btn_download">Pobierz</string>
@@ -266,7 +278,7 @@
 
     <!-- Models-missing suggestion dialog (shown at startup when any model is absent) -->
     <string name="models_missing_title">Brakujące modele</string>
-    <string name="models_missing_message">Niektóre modele AI (MediaPipe, YOLO lub RTMDet) nie zostały jeszcze pobrane. Przejdź do zakładki „Modele", aby pobrać brakujące pliki przed pierwszym użyciem tych trybów.</string>
+    <string name="models_missing_message">Niektóre modele AI (MediaPipe, YOLO, RTMDet lub TFLite) nie zostały jeszcze pobrane. Przejdź do zakładki „Modele", aby pobrać brakujące pliki przed pierwszym użyciem tych trybów.</string>
     <string name="models_go_to_tab">Przejdź do Modele</string>
     <string name="models_later">Później</string>
 

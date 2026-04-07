@@ -56,6 +56,8 @@ object ModelDownloadManager {
             "$BASE_URL/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
         MediaPipeProcessor.MODEL_FACE_DETECTOR to
             "$BASE_URL/face_detector/face_detector/float16/1/face_detector.task",
+        MediaPipeProcessor.MODEL_OBJECTRON to
+            "https://github.com/MatPomGit/mobile-vis/releases/download/models/object_detector_3d_shoe.task",
     )
 
     /**
@@ -113,6 +115,18 @@ object ModelDownloadManager {
     )
 
     private const val MOBILINT_DIR = "mobilint"
+
+    /**
+     * Remote download URLs for TFLite (SSD MobileNet) models.
+     */
+    val TFLITE_MODEL_URLS: Map<String, String> = mapOf(
+        TfliteProcessor.MODEL_SSD_MOBILENET to
+            "https://github.com/MatPomGit/mobile-vis/releases/download/models/ssd_mobilenet_v2.tflite",
+    )
+
+    const val MODEL_TFLITE_DETECT = TfliteProcessor.MODEL_SSD_MOBILENET
+
+    private const val TFLITE_DIR = "tflite"
 
     private val httpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
@@ -209,6 +223,9 @@ object ModelDownloadManager {
      */
     fun downloadRtmDetModel(context: Context, filename: String, url: String): Boolean =
         downloadModel(context, filename, url, rtmdetModelFile(context, filename))
+
+    fun downloadTfliteModel(context: Context, filename: String, url: String): Boolean =
+        downloadModel(context, filename, url, tfliteModelFile(context, filename))
 
     /**
      * Download a single model file from [url] to [dest].
@@ -473,6 +490,50 @@ object ModelDownloadManager {
     }
 
     // ------------------------------------------------------------------
+    // TFLite Model Management
+    // ------------------------------------------------------------------
+
+    fun getTfliteModelPath(context: Context, modelName: String): String? {
+        val file = tfliteModelFile(context, modelName)
+        return if (file.exists() && file.length() > 0) file.absolutePath else null
+    }
+
+    fun areTfliteModelsReady(context: Context): Boolean =
+        TFLITE_MODEL_URLS.keys.all { getTfliteModelPath(context, it) != null }
+
+    fun downloadMissingTfliteModels(
+        context: Context,
+        onProgress: ((downloaded: Int, total: Int) -> Unit)? = null
+    ): Boolean {
+        val missing = TFLITE_MODEL_URLS.filter { (filename, _) ->
+            getTfliteModelPath(context, filename) == null
+        }
+        if (missing.isEmpty()) return true
+
+        var downloaded = 0
+        val total = missing.size
+
+        for ((filename, url) in missing) {
+            val dest = tfliteModelFile(context, filename)
+            val success = downloadModel(context, filename, url, dest)
+            if (success) {
+                downloaded++
+                onProgress?.invoke(downloaded, total)
+            } else {
+                Log.e(TAG, "Failed to download TFLite model: $filename")
+                return false
+            }
+        }
+        return true
+    }
+
+    fun deleteAllTfliteModels(context: Context) {
+        val dir = tfliteDir(context)
+        dir.listFiles()?.forEach { it.delete() }
+        Log.i(TAG, "All TFLite models deleted")
+    }
+
+    // ------------------------------------------------------------------
     // Internal helpers
     // ------------------------------------------------------------------
 
@@ -499,4 +560,10 @@ object ModelDownloadManager {
 
     private fun mobilintModelFile(context: Context, filename: String): File =
         File(mobilintDir(context), filename)
+
+    private fun tfliteDir(context: Context): File =
+        File(context.filesDir, TFLITE_DIR).also { it.mkdirs() }
+
+    private fun tfliteModelFile(context: Context, filename: String): File =
+        File(tfliteDir(context), filename)
 }

@@ -99,6 +99,7 @@ dependencies {
     implementation(libs.pytorch.android.torchvision)
     implementation(libs.tflite.main)
     implementation(libs.tflite.gpu)
+    implementation(libs.tflite.gpuapi)
     implementation(libs.tflite.support)
     testImplementation(libs.junit)
 }

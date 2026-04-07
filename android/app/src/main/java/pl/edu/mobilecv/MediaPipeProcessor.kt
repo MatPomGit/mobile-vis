@@ -16,6 +16,8 @@ import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarker
 import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarkerResult
 import com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarker
 import com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarkerResult
+import com.google.mediapipe.tasks.vision.objectdetector.ObjectDetector
+import com.google.mediapipe.tasks.vision.objectdetector.ObjectDetectorResult
 import com.google.mediapipe.tasks.vision.poselandmarker.PoseLandmarker
 import com.google.mediapipe.tasks.vision.poselandmarker.PoseLandmarkerResult
 import kotlin.math.abs
@@ -50,6 +52,7 @@ class MediaPipeProcessor(private val context: Context) {
         const val MODEL_HAND = "hand_landmarker.task"
         const val MODEL_FACE = "face_landmarker.task"
         const val MODEL_FACE_DETECTOR = "face_detector.task"
+        const val MODEL_OBJECTRON = "object_detector_3d_shoe.task"
 
         // ------------------------------------------------------------------
         // Drawing constants
@@ -218,11 +221,13 @@ class MediaPipeProcessor(private val context: Context) {
     private var poseLandmarker: PoseLandmarker? = null
     private var handLandmarker: HandLandmarker? = null
     private var faceLandmarker: FaceLandmarker? = null
+    private var objectDetector: ObjectDetector? = null
 
     private var frameCounter = 0
     private var lastPoseResult: PoseLandmarkerResult? = null
     private var lastHandResult: HandLandmarkerResult? = null
     private var lastFaceResult: FaceLandmarkerResult? = null
+    private var lastObjectResult: ObjectDetectorResult? = null
 
     // ------------------------------------------------------------------
     // Eye Tracking & Calibration State
@@ -360,9 +365,11 @@ class MediaPipeProcessor(private val context: Context) {
         poseLandmarker?.close()
         handLandmarker?.close()
         faceLandmarker?.close()
+        objectDetector?.close()
         poseLandmarker = null
         handLandmarker = null
         faceLandmarker = null
+        objectDetector = null
     }
 
     /**
@@ -380,12 +387,95 @@ class MediaPipeProcessor(private val context: Context) {
                 OpenCvFilter.IRIS -> applyFaceLandmarker(bitmap, true)
                 OpenCvFilter.EYE_TRACKING -> applyEyeTracking(bitmap)
                 OpenCvFilter.HOLOGRAM_3D -> applyHologram3D(bitmap)
+                OpenCvFilter.OBJECTRON -> applyObjectron(bitmap)
                 else -> bitmap.copy(Bitmap.Config.ARGB_8888, false)
             }
         } catch (error: Throwable) {
             Log.e(TAG, "MediaPipe processing failed for filter=${filter.name}", error)
             drawModuleError(bitmap, "MediaPipe error: ${filter.displayName}")
         }
+    }
+
+    private fun applyObjectron(bitmap: Bitmap): Bitmap {
+        val detector = objectDetector ?: tryCreateObjectDetector().also { objectDetector = it }
+        if (detector == null) return overlayMissingModel(
+            bitmap,
+            context.getString(R.string.mediapipe_model_missing_objectron)
+        )
+
+        val argbBitmap = ensureArgb8888(bitmap)
+        if (frameCounter % detectionInterval == 0 || lastObjectResult == null) {
+            lastObjectResult = detector.detect(BitmapImageBuilder(argbBitmap).build())
+        }
+        val result = lastObjectResult!!
+
+        val output = bitmap.copy(Bitmap.Config.ARGB_8888, true)
+        val canvas = Canvas(output)
+
+        val detections = result.detections()
+        for (detection in detections) {
+            // Draw 2D bounding box (optional, usually provides context)
+            val box = detection.boundingBox()
+            linePaint.color = Color.GREEN
+            linePaint.strokeWidth = 2f
+            canvas.drawRect(box, linePaint)
+
+            // Draw category label
+            val category = detection.categories().firstOrNull()
+            category?.let {
+                val label = context.getString(R.string.mediapipe_object_detected, it.categoryName())
+                canvas.drawText(label, box.left, box.top - 10f, overlayPaint)
+            }
+
+            // Objectron models often store 3D box corners as keypoints in the detection.
+            // There are typically 9 keypoints: 1 center + 8 corners.
+            val keypoints = detection.keypoints().orElse(emptyList())
+            if (keypoints.size >= 9) {
+                drawObjectronBox(canvas, keypoints, output.width, output.height)
+            }
+        }
+
+        return output
+    }
+
+    /**
+     * Draw a 3D wireframe box from Objectron keypoints.
+     * Keypoints order: 0: center, 1-4: front face, 5-8: back face.
+     */
+    private fun drawObjectronBox(
+        canvas: Canvas,
+        keypoints: List<com.google.mediapipe.tasks.components.containers.NormalizedKeypoint>,
+        width: Int,
+        height: Int
+    ) {
+        val pts = keypoints.map { pt ->
+            (pt.x() * width) to (pt.y() * height)
+        }
+
+        linePaint.color = Color.CYAN
+        linePaint.strokeWidth = 4f
+
+        // Front face (1-4)
+        canvas.drawLine(pts[1].first, pts[1].second, pts[2].first, pts[2].second, linePaint)
+        canvas.drawLine(pts[2].first, pts[2].second, pts[3].first, pts[3].second, linePaint)
+        canvas.drawLine(pts[3].first, pts[3].second, pts[4].first, pts[4].second, linePaint)
+        canvas.drawLine(pts[4].first, pts[4].second, pts[1].first, pts[1].second, linePaint)
+
+        // Back face (5-8)
+        canvas.drawLine(pts[5].first, pts[5].second, pts[6].first, pts[6].second, linePaint)
+        canvas.drawLine(pts[6].first, pts[6].second, pts[7].first, pts[7].second, linePaint)
+        canvas.drawLine(pts[7].first, pts[7].second, pts[8].first, pts[8].second, linePaint)
+        canvas.drawLine(pts[8].first, pts[8].second, pts[5].first, pts[5].second, linePaint)
+
+        // Connecting lines
+        canvas.drawLine(pts[1].first, pts[1].second, pts[5].first, pts[5].second, linePaint)
+        canvas.drawLine(pts[2].first, pts[2].second, pts[6].first, pts[6].second, linePaint)
+        canvas.drawLine(pts[3].first, pts[3].second, pts[7].first, pts[7].second, linePaint)
+        canvas.drawLine(pts[4].first, pts[4].second, pts[8].first, pts[8].second, linePaint)
+
+        // Center dot
+        dotPaint.color = Color.YELLOW
+        canvas.drawCircle(pts[0].first, pts[0].second, 6f, dotPaint)
     }
 
     private fun drawModuleError(bitmap: Bitmap, message: String): Bitmap {
@@ -944,6 +1034,22 @@ class MediaPipeProcessor(private val context: Context) {
             FaceLandmarker.createFromOptions(context, options)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to create FaceLandmarker", e)
+            null
+        }
+    }
+
+    private fun tryCreateObjectDetector(): ObjectDetector? {
+        val modelPath = ModelDownloadManager.getModelPath(context, MODEL_OBJECTRON)
+            ?: return null.also { Log.d(TAG, "Objectron model not available") }
+        return try {
+            val options = ObjectDetector.ObjectDetectorOptions.builder()
+                .setBaseOptions(BaseOptions.builder().setModelAssetPath(modelPath).build())
+                .setRunningMode(RunningMode.IMAGE)
+                .setScoreThreshold(0.3f)
+                .build()
+            ObjectDetector.createFromOptions(context, options)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to create ObjectDetector for Objectron", e)
             null
         }
     }

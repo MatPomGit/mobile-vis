@@ -1646,4 +1646,131 @@ class MediaPipeProcessor(private val context: Context) {
         dotPaint.color = color
         canvas.drawCircle(irisPx, irisPy, LANDMARK_RADIUS + 2f, dotPaint)
     }
+
+    /**
+     * Estimates emotion (Valence and Arousal) from face blendshapes and draws a HUD.
+     *
+     * Valence (X): Pleasantness (Smile vs. Frown).
+     * Arousal (Y): Intensity (Eye widening, Jaw opening).
+     */
+    private fun applyEmotionRecognition(bitmap: Bitmap): Bitmap {
+        val landmarker = faceLandmarker ?: tryCreateFaceLandmarker(true).also { faceLandmarker = it }
+        if (landmarker == null) return overlayMissingModel(bitmap, context.getString(R.string.mediapipe_model_missing_face))
+
+        val argbBitmap = ensureArgb8888(bitmap)
+        val result = landmarker.detect(BitmapImageBuilder(argbBitmap).build())
+        lastFaceResult = result
+
+        val output = bitmap.copy(Bitmap.Config.ARGB_8888, true)
+        val canvas = Canvas(output)
+        val w = output.width
+        val h = output.height
+
+        if (result.faceLandmarks().isNotEmpty()) {
+            // Process the first face only for emotion
+            val faceIndex = 0
+            
+            // Valence estimation: Smile (+) vs Frown (-)
+            val smileLeft = extractBlendshape(result, faceIndex, "mouthSmileLeft")
+            val smileRight = extractBlendshape(result, faceIndex, "mouthSmileRight")
+            val browDownLeft = extractBlendshape(result, faceIndex, "browDownLeft")
+            val browDownRight = extractBlendshape(result, faceIndex, "browDownRight")
+            val mouthFrownLeft = extractBlendshape(result, faceIndex, "mouthFrownLeft")
+            val mouthFrownRight = extractBlendshape(result, faceIndex, "mouthFrownRight")
+            
+            val valence = ((smileLeft + smileRight) / 2f) - ((browDownLeft + browDownRight + mouthFrownLeft + mouthFrownRight) / 4f)
+            
+            // Arousal estimation: Jaw open (+) and Eye wide (+)
+            val jawOpen = extractBlendshape(result, faceIndex, "jawOpen")
+            val eyeWideLeft = extractBlendshape(result, faceIndex, "eyeWideLeft")
+            val eyeWideRight = extractBlendshape(result, faceIndex, "eyeWideRight")
+            
+            val arousal = (jawOpen * 0.6f) + ((eyeWideLeft + eyeWideRight) / 2f * 0.4f)
+
+            // Clamp values to [-1, 1] range (roughly)
+            val vClamped = valence.coerceIn(-1f, 1f)
+            val aClamped = arousal.coerceIn(0f, 1f) * 2f - 1f // Map 0..1 to -1..1
+
+            drawVaGraph(canvas, w, h, vClamped, aClamped)
+            drawEmotionHud(canvas, vClamped, aClamped)
+        } else {
+            drawModuleError(canvas, context.getString(R.string.hologram_no_face))
+        }
+
+        return output
+    }
+
+    private fun drawVaGraph(canvas: Canvas, width: Int, height: Int, v: Float, a: Float) {
+        val size = width * 0.25f
+        val margin = 40f
+        val left = width - size - margin
+        val top = margin
+        val right = width - margin
+        val bottom = margin + size
+        val centerX = left + size / 2f
+        val centerY = top + size / 2f
+
+        // Background
+        infoBgPaint.alpha = 180
+        canvas.drawRect(left, top, right, bottom, infoBgPaint)
+        
+        // Axes
+        linePaint.color = Color.WHITE
+        linePaint.strokeWidth = 2f
+        canvas.drawLine(left, centerY, right, centerY, linePaint) // Valence axis
+        canvas.drawLine(centerX, top, centerX, bottom, linePaint) // Arousal axis
+        
+        // Labels
+        infoPaint.textSize = 24f
+        infoPaint.color = Color.WHITE
+        canvas.drawText("V", right - 20f, centerY - 10f, infoPaint)
+        canvas.drawText("A", centerX + 10f, top + 25f, infoPaint)
+
+        // Point (V, A)
+        // Map -1..1 to left..right and top..bottom (Arousal is Y, up is positive)
+        val px = centerX + (v * size / 2f)
+        val py = centerY - (a * size / 2f)
+        
+        dotPaint.color = Color.YELLOW
+        canvas.drawCircle(px, py, 12f, dotPaint)
+        
+        // Outline
+        linePaint.color = Color.GRAY
+        canvas.drawRect(left, top, right, bottom, linePaint)
+    }
+
+    private fun drawEmotionHud(canvas: Canvas, v: Float, a: Float) {
+        val textVa = context.getString(R.string.emotion_va_format, v, a)
+        
+        // Basic classification for display
+        val emotionLabel = when {
+            v > 0.3f && a > 0.3f -> "Podekscytowanie / Radość"
+            v > 0.3f && a < -0.3f -> "Relaks / Spokój"
+            v < -0.3f && a > 0.3f -> "Złość / Strach"
+            v < -0.3f && a < -0.3f -> "Smutek / Przygnębienie"
+            else -> "Neutralny"
+        }
+        val textState = context.getString(R.string.emotion_label, emotionLabel)
+
+        infoPaint.textSize = 40f
+        infoPaint.color = Color.GREEN
+        
+        // Draw VA values
+        infoPaint.getTextBounds(textVa, 0, textVa.length, textBoundsRect)
+        val bgWidth = textBoundsRect.width().toFloat() + 40f
+        val bgHeight = textBoundsRect.height().toFloat() + 20f
+        val startY = 300f
+        
+        canvas.drawRect(40f, startY, 40f + bgWidth, startY + bgHeight, infoBgPaint)
+        canvas.drawText(textVa, 60f, startY + bgHeight - 15f, infoPaint)
+        
+        // Draw Label
+        infoPaint.getTextBounds(textState, 0, textState.length, textBoundsRect)
+        val bgWidth2 = textBoundsRect.width().toFloat() + 40f
+        val bgHeight2 = textBoundsRect.height().toFloat() + 20f
+        val startY2 = startY + bgHeight + 20f
+        
+        canvas.drawRect(40f, startY2, 40f + bgWidth2, startY2 + bgHeight2, infoBgPaint)
+        canvas.drawText(textState, 60f, startY2 + bgHeight2 - 15f, infoPaint)
+    }
 }

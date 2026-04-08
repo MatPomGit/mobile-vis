@@ -2,5 +2,5 @@
 plugins {
     alias(libs.plugins.android.application) apply false
 }
-val app_version_name by extra("1.22")
-val app_version_code by extra(22)
+val app_version_name by extra("1.25")
+val app_version_code by extra(25)

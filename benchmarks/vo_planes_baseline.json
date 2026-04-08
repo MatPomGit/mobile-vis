@@ -1,0 +1,107 @@
+{
+  "results": {
+    "low_texture": {
+      "planes": {
+        "normal_error_deg": 7.83,
+        "overlap_region_iou": 0.5584,
+        "temporal_stability": 0.5816
+      },
+      "vo": {
+        "drift_per_meter": 0.01748,
+        "inlier_ratio": 0.7164,
+        "reprojection_error": 1.335,
+        "track_length": 411.39
+      }
+    },
+    "rotational_motion": {
+      "planes": {
+        "normal_error_deg": 7.495,
+        "overlap_region_iou": 0.646,
+        "temporal_stability": 0.69
+      },
+      "vo": {
+        "drift_per_meter": 0.0276,
+        "inlier_ratio": 0.779,
+        "reprojection_error": 1.3575,
+        "track_length": 392.625
+      }
+    },
+    "translation_motion": {
+      "planes": {
+        "normal_error_deg": 3.95,
+        "overlap_region_iou": 0.775,
+        "temporal_stability": 0.8025
+      },
+      "vo": {
+        "drift_per_meter": 0.01135,
+        "inlier_ratio": 0.866,
+        "reprojection_error": 0.765,
+        "track_length": 434.025
+      }
+    },
+    "variable_lighting": {
+      "planes": {
+        "normal_error_deg": 6.58,
+        "overlap_region_iou": 0.6244,
+        "temporal_stability": 0.6481
+      },
+      "vo": {
+        "drift_per_meter": 0.01758,
+        "inlier_ratio": 0.7564,
+        "reprojection_error": 1.32,
+        "track_length": 415.215
+      }
+    }
+  },
+  "scenarios": [
+    {
+      "distance_meters": 28.0,
+      "frames": 450,
+      "illumination_change": 0.2,
+      "name": "translation_motion",
+      "rotation_speed_dps": 3.0,
+      "texture_level": 0.8,
+      "translation_speed_mps": 1.2
+    },
+    {
+      "distance_meters": 8.0,
+      "frames": 450,
+      "illumination_change": 0.25,
+      "name": "rotational_motion",
+      "rotation_speed_dps": 38.0,
+      "texture_level": 0.75,
+      "translation_speed_mps": 0.3
+    },
+    {
+      "distance_meters": 18.0,
+      "frames": 450,
+      "illumination_change": 0.3,
+      "name": "low_texture",
+      "rotation_speed_dps": 8.0,
+      "texture_level": 0.22,
+      "translation_speed_mps": 0.9
+    },
+    {
+      "distance_meters": 16.0,
+      "frames": 450,
+      "illumination_change": 0.85,
+      "name": "variable_lighting",
+      "rotation_speed_dps": 10.0,
+      "texture_level": 0.72,
+      "translation_speed_mps": 0.8
+    }
+  ],
+  "summary": {
+    "planes": {
+      "normal_error_deg_mean": 6.46375,
+      "overlap_region_iou_mean": 0.65095,
+      "temporal_stability_mean": 0.68055
+    },
+    "vo": {
+      "drift_per_meter_mean": 0.018502,
+      "inlier_ratio_mean": 0.77945,
+      "reprojection_error_mean": 1.19437,
+      "track_length_mean": 413.314
+    }
+  }
+}

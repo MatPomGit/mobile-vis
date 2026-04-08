@@ -289,6 +289,9 @@ python -c 'import importlib; [importlib.import_module(m) for m in [
 
 # 5) Metryki wydajności smoke (czas klatki / FPS)
 python scripts/smoke_perf.py --iterations 150 --warmup 30
+
+# 6) Benchmark VO + planes z porównaniem do baseline
+PYTHONPATH=src python scripts/benchmark_vo_planes.py --strict
 ```
 
 ### Android (build debug / lint / testy instrumentacyjne)

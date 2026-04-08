@@ -22,6 +22,7 @@ import org.opencv.features2d.BFMatcher
 import org.opencv.features2d.ORB
 import org.opencv.imgproc.Imgproc
 import org.opencv.imgproc.Subdiv2D
+import pl.edu.mobilecv.MarkerDetection
 import pl.edu.mobilecv.vision.CameraCalibrator
 
 /**
@@ -34,6 +35,9 @@ class VisualOdometryEngine {
         val inliersCount: Int,
         val translationNorm: Double,
         val rotationDeg: Double,
+        val inlierRatio: Double,
+        val reprojectionError: Double,
+        val driftEstimate: Double,
     )
 
     data class PointCloudState(
@@ -61,6 +65,15 @@ class VisualOdometryEngine {
         private const val MAX_DEPTH_RELATIVE_DELTA = 0.35
         private const val DEPTH_STABILITY_EPS = 1e-6
         private const val DEPTH_CLIP_MAD_FACTOR = 3.5
+        private const val LOCAL_BA_WINDOW_SIZE = 5
+        private const val MAX_FRAME_TRANSLATION = 2.5
+        private const val MAX_FRAME_ROTATION_DEG = 35.0
+        private const val MAX_SCALE_FACTOR = 3.5
+        private const val MIN_SCALE_FACTOR = 0.25
+        private const val KEYFRAME_MIN_TRANSLATION = 0.15
+        private const val KEYFRAME_MIN_ROTATION_DEG = 7.0
+        private const val KEYFRAME_MAX_SIZE = 15
+        private const val MARKER_CORRECTION_ALPHA = 0.2
     }
 
     enum class FeatureDetectorType {
@@ -71,6 +84,14 @@ class VisualOdometryEngine {
     private var prevGray = Mat()
     private var calibrator: CameraCalibrator? = null
     private var lastTracks = mutableListOf<List<Point>>()
+    private var globalPose = Pose.identity()
+    private var driftEstimateMeters = 0.0
+    private var lastAcceptedKeyframePose = Pose.identity()
+    private var keyframeIdCounter = 0L
+    private val relativeMotionWindow = ArrayDeque<RelativeMotion>()
+    private val keyframes = ArrayDeque<Keyframe>()
+    private val markerAnchors = mutableMapOf<String, MarkerAnchor>()
+    private var prevMarkerObservations: Map<String, MarkerObservation> = emptyMap()
 
     var maxFeatures = 300
     var minParallax = 2.0
@@ -86,18 +107,18 @@ class VisualOdometryEngine {
     val currentTracks: List<List<Point>>
         get() = synchronized(this) { lastTracks }
 
-    fun updateOdometry(src: Mat): OdometryState? {
+    fun updateOdometry(src: Mat, markers: List<MarkerDetection> = emptyList()): OdometryState? {
         val gray = Mat()
         Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
-        val (state, _) = processFrameInternal(gray, src)
+        val (state, _) = processFrameInternal(gray, src, markers)
         gray.release()
         return state
     }
 
-    fun updatePointCloud(src: Mat): PointCloudState? {
+    fun updatePointCloud(src: Mat, markers: List<MarkerDetection> = emptyList()): PointCloudState? {
         val gray = Mat()
         Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
-        val (_, cloud) = processFrameInternal(gray, src)
+        val (_, cloud) = processFrameInternal(gray, src, markers)
         gray.release()
         return cloud
     }
@@ -105,7 +126,7 @@ class VisualOdometryEngine {
     /**
      * Process an RGBA frame and update internal state.
      */
-    fun processFrameRgba(src: Mat, calib: CameraCalibrator? = null) {
+    fun processFrameRgba(src: Mat, calib: CameraCalibrator? = null, markers: List<MarkerDetection> = emptyList()) {
         val gray = Mat()
         if (src.channels() > 1) {
             Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
@@ -113,16 +134,25 @@ class VisualOdometryEngine {
             src.copyTo(gray)
         }
         this.calibrator = calib
-        processFrameInternal(gray, src)
+        processFrameInternal(gray, src, markers)
         gray.release()
     }
 
-    fun processFrame(gray: Mat, srcRgba: Mat, calib: CameraCalibrator? = null): Pair<OdometryState?, PointCloudState?> {
+    fun processFrame(
+        gray: Mat,
+        srcRgba: Mat,
+        calib: CameraCalibrator? = null,
+        markers: List<MarkerDetection> = emptyList(),
+    ): Pair<OdometryState?, PointCloudState?> {
         this.calibrator = calib
-        return processFrameInternal(gray, srcRgba)
+        return processFrameInternal(gray, srcRgba, markers)
     }
 
-    private fun processFrameInternal(gray: Mat, srcRgba: Mat): Pair<OdometryState?, PointCloudState?> {
+    private fun processFrameInternal(
+        gray: Mat,
+        srcRgba: Mat,
+        markers: List<MarkerDetection> = emptyList(),
+    ): Pair<OdometryState?, PointCloudState?> {
         if (prevGray.empty()) {
             gray.copyTo(prevGray)
             return null to null
@@ -207,7 +237,7 @@ class VisualOdometryEngine {
             return trackingLost(gray, "tracking lost / reinit needed: thresholds not met")
         }
 
-        val (state, points) = estimateMotionAndPoints(inlierPrev, inlierCurr, srcRgba, calibrationProfile)
+        val (state, points) = estimateMotionAndPoints(inlierPrev, inlierCurr, srcRgba, calibrationProfile, markers)
         inlierPrev.release()
         inlierCurr.release()
 
@@ -361,6 +391,7 @@ class VisualOdometryEngine {
         next: MatOfPoint2f,
         srcRgba: Mat, // Pass RGBA to get colors
         calibrationProfile: CameraCalibrator.CalibrationProfile?,
+        markers: List<MarkerDetection>,
     ): Pair<OdometryState, PointCloudState> {
         val k = calibrationProfile?.calibration?.cameraMatrix ?: Mat.eye(3, 3, CvType.CV_64F)
         val essential = Calib3d.findEssentialMat(prev, next, k, Calib3d.RANSAC, 0.999, 1.0)
@@ -376,7 +407,7 @@ class VisualOdometryEngine {
             for (v in maskData) if (v.toInt() != 0) inlierCount++
         }
 
-        val transNorm =
+        val rawTranslation =
             android.opengl.Matrix.length(
                 t.get(0, 0)[0].toFloat(),
                 t.get(1, 0)[0].toFloat(),
@@ -386,7 +417,38 @@ class VisualOdometryEngine {
         val trace = r.get(0, 0)[0] + r.get(1, 1)[0] + r.get(2, 2)[0]
         val rotDeg = Math.toDegrees(acos(min(1.0, max(-1.0, (trace - 1.0) / 2.0))))
 
-        val state = OdometryState(prev.rows(), inlierCount, transNorm, rotDeg)
+        val scaleFactor = estimateScaleFromMarkers(markers, rawTranslation)
+        val scaledTranslation = rawTranslation * scaleFactor
+        val inlierRatio = if (prev.rows() == 0) 0.0 else inlierCount.toDouble() / prev.rows().toDouble()
+        val reprojectionError = computeReprojectionError(prev, next, essential)
+
+        var optimizedMotion: RelativeMotion? = null
+        if (passesSanityChecks(scaledTranslation, rotDeg, inlierRatio)) {
+            val rotation = RotationMatrix.from(r)
+            val unitTranslation = Vector3.fromMatColumn(t)
+            val relMotion = RelativeMotion(rotation = rotation, translation = unitTranslation, scale = scaleFactor)
+            optimizedMotion = runLocalBundleAdjustment(relMotion)
+            integratePose(optimizedMotion)
+            applyMarkerPoseCorrection(markers)
+            updateKeyframes(inlierRatio, reprojectionError)
+        } else {
+            android.util.Log.w(
+                TAG,
+                "Sanity check rejected frame: translation=%.3f rotation=%.3f inlierRatio=%.3f"
+                    .format(scaledTranslation, rotDeg, inlierRatio),
+            )
+        }
+
+        val state =
+            OdometryState(
+                tracksCount = prev.rows(),
+                inliersCount = inlierCount,
+                translationNorm = optimizedMotion?.scaledTranslationNorm() ?: 0.0,
+                rotationDeg = optimizedMotion?.rotationAngleDeg() ?: 0.0,
+                inlierRatio = inlierRatio,
+                reprojectionError = reprojectionError,
+                driftEstimate = driftEstimateMeters,
+            )
 
         val cloudPoints = mutableListOf<Point>()
         val cloudDepths = mutableListOf<Double>()
@@ -596,6 +658,223 @@ class VisualOdometryEngine {
             prevGray = Mat()
             lastPointCloud = null
             lastTracks.clear()
+            globalPose = Pose.identity()
+            driftEstimateMeters = 0.0
+            lastAcceptedKeyframePose = Pose.identity()
+            keyframeIdCounter = 0L
+            relativeMotionWindow.clear()
+            keyframes.clear()
+            markerAnchors.clear()
+            prevMarkerObservations = emptyMap()
+        }
+    }
+
+    private fun computeReprojectionError(prev: MatOfPoint2f, next: MatOfPoint2f, essential: Mat): Double {
+        if (prev.empty() || next.empty() || essential.empty()) return 0.0
+        val lines = Mat()
+        Calib3d.computeCorrespondEpilines(prev, 1, essential, lines)
+        val nextArr = next.toArray()
+        if (lines.rows() != nextArr.size) {
+            lines.release()
+            return 0.0
+        }
+        var total = 0.0
+        for (i in nextArr.indices) {
+            val line = lines.get(i, 0)
+            val a = line[0]
+            val b = line[1]
+            val c = line[2]
+            val p = nextArr[i]
+            val dist = kotlin.math.abs(a * p.x + b * p.y + c) / kotlin.math.sqrt(a * a + b * b + 1e-9)
+            total += dist
+        }
+        lines.release()
+        return total / nextArr.size.coerceAtLeast(1)
+    }
+
+    private fun passesSanityChecks(translationNorm: Double, rotationDeg: Double, inlierRatio: Double): Boolean {
+        return translationNorm <= MAX_FRAME_TRANSLATION &&
+            rotationDeg <= MAX_FRAME_ROTATION_DEG &&
+            inlierRatio >= 0.25
+    }
+
+    private fun runLocalBundleAdjustment(motion: RelativeMotion): RelativeMotion {
+        relativeMotionWindow.addLast(motion)
+        while (relativeMotionWindow.size > LOCAL_BA_WINDOW_SIZE) {
+            relativeMotionWindow.removeFirst()
+        }
+        val avgScale = relativeMotionWindow.map { it.scale }.average().coerceIn(MIN_SCALE_FACTOR, MAX_SCALE_FACTOR)
+        return motion.copy(scale = avgScale)
+    }
+
+    private fun integratePose(motion: RelativeMotion) {
+        val delta = motion.translation * motion.scale
+        val rotatedDelta = globalPose.rotation * delta
+        globalPose = Pose(
+            rotation = globalPose.rotation * motion.rotation,
+            translation = globalPose.translation + rotatedDelta,
+        )
+        val smoothed = keyframes.lastOrNull()?.pose?.translation ?: globalPose.translation
+        driftEstimateMeters = (globalPose.translation - smoothed).norm()
+    }
+
+    private fun updateKeyframes(inlierRatio: Double, reprojectionError: Double) {
+        val translationDelta = (globalPose.translation - lastAcceptedKeyframePose.translation).norm()
+        val rotationDelta = (lastAcceptedKeyframePose.rotation.inverse() * globalPose.rotation).angleDeg()
+        val shouldAdd =
+            keyframes.isEmpty() ||
+                translationDelta >= KEYFRAME_MIN_TRANSLATION ||
+                rotationDelta >= KEYFRAME_MIN_ROTATION_DEG ||
+                inlierRatio < 0.35 ||
+                reprojectionError > 2.5
+        if (shouldAdd) {
+            keyframes.addLast(Keyframe(id = keyframeIdCounter++, pose = globalPose))
+            lastAcceptedKeyframePose = globalPose
+        }
+        while (keyframes.size > KEYFRAME_MAX_SIZE) {
+            keyframes.removeFirst()
+        }
+    }
+
+    private fun estimateScaleFromMarkers(markers: List<MarkerDetection>, fallback: Double): Double {
+        val observations = extractMarkerObservations(markers)
+        var estimatedScale: Double? = null
+        for ((id, current) in observations) {
+            val previous = prevMarkerObservations[id] ?: continue
+            val markerDelta = (current.tvec - previous.tvec).norm()
+            if (markerDelta > 1e-4 && fallback > 1e-4) {
+                estimatedScale = (markerDelta / fallback).coerceIn(MIN_SCALE_FACTOR, MAX_SCALE_FACTOR)
+                break
+            }
+        }
+        prevMarkerObservations = observations
+        return estimatedScale ?: 1.0
+    }
+
+    private fun applyMarkerPoseCorrection(markers: List<MarkerDetection>) {
+        val observations = extractMarkerObservations(markers)
+        for ((id, observation) in observations) {
+            val anchor = markerAnchors[id]
+            if (anchor == null) {
+                val markerWorld = globalPose.translation + (globalPose.rotation * observation.tvec)
+                markerAnchors[id] = MarkerAnchor(markerWorld)
+                continue
+            }
+            val predictedCamera = anchor.markerWorldPosition - (globalPose.rotation * observation.tvec)
+            globalPose =
+                globalPose.copy(
+                    translation =
+                        globalPose.translation.lerp(
+                            predictedCamera,
+                            MARKER_CORRECTION_ALPHA,
+                        ),
+                )
+        }
+    }
+
+    private fun extractMarkerObservations(markers: List<MarkerDetection>): Map<String, MarkerObservation> {
+        val result = mutableMapOf<String, MarkerObservation>()
+        for (marker in markers) {
+            val tvec = marker.tvec ?: continue
+            if (tvec.size < 3) continue
+            result["${marker.type}:${marker.id}"] = MarkerObservation(Vector3(tvec[0], tvec[1], tvec[2]))
+        }
+        return result
+    }
+
+    private data class MarkerObservation(val tvec: Vector3)
+
+    private data class MarkerAnchor(val markerWorldPosition: Vector3)
+
+    private data class Keyframe(val id: Long, val pose: Pose)
+
+    private data class RelativeMotion(
+        val rotation: RotationMatrix,
+        val translation: Vector3,
+        val scale: Double,
+    ) {
+        fun scaledTranslationNorm(): Double = (translation * scale).norm()
+        fun rotationAngleDeg(): Double = rotation.angleDeg()
+    }
+
+    private data class Pose(val rotation: RotationMatrix, val translation: Vector3) {
+        companion object {
+            fun identity(): Pose = Pose(RotationMatrix.identity(), Vector3(0.0, 0.0, 0.0))
+        }
+    }
+
+    private data class Vector3(val x: Double, val y: Double, val z: Double) {
+        operator fun plus(other: Vector3): Vector3 = Vector3(x + other.x, y + other.y, z + other.z)
+        operator fun minus(other: Vector3): Vector3 = Vector3(x - other.x, y - other.y, z - other.z)
+        operator fun times(scale: Double): Vector3 = Vector3(x * scale, y * scale, z * scale)
+        fun norm(): Double = sqrt(x * x + y * y + z * z)
+        fun lerp(target: Vector3, alpha: Double): Vector3 =
+            Vector3(
+                x + (target.x - x) * alpha,
+                y + (target.y - y) * alpha,
+                z + (target.z - z) * alpha,
+            )
+
+        companion object {
+            fun fromMatColumn(mat: Mat): Vector3 = Vector3(
+                mat.get(0, 0)[0],
+                mat.get(1, 0)[0],
+                mat.get(2, 0)[0],
+            )
+        }
+    }
+
+    private data class RotationMatrix(private val data: DoubleArray) {
+        operator fun times(v: Vector3): Vector3 {
+            val nx = data[0] * v.x + data[1] * v.y + data[2] * v.z
+            val ny = data[3] * v.x + data[4] * v.y + data[5] * v.z
+            val nz = data[6] * v.x + data[7] * v.y + data[8] * v.z
+            return Vector3(nx, ny, nz)
+        }
+
+        operator fun times(other: RotationMatrix): RotationMatrix {
+            val out = DoubleArray(9)
+            for (r in 0..2) {
+                for (c in 0..2) {
+                    out[r * 3 + c] =
+                        data[r * 3] * other.data[c] +
+                            data[r * 3 + 1] * other.data[3 + c] +
+                            data[r * 3 + 2] * other.data[6 + c]
+                }
+            }
+            return RotationMatrix(out)
+        }
+
+        fun inverse(): RotationMatrix = RotationMatrix(
+            doubleArrayOf(
+                data[0], data[3], data[6],
+                data[1], data[4], data[7],
+                data[2], data[5], data[8],
+            ),
+        )
+
+        fun angleDeg(): Double {
+            val trace = data[0] + data[4] + data[8]
+            return Math.toDegrees(acos(min(1.0, max(-1.0, (trace - 1.0) / 2.0))))
+        }
+
+        companion object {
+            fun identity(): RotationMatrix =
+                RotationMatrix(
+                    doubleArrayOf(
+                        1.0, 0.0, 0.0,
+                        0.0, 1.0, 0.0,
+                        0.0, 0.0, 1.0,
+                    ),
+                )
+
+            fun from(mat: Mat): RotationMatrix = RotationMatrix(
+                doubleArrayOf(
+                    mat.get(0, 0)[0], mat.get(0, 1)[0], mat.get(0, 2)[0],
+                    mat.get(1, 0)[0], mat.get(1, 1)[0], mat.get(1, 2)[0],
+                    mat.get(2, 0)[0], mat.get(2, 1)[0], mat.get(2, 2)[0],
+                ),
+            )
         }
     }
 }

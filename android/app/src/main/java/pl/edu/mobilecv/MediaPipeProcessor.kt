@@ -1095,6 +1095,13 @@ class MediaPipeProcessor(private val context: Context) {
         return output
     }
 
+    /**
+     * Estimates emotion (Valence and Arousal) from face blendshapes and draws a HUD.
+     *
+     * Valence (X): Pleasantness (Smile vs. Frown).
+     * Arousal (Y): Intensity (Eye widening, Jaw opening).
+     */
+
     private fun applyEmotionRecognition(bitmap: Bitmap): Bitmap {
         val detector = faceLandmarker ?: tryCreateFaceLandmarker().also { faceLandmarker = it }
         if (detector == null) return overlayMissingModel(bitmap, context.getString(R.string.mediapipe_model_missing_face))
@@ -1647,58 +1654,7 @@ class MediaPipeProcessor(private val context: Context) {
         canvas.drawCircle(irisPx, irisPy, LANDMARK_RADIUS + 2f, dotPaint)
     }
 
-    /**
-     * Estimates emotion (Valence and Arousal) from face blendshapes and draws a HUD.
-     *
-     * Valence (X): Pleasantness (Smile vs. Frown).
-     * Arousal (Y): Intensity (Eye widening, Jaw opening).
-     */
-    private fun applyEmotionRecognition(bitmap: Bitmap): Bitmap {
-        val landmarker = faceLandmarker ?: tryCreateFaceLandmarker(true).also { faceLandmarker = it }
-        if (landmarker == null) return overlayMissingModel(bitmap, context.getString(R.string.mediapipe_model_missing_face))
 
-        val argbBitmap = ensureArgb8888(bitmap)
-        val result = landmarker.detect(BitmapImageBuilder(argbBitmap).build())
-        lastFaceResult = result
-
-        val output = bitmap.copy(Bitmap.Config.ARGB_8888, true)
-        val canvas = Canvas(output)
-        val w = output.width
-        val h = output.height
-
-        if (result.faceLandmarks().isNotEmpty()) {
-            // Process the first face only for emotion
-            val faceIndex = 0
-            
-            // Valence estimation: Smile (+) vs Frown (-)
-            val smileLeft = extractBlendshape(result, faceIndex, "mouthSmileLeft")
-            val smileRight = extractBlendshape(result, faceIndex, "mouthSmileRight")
-            val browDownLeft = extractBlendshape(result, faceIndex, "browDownLeft")
-            val browDownRight = extractBlendshape(result, faceIndex, "browDownRight")
-            val mouthFrownLeft = extractBlendshape(result, faceIndex, "mouthFrownLeft")
-            val mouthFrownRight = extractBlendshape(result, faceIndex, "mouthFrownRight")
-            
-            val valence = ((smileLeft + smileRight) / 2f) - ((browDownLeft + browDownRight + mouthFrownLeft + mouthFrownRight) / 4f)
-            
-            // Arousal estimation: Jaw open (+) and Eye wide (+)
-            val jawOpen = extractBlendshape(result, faceIndex, "jawOpen")
-            val eyeWideLeft = extractBlendshape(result, faceIndex, "eyeWideLeft")
-            val eyeWideRight = extractBlendshape(result, faceIndex, "eyeWideRight")
-            
-            val arousal = (jawOpen * 0.6f) + ((eyeWideLeft + eyeWideRight) / 2f * 0.4f)
-
-            // Clamp values to [-1, 1] range (roughly)
-            val vClamped = valence.coerceIn(-1f, 1f)
-            val aClamped = arousal.coerceIn(0f, 1f) * 2f - 1f // Map 0..1 to -1..1
-
-            drawVaGraph(canvas, w, h, vClamped, aClamped)
-            drawEmotionHud(canvas, vClamped, aClamped)
-        } else {
-            drawModuleError(canvas, context.getString(R.string.hologram_no_face))
-        }
-
-        return output
-    }
 
     private fun drawVaGraph(canvas: Canvas, width: Int, height: Int, v: Float, a: Float) {
         val size = width * 0.25f

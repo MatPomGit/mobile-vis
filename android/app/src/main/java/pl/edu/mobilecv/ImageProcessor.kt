@@ -30,6 +30,7 @@ import pl.edu.mobilecv.vision.CameraCalibrator
 import pl.edu.mobilecv.odometry.VisualOdometryEngine
 import pl.edu.mobilecv.odometry.FullOdometryEngine
 import kotlin.math.atan2
+import kotlin.math.min
 import kotlin.math.sqrt
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
@@ -206,8 +207,11 @@ class ImageProcessor {
             Scalar(70.0, 120.0, 255.0, 255.0),
             Scalar(255.0, 220.0, 70.0, 255.0),
         )
-        private const val POINT_CLOUD_CIRCLE_RADIUS = 3
+        private const val POINT_CLOUD_MIN_CIRCLE_RADIUS = 3
+        private const val POINT_CLOUD_MAX_CIRCLE_RADIUS = 7
         private const val POINT_CLOUD_MESH_THICKNESS = 1
+        private const val MAP_POINT_MIN_CIRCLE_RADIUS = 2
+        private const val MAP_POINT_MAX_CIRCLE_RADIUS = 5
         private const val PIXELATE_BLOCK_SIZE = 16
         private const val FULL_ODOMETRY_HUD_X = 20.0
         private const val FULL_ODOMETRY_HUD_LINE_HEIGHT = 28.0
@@ -979,17 +983,26 @@ class ImageProcessor {
         visualOdometryEngine.processFrameRgba(geometryInput, calibrator)
         val res = Mat.zeros(src.rows(), src.cols(), src.type())
         val cloud = visualOdometryEngine.lastPointCloud
+        val pointRadius = computeAdaptivePointRadius(res.cols(), res.rows(), cloud?.points?.size ?: 0)
         if (cloud != null) {
             if (isVoMeshEnabled) {
                 for ((p1, p2) in cloud.edges) Imgproc.line(res, p1, p2, Scalar(0.0, 128.0, 255.0, 255.0), POINT_CLOUD_MESH_THICKNESS)
             }
             cloud.points.forEachIndexed { i, pt ->
                 val color = cloud.colors.getOrNull(i) ?: Scalar(0.0, 255.0, 255.0, 255.0)
-                Imgproc.circle(res, pt, POINT_CLOUD_CIRCLE_RADIUS, color, -1)
+                Imgproc.circle(res, pt, pointRadius, color, -1)
             }
             Imgproc.putText(res, "$labelPointCloud: ${cloud.points.size}", Point(30.0, 30.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.7, Scalar(255.0, 255.0, 255.0, 255.0), 2)
         }
         geometryInput.release(); return res
+    }
+
+    private fun computeAdaptivePointRadius(width: Int, height: Int, pointCount: Int): Int {
+        val shortSide = min(width, height).toDouble()
+        val baseRadius = (shortSide * 0.006).toInt()
+        val densityPenalty = if (pointCount > 0) (pointCount / 800).coerceAtMost(2) else 0
+        return (baseRadius - densityPenalty)
+            .coerceIn(POINT_CLOUD_MIN_CIRCLE_RADIUS, POINT_CLOUD_MAX_CIRCLE_RADIUS)
     }
 
     private data class XzBounds(val minX: Double, val maxX: Double, val minZ: Double, val maxZ: Double)
@@ -1119,11 +1132,12 @@ class ImageProcessor {
         )
         
         drawMapGrid(res, margin, drawW, drawH)
+        val mapPointRadius = computeAdaptiveMapPointRadius(points.size)
         for (i in points.indices) {
             val pt = points[i]
             val c = colors[i]
             val scalar = Scalar(android.graphics.Color.red(c).toDouble(), android.graphics.Color.green(c).toDouble(), android.graphics.Color.blue(c).toDouble(), 255.0)
-            Imgproc.circle(res, toScreenCoord(pt.x, pt.z), 2, scalar, -1)
+            Imgproc.circle(res, toScreenCoord(pt.x, pt.z), mapPointRadius, scalar, -1)
         }
 
         // Draw Markers on Map
@@ -1140,6 +1154,12 @@ class ImageProcessor {
             Imgproc.line(res, Point(sc.x, sc.y - 12.0), Point(sc.x, sc.y + 12.0), Scalar(255.0, 80.0, 0.0, 255.0), 2)
         }
         drawXzAxisLabels(res, margin, drawW, drawH); return res
+    }
+
+    private fun computeAdaptiveMapPointRadius(pointCount: Int): Int {
+        val densityPenalty = if (pointCount > 0) (pointCount / 1500).coerceAtMost(2) else 0
+        val boostedRadius = MAP_POINT_MAX_CIRCLE_RADIUS - densityPenalty
+        return boostedRadius.coerceIn(MAP_POINT_MIN_CIRCLE_RADIUS, MAP_POINT_MAX_CIRCLE_RADIUS)
     }
 
     private fun applyPlaneDetection(src: Mat): Mat {

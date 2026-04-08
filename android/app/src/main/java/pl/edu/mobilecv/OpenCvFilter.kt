@@ -51,14 +51,29 @@ enum class OpenCvFilter(val displayName: String) {
     /** Detects AprilTag fiducial markers and overlays position info. */
     APRIL_TAGS("AprilTag"),
 
+    /** Detects AprilTag markers and renders a 3D object (cube) on top. */
+    APRIL_TAG_3D("AprilTag 3D"),
+
     /** Detects ArUco markers (4×4 dictionary) and overlays position info. */
     ARUCO("ArUco"),
+
+    /** Detects ArUco markers and renders a 3D object (cube) on top. */
+    ARUCO_3D("ArUco 3D"),
 
     /** Detects QR codes and overlays position info. */
     QR_CODE("QR Code"),
 
+    /** Detects QR codes and renders a 3D object (cube) on top. */
+    QR_CODE_3D("QR Code 3D"),
+
     /** Detects CCTag (Circular Concentric Tag) markers and overlays ring count and position. */
     CCTAG("CCTag"),
+
+    /**
+     * Stabilized marker pose estimation using Unscented Kalman Filter (UKF).
+     * Works with ArUco and AprilTag markers to provide smooth 6DOF tracking.
+     */
+    MARKER_UKF("Marker + UKF"),
 
     /** Detects chessboard corners for camera calibration. */
     CHESSBOARD_CALIBRATION("Szachownica"),
@@ -133,8 +148,16 @@ enum class OpenCvFilter(val displayName: String) {
      */
     FACE_DETECTION_BLAZE("Detekcja twarzy (Blaze)"),
 
-    /** Estimates sparse monocular visual odometry from tracked feature points. */
+    /**
+     * Estimates sparse monocular visual odometry from tracked feature points.
+     */
     VISUAL_ODOMETRY("Odometria wizyjna"),
+
+    /**
+     * MediaPipe Face Landmarker with Valence-Arousal (VA) emotion estimation.
+     * Maps face blendshapes to the 2D emotion space.
+     */
+    EMOTION_RECOGNITION("Rozpoznawanie emocji (VA)"),
 
     /** Builds a pseudo 3D point cloud view from frame-to-frame parallax. */
     POINT_CLOUD("Chmura punktów"),
@@ -314,6 +337,15 @@ enum class OpenCvFilter(val displayName: String) {
      * together with the current camera position marker.
      */
     ODOMETRY_MAP("Mapa 3D"),
+
+    /**
+     * Simultaneous Localization and Mapping (SLAM) using visual markers
+     * as fixed landmarks to correct drift and build a global map.
+     */
+    SLAM_MARKERS("SLAM (Markery)"),
+
+    /** Estimates distance to objects or markers in the scene. */
+    DISTANCE_ESTIMATION("Odległość"),
 }
 
 /**
@@ -329,7 +361,8 @@ val OpenCvFilter.isMediaPipe: Boolean
         this == OpenCvFilter.HOLOGRAM_3D ||
         this == OpenCvFilter.OBJECTRON ||
         this == OpenCvFilter.GESTURE_RECOGNIZER ||
-        this == OpenCvFilter.FACE_DETECTION_BLAZE
+        this == OpenCvFilter.FACE_DETECTION_BLAZE ||
+        this == OpenCvFilter.EMOTION_RECOGNITION
 
 /**
  * Returns ``true`` if this filter requires the YOLO processing pipeline
@@ -364,4 +397,5 @@ val OpenCvFilter.isTflite: Boolean
 val OpenCvFilter.isFullOdometry: Boolean
     get() = this == OpenCvFilter.FULL_ODOMETRY ||
         this == OpenCvFilter.ODOMETRY_TRAJECTORY ||
-        this == OpenCvFilter.ODOMETRY_MAP
+        this == OpenCvFilter.ODOMETRY_MAP ||
+        this == OpenCvFilter.SLAM_MARKERS

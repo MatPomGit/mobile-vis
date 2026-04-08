@@ -33,7 +33,6 @@ class GeometryProcessor(private val exceptionLogger: (String, String, Throwable)
         private const val TAG = "GeometryProcessor"
         private const val PLANE_ANGLE_DIFF_MIN = 25.0
         private const val CLUSTER_ANGLE_THRESHOLD = 8.0
-        private const val MIN_PLANE_LINES = 4
         private const val OVERLAY_ALPHA = 0.18
     }
 
@@ -56,15 +55,18 @@ class GeometryProcessor(private val exceptionLogger: (String, String, Throwable)
         try {
             Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
             claheObj.apply(gray, clahe)
-            Imgproc.GaussianBlur(clahe, blurred, Size(5.0, 5.0), 0.0)
+            // Bilateral filter helps preserve edges while removing noise
+            Imgproc.bilateralFilter(clahe, blurred, 9, 75.0, 75.0)
 
             val medianVal = medianIntensity(blurred)
-            Imgproc.Canny(blurred, edges, maxOf(0.0, 0.67 * medianVal), minOf(255.0, 1.33 * medianVal))
+            Imgproc.Canny(blurred, edges, maxOf(0.0, 0.5 * medianVal), minOf(255.0, 1.2 * medianVal))
             Imgproc.dilate(edges, edges, dilationKernel3x3)
 
-            Imgproc.HoughLinesP(edges, lines, 1.0, Math.PI / 180.0, 45, 40.0, 15.0)
+            // Dynamic threshold based on image size
+            val houghThreshold = (src.cols() * 0.08).toInt().coerceAtLeast(35)
+            Imgproc.HoughLinesP(edges, lines, 1.0, Math.PI / 180.0, houghThreshold, 50.0, 20.0)
 
-            val rawClusters = clusterLinesRaw(lines)
+            val rawClusters = clusterLinesByAngleAndSpace(lines)
             val clusters = rawClusters.map { segs ->
                 val totalWeight = segs.sumOf { it.length }
                 val meanAngle = weightedAngleMean(segs)
@@ -72,9 +74,9 @@ class GeometryProcessor(private val exceptionLogger: (String, String, Throwable)
             }
 
             val sortedClusters = clusters
-                .filter { it.lines.size >= 2 }
+                .filter { it.lines.size >= 2 && it.totalWeight > 100 }
                 .sortedByDescending { it.totalWeight }
-                .take(maxPlanes * 2)
+                .take(maxPlanes * 5)
 
             val usedClusters = mutableSetOf<Int>()
             val detectedPlanes = mutableListOf<PlaneData>()
@@ -92,19 +94,23 @@ class GeometryProcessor(private val exceptionLogger: (String, String, Throwable)
                     var angleDiff = abs(c1.meanAngleDeg - c2.meanAngleDeg)
                     angleDiff = minOf(angleDiff, 180.0 - angleDiff)
 
+                    // Robust check: significant angle difference AND spatial proximity
                     if (angleDiff >= PLANE_ANGLE_DIFF_MIN && areClustersSpatiallyRelated(c1.lines, c2.lines)) {
-                        if (c1.lines.size + c2.lines.size >= MIN_PLANE_LINES) {
-                            detectedPlanes.add(PlaneData(c1, c2, planeIdx))
-                            usedClusters.add(i)
-                            usedClusters.add(j)
-                            planeIdx++
-                            break
-                        }
+                        detectedPlanes.add(PlaneData(c1, c2, planeIdx))
+                        usedClusters.add(i)
+                        usedClusters.add(j)
+                        planeIdx++
+                        break
                     }
                 }
             }
 
             drawAllPlanes(res, detectedPlanes, lines.rows())
+
+            if (detectedPlanes.isEmpty() && lines.rows() > 0) {
+                val labelLines = labels["lines"] ?: "Lines"
+                Imgproc.putText(res, "$labelLines: ${lines.rows()} - szukanie płaszczyzn...", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255.0, 255.0, 255.0), 2)
+            }
 
         } catch (e: Exception) {
             exceptionLogger("plane_detection", "error", e)
@@ -126,7 +132,7 @@ class GeometryProcessor(private val exceptionLogger: (String, String, Throwable)
 
             Imgproc.HoughLinesP(edges, lines, 1.0, Math.PI / 180.0, 40, 20.0, 8.0)
 
-            val clusters = clusterLinesRaw(lines)
+            val rawClusters = clusterLinesByAngleAndSpace(lines)
             val vpColors = arrayOf(
                 Scalar(0.0, 255.0, 0.0),
                 Scalar(0.0, 0.0, 255.0),
@@ -135,7 +141,7 @@ class GeometryProcessor(private val exceptionLogger: (String, String, Throwable)
             )
             var foundVP = false
 
-            val sortedClusters = clusters.sortedByDescending { it.size }.take(4)
+            val sortedClusters = rawClusters.sortedByDescending { it.size }.take(4)
 
             for (i in sortedClusters.indices) {
                 val cluster = sortedClusters[i]
@@ -160,7 +166,7 @@ class GeometryProcessor(private val exceptionLogger: (String, String, Throwable)
             when {
                 lines.rows() == 0 -> Imgproc.putText(res, labelNoLines, Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.8, Scalar(200.0, 200.0, 200.0), 2)
                 !foundVP -> Imgproc.putText(res, "$labelNoVanishingPoints ($labelLines: ${lines.rows()})", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(200.0, 200.0, 200.0), 2)
-                else -> Imgproc.putText(res, "$labelLines: ${lines.rows()} | $labelGroups: ${clusters.size}", Point(30.0, 30.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255.0, 255.0, 255.0), 2)
+                else -> Imgproc.putText(res, "$labelLines: ${lines.rows()} | $labelGroups: ${rawClusters.size}", Point(30.0, 30.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255.0, 255.0, 255.0), 2)
             }
         } catch (e: Exception) {
             exceptionLogger("vanishing_points", "error", e)
@@ -244,32 +250,51 @@ class GeometryProcessor(private val exceptionLogger: (String, String, Throwable)
         return Rect(minX.toInt(), minY.toInt(), (maxX - minX).toInt(), (maxY - minY).toInt())
     }
 
-    private fun clusterLinesRaw(lines: Mat): List<List<LineSegment>> {
-        val clusters = mutableListOf<MutableList<LineSegment>>()
-        val clusterAngles = mutableListOf<Double>()
+    private fun clusterLinesByAngleAndSpace(lines: Mat): List<List<LineSegment>> {
+        val allSegments = mutableListOf<LineSegment>()
         for (i in 0 until lines.rows()) {
             val vec = lines.get(i, 0) ?: continue
             val x1 = vec[0]; val y1 = vec[1]; val x2 = vec[2]; val y2 = vec[3]
             val length = hypot(x2 - x1, y2 - y1)
             val angle = Math.toDegrees(atan2(y2 - y1, x2 - x1)).let { if (it < 0) it + 180.0 else it } % 180.0
-            val seg = LineSegment(Point(x1, y1), Point(x2, y2), length, Math.toRadians(angle))
-            
+            allSegments.add(LineSegment(Point(x1, y1), Point(x2, y2), length, Math.toRadians(angle)))
+        }
+
+        val clusters = mutableListOf<MutableList<LineSegment>>()
+        val clusterStates = mutableListOf<Pair<Double, Rect>>() // MeanAngle, BoundingBox
+
+        for (seg in allSegments) {
             var assigned = false
-            for (k in clusterAngles.indices) {
-                var diff = abs(angle - clusterAngles[k]); diff = minOf(diff, 180.0 - diff)
+            for (k in clusters.indices) {
+                val (cAngle, cRect) = clusterStates[k]
+                var diff = abs(Math.toDegrees(seg.angleRad) - cAngle)
+                diff = minOf(diff, 180.0 - diff)
+
+                // Check angle AND spatial distance to cluster bounding box
                 if (diff <= CLUSTER_ANGLE_THRESHOLD) {
-                    clusters[k].add(seg)
-                    clusterAngles[k] = weightedAngleMean(clusters[k])
-                    assigned = true; break
+                    val dist = distanceToRect(seg.p1, cRect).coerceAtMost(distanceToRect(seg.p2, cRect))
+                    if (dist < 150.0) { // Max gap between lines in same cluster
+                        clusters[k].add(seg)
+                        val newAngle = weightedAngleMean(clusters[k])
+                        val newRect = getClusterBoundingBox(clusters[k])
+                        clusterStates[k] = Pair(newAngle, newRect)
+                        assigned = true
+                        break
+                    }
                 }
             }
-
             if (!assigned) {
                 clusters.add(mutableListOf(seg))
-                clusterAngles.add(angle)
+                clusterStates.add(Pair(Math.toDegrees(seg.angleRad), getClusterBoundingBox(listOf(seg))))
             }
         }
         return clusters
+    }
+
+    private fun distanceToRect(p: Point, r: Rect): Double {
+        val dx = maxOf(0.0, r.x.toDouble() - p.x, p.x - (r.x + r.width).toDouble())
+        val dy = maxOf(0.0, r.y.toDouble() - p.y, p.y - (r.y + r.height).toDouble())
+        return hypot(dx, dy)
     }
 
     private fun medianIntensity(mat: Mat): Double {

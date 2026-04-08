@@ -1,5 +1,9 @@
 package pl.edu.mobilecv
 
+import android.graphics.Color
+import android.net.Uri
+import android.provider.OpenableColumns
+import org.opencv.core.Point3
 import android.Manifest
 import android.annotation.SuppressLint
 import android.app.AlertDialog
@@ -40,6 +44,7 @@ import org.opencv.android.OpenCVLoader
 import pl.edu.mobilecv.databinding.ActivityMainBinding
 import pl.edu.mobilecv.vision.CameraCalibrator
 import pl.edu.mobilecv.odometry.VisualOdometryEngine
+import pl.edu.mobilecv.odometry.FullOdometryEngine
 import java.io.IOException
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
@@ -47,6 +52,7 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.*
 import kotlin.getValue
 
 /**
@@ -111,10 +117,21 @@ class MainActivity : AppCompatActivity() {
     @Volatile private var cameraStartTimeMs: Long = 0
     private val firstFrameRenderedLogged = AtomicBoolean(false)
     private val exceptionTelemetry = ConcurrentHashMap<String, AtomicInteger>()
+    private lateinit var dataCollectionCache: DataCollectionCacheDataStore
+    private val telemetryScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     private fun logExceptionTelemetry(scope: String, category: String, error: Throwable) {
         val key = "$scope:$category"
         val count = exceptionTelemetry.getOrPut(key) { AtomicInteger(0) }.incrementAndGet()
+        
+        telemetryScope.launch {
+            try {
+                dataCollectionCache.incrementErrorCount(scope, category)
+            } catch (e: Exception) {
+                Log.e(TAG, "Persistence failure for telemetry: $key", e)
+            }
+        }
+
         val ranking = exceptionTelemetry.entries
             .sortedByDescending { it.value.get() }
             .take(3)
@@ -135,6 +152,10 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+
+        // Initialize DataStore and schedule background sync
+        dataCollectionCache = DataCollectionCacheDataStore(this)
+        AssistantDailyDataSyncWorker.schedule(this)
 
         // Initialize OpenCV first before any components that might use it are created.
         initOpenCv()
@@ -161,6 +182,18 @@ class MainActivity : AppCompatActivity() {
         imageProcessor.labelGroups = getString(R.string.overlay_groups)
         imageProcessor.labelGeometryError = getString(R.string.overlay_geometry_error)
         imageProcessor.labelVpError = getString(R.string.overlay_vp_error)
+
+        imageProcessor.onLargeMapDetected = { map ->
+            backgroundExecutor.execute {
+                saveSlamMap(map, isAutoSave = true)
+            }
+        }
+
+        imageProcessor.onLoopClosed = { message ->
+            runOnUiThread {
+                Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+            }
+        }
 
         backgroundExecutor.execute {
             try {
@@ -260,6 +293,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        telemetryScope.cancel()
         if (isRecording) {
             isRecording = false
             backgroundExecutor.execute {
@@ -470,6 +504,10 @@ class MainActivity : AppCompatActivity() {
             if (isFiltersMode && isActiveVisionEnabled) View.VISIBLE else View.GONE
         binding.fabSavePointCloud.visibility =
             if (currentFilter == OpenCvFilter.POINT_CLOUD) View.VISIBLE else View.GONE
+        binding.fabSaveSlamMap.visibility =
+            if (currentFilter.isFullOdometry) View.VISIBLE else View.GONE
+        binding.fabLoadSlamMap.visibility =
+            if (currentFilter.isFullOdometry) View.VISIBLE else View.GONE
         binding.fabEyeTrackingCalibration.visibility =
             if (currentMode == AnalysisMode.POSE && currentFilter == OpenCvFilter.EYE_TRACKING) View.VISIBLE else View.GONE
         
@@ -649,7 +687,25 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupCalibrationFab() = binding.fabCalibrationMenu.setOnClickListener { openCalibrationMenu() }
     private fun setupResolutionFab() = binding.fabResolution.setOnClickListener { openResolutionMenu() }
-    private fun setupSavePointCloudFab() = binding.fabSavePointCloud.setOnClickListener { showSavePointCloudDialog() }
+    private val filePickerSlam = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) loadSlamMap(uri)
+    }
+
+    private fun setupSavePointCloudFab() {
+        binding.fabSavePointCloud.setOnClickListener {
+            if (currentFilter.isFullOdometry) {
+                showSaveSlamMapDialog()
+            } else {
+                showSavePointCloudDialog()
+            }
+        }
+        binding.fabSaveSlamMap.setOnClickListener {
+            showSaveSlamMapDialog()
+        }
+        binding.fabLoadSlamMap.setOnClickListener {
+            filePickerSlam.launch("*/*")
+        }
+    }
 
     private fun setupBackToMenuButton() {
         binding.fabBackToMenu.setOnClickListener {
@@ -679,6 +735,175 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             .show()
+    }
+
+    private fun showSaveSlamMapDialog() {
+        val map = imageProcessor.currentSlamMap
+        if (map.points3d.isEmpty() && map.markers.isEmpty()) {
+            Toast.makeText(this, getString(R.string.point_cloud_empty), Toast.LENGTH_SHORT).show()
+            return
+        }
+        val formats = arrayOf(
+            getString(R.string.point_cloud_format_ply),
+        )
+        AlertDialog.Builder(this)
+            .setTitle(getString(R.string.point_cloud_format_title))
+            .setItems(formats) { _, which ->
+                when (which) {
+                    0 -> saveSlamMap(map)
+                }
+            }
+            .show()
+    }
+
+    private fun saveSlamMap(map: FullOdometryEngine.MapState, isAutoSave: Boolean = false) {
+        try {
+            val timestamp = System.currentTimeMillis()
+            val filename = if (isAutoSave) "autosave_slam_map_$timestamp.csv" else "slam_map_$timestamp.ply"
+            
+            val content = if (isAutoSave) {
+                // CSV for autosave (Excel-friendly)
+                buildString {
+                    appendLine("x,y,z,r,g,b,label")
+                    map.points3d.forEachIndexed { i, p ->
+                        val colorInt = map.colors[i]
+                        val r = Color.red(colorInt)
+                        val g = Color.green(colorInt)
+                        val b = Color.blue(colorInt)
+                        appendLine("${p.x},${p.y},${p.z},$r,$g,$b,landmark")
+                    }
+                    for (m in map.markers) {
+                        appendLine("${m.position.x},${m.position.y},${m.position.z},0,255,255,${m.label}")
+                    }
+                }
+            } else {
+                // PLY for manual save (MeshLab/CloudCompare friendly)
+                buildString {
+                    appendLine("ply")
+                    appendLine("format ascii 1.0")
+                    appendLine("comment MobileCV SLAM Sparse Map")
+                    appendLine("element vertex ${map.points3d.size + map.markers.size}")
+                    appendLine("property float x")
+                    appendLine("property float y")
+                    appendLine("property float z")
+                    appendLine("property uchar red")
+                    appendLine("property uchar green")
+                    appendLine("property uchar blue")
+                    appendLine("end_header")
+                    
+                    // Map points
+                    map.points3d.forEachIndexed { i, p ->
+                        val colorInt = map.colors[i]
+                        val r = Color.red(colorInt)
+                        val g = Color.green(colorInt)
+                        val b = Color.blue(colorInt)
+                        // Note: OpenCV coordinate system (X right, Y down, Z forward)
+                        appendLine("${p.x} ${p.y} ${p.z} $r $g $b")
+                    }
+                    
+                    // Markers as cyan points
+                    for (m in map.markers) {
+                        appendLine("${m.position.x} ${m.position.y} ${m.position.z} 0 255 255")
+                    }
+                }
+            }
+            
+            val mimeType = if (isAutoSave) "text/csv" else "application/octet-stream"
+            writeToDownloads(filename, mimeType, content, silent = isAutoSave)
+        } catch (e: Exception) {
+            logExceptionTelemetry("save_slam_map", "error", e)
+            Log.e(TAG, "Failed to save SLAM map", e)
+            if (!isAutoSave) {
+                runOnUiThread { Toast.makeText(this, R.string.point_cloud_save_error, Toast.LENGTH_SHORT).show() }
+            }
+        }
+    }
+
+    private fun loadSlamMap(uri: Uri) {
+        backgroundExecutor.execute {
+            try {
+                contentResolver.openInputStream(uri)?.bufferedReader()?.use { reader ->
+                    val filename = queryFileName(uri)
+                    val isPly = filename.endsWith(".ply", ignoreCase = true)
+                    val points = mutableListOf<Point3>()
+                    val colors = mutableListOf<Int>()
+                    val markers = mutableListOf<FullOdometryEngine.MarkerLandmark>()
+
+                    if (isPly) {
+                        var line = reader.readLine()
+                        while (line != null && line.trim() != "end_header") {
+                            line = reader.readLine()
+                        }
+                        while (true) {
+                            line = reader.readLine() ?: break
+                            if (line.isBlank()) continue
+                            val parts = line.trim().split(Regex("\\s+"))
+                            if (parts.size >= 3) {
+                                val x = parts[0].toDoubleOrNull() ?: 0.0
+                                val y = parts[1].toDoubleOrNull() ?: 0.0
+                                val z = parts[2].toDoubleOrNull() ?: 0.0
+                                points.add(Point3(x, y, z))
+                                if (parts.size >= 6) {
+                                    val r = parts[3].toIntOrNull() ?: 255
+                                    val g = parts[4].toIntOrNull() ?: 255
+                                    val b = parts[5].toIntOrNull() ?: 255
+                                    colors.add(Color.rgb(r, g, b))
+                                } else {
+                                    colors.add(Color.WHITE)
+                                }
+                            }
+                        }
+                    } else {
+                        // CSV
+                        reader.readLine() // skip header
+                        for (rawLine in reader.lineSequence()) {
+                            val trimmed = rawLine.trim()
+                            if (trimmed.isEmpty()) continue
+                            val parts = trimmed.split(",")
+                            if (parts.size >= 3) {
+                                val x = parts[0].toDoubleOrNull() ?: continue
+                                val y = parts[1].toDoubleOrNull() ?: continue
+                                val z = parts[2].toDoubleOrNull() ?: continue
+                                val label = parts.getOrNull(6) ?: "landmark"
+                                
+                                if (label == "landmark") {
+                                    points.add(Point3(x, y, z))
+                                    if (parts.size >= 6) {
+                                        val r = parts[3].toIntOrNull() ?: 255
+                                        val g = parts[4].toIntOrNull() ?: 255
+                                        val b = parts[5].toIntOrNull() ?: 255
+                                        colors.add(Color.rgb(r, g, b))
+                                    } else {
+                                        colors.add(Color.WHITE)
+                                    }
+                                } else {
+                                    markers.add(FullOdometryEngine.MarkerLandmark(label, Point3(x, y, z), label))
+                                }
+                            }
+                        }
+                    }
+
+                    if (points.isNotEmpty() || markers.isNotEmpty()) {
+                        val state = FullOdometryEngine.MapState(points, colors, null, null, markers)
+                        imageProcessor.fullOdometryEngine.importMap(state)
+                        runOnUiThread {
+                            Toast.makeText(this, "Imported ${points.size} points and ${markers.size} markers", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to load SLAM map", e)
+                runOnUiThread { Toast.makeText(this, "Load failed: ${e.message}", Toast.LENGTH_SHORT).show() }
+            }
+        }
+    }
+
+    private fun queryFileName(uri: Uri): String {
+        contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            if (cursor.moveToFirst()) return cursor.getString(nameIndex)
+        }
+        return uri.lastPathSegment ?: "map.ply"
     }
 
     private fun savePointCloud(cloud: VisualOdometryEngine.PointCloudState, usePly: Boolean) {
@@ -747,7 +972,7 @@ class MainActivity : AppCompatActivity() {
     /** Estimates a pseudo-depth z value from screen y position and mean parallax. */
     private fun pseudoZ(y: Double, meanParallax: Double): Double = (meanParallax - y) * 0.1
 
-    private fun writeToDownloads(filename: String, mimeType: String, content: String) {
+    private fun writeToDownloads(filename: String, mimeType: String, content: String, silent: Boolean = false) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val values = ContentValues().apply {
                 put(MediaStore.MediaColumns.DISPLAY_NAME, filename)
@@ -757,8 +982,8 @@ class MainActivity : AppCompatActivity() {
             val uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
             if (uri != null) {
                 contentResolver.openOutputStream(uri)?.use { it.write(content.toByteArray()) }
-                Toast.makeText(this, getString(R.string.point_cloud_saved, "Download/MobileCV/$filename"), Toast.LENGTH_SHORT).show()
-            } else {
+                if (!silent) Toast.makeText(this, getString(R.string.point_cloud_saved, "Download/MobileCV/$filename"), Toast.LENGTH_SHORT).show()
+            } else if (!silent) {
                 Toast.makeText(this, R.string.point_cloud_save_error, Toast.LENGTH_SHORT).show()
             }
         } else {
@@ -766,7 +991,7 @@ class MainActivity : AppCompatActivity() {
             val dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
             val subDir = File(dir, "MobileCV").also { it.mkdirs() }
             File(subDir, filename).writeText(content)
-            Toast.makeText(this, getString(R.string.point_cloud_saved, "${subDir.absolutePath}/$filename"), Toast.LENGTH_SHORT).show()
+            if (!silent) Toast.makeText(this, getString(R.string.point_cloud_saved, "${subDir.absolutePath}/$filename"), Toast.LENGTH_SHORT).show()
         }
     }
 

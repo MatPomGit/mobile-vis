@@ -87,6 +87,18 @@ class MediaPipeProcessor(private val context: Context) {
         private const val INFO_BADGE_MARGIN = 8f
         private const val INFO_BADGE_PADDING = 10f
 
+        /** Horizontal margin for HUD text. */
+        private const val HUD_MARGIN_X = 16f
+        /** Bottom offset for the primary HUD status line. */
+        private const val HUD_Y_OFFSET_BOTTOM = 20f
+        /** Bottom offset for secondary HUD info (e.g. coordinates, blink). */
+        private const val HUD_Y_OFFSET_SECONDARY = 120f
+        /** Bottom offset for error or warning HUD messages. */
+        private const val HUD_Y_OFFSET_ERROR = 160f
+
+        private const val GAZE_RETICLE_RADIUS = 30f
+        private const val GAZE_RETICLE_CROSS_SIZE = 40f
+
         // ------------------------------------------------------------------
         // Named eye / iris landmark indices (MediaPipe 478-point face mesh)
         // ------------------------------------------------------------------
@@ -221,6 +233,12 @@ class MediaPipeProcessor(private val context: Context) {
 
         /** Minimum face size (as fraction of frame) for reliable tracking. */
         private const val MIN_FACE_SIZE = 0.15f
+
+        /** Blink threshold for blendshape scores. */
+        private const val BLINK_THRESHOLD = 0.45f
+
+        /** Number of frames for the gaze trail. */
+        private const val GAZE_TRAIL_SIZE = 10
     }
 
     private var poseLandmarker: PoseLandmarker? = null
@@ -248,9 +266,29 @@ class MediaPipeProcessor(private val context: Context) {
     private val calibrationSamples = mutableListOf<CalibrationSample>()
 
     /** Linear regression weights for mapping iris offset to screen coordinates. */
-    private var weightX = floatArrayOf(0f, 0f, 0f) // [const, dx, dy]
-    private var weightY = floatArrayOf(0f, 0f, 0f) // [const, dx, dy]
+    private var weightX = floatArrayOf(0.5f, 0f, 0f) // [const, dx, dy] - default center
+    private var weightY = floatArrayOf(0.5f, 0f, 0f) // [const, dx, dy] - default center
     private var isCalibrated = false
+
+    // Stability check during calibration
+    private var lastNoseX = -1f
+    private var lastNoseY = -1f
+    private var isFaceStable = false
+    private val STABILITY_THRESHOLD = 0.005f // Very strict stability for better calibration
+
+    // Smoothing filters for gaze coordinates
+    private val gazeFilterX = pl.edu.mobilecv.util.OneEuroFilter(minCutoff = 0.8, beta = 0.015)
+    private val gazeFilterY = pl.edu.mobilecv.util.OneEuroFilter(minCutoff = 0.8, beta = 0.015)
+    
+    private val gazeTrail = mutableListOf<Pair<Float, Float>>()
+
+    // Cached string resources for performance in the processing loop
+    private val blinkText by lazy { context.getString(R.string.eye_tracking_blink) }
+    private val tooFarText by lazy { context.getString(R.string.eye_tracking_too_far) }
+    private val calibratedStatusText by lazy { context.getString(R.string.eye_tracking_status_calibrated) }
+    private val notCalibratedStatusText by lazy { context.getString(R.string.eye_tracking_status_not_calibrated) }
+    private val calibrationPointPrefix by lazy { context.getString(R.string.eye_tracking_calibration_point) }
+    private val gazeFormat by lazy { context.getString(R.string.eye_tracking_gaze_format) }
 
     private data class CalibrationSample(
         val screenX: Float, // Normalised 0..1
@@ -352,6 +390,14 @@ class MediaPipeProcessor(private val context: Context) {
         isAntiAlias = true
     }
 
+    /** Paint for gaze trail. */
+    private val trailPaint = Paint().apply {
+        style = Paint.Style.STROKE
+        color = 0x8800FF00.toInt()
+        strokeWidth = 3f
+        isAntiAlias = true
+    }
+
     /** Reusable Rect used for text-bounds measurement to avoid per-frame allocations. */
     private val textBoundsRect = Rect()
 
@@ -399,6 +445,7 @@ class MediaPipeProcessor(private val context: Context) {
                 OpenCvFilter.OBJECTRON -> applyObjectron(bitmap)
                 OpenCvFilter.GESTURE_RECOGNIZER -> applyGestureRecognizer(bitmap)
                 OpenCvFilter.FACE_DETECTION_BLAZE -> applyFaceDetector(bitmap)
+                OpenCvFilter.EMOTION_RECOGNITION -> applyEmotionRecognition(bitmap)
                 else -> bitmap.copy(Bitmap.Config.ARGB_8888, false)
             }
         } catch (error: Throwable) {
@@ -703,6 +750,9 @@ class MediaPipeProcessor(private val context: Context) {
         samplesCollectedCount = 0
         calibrationSamples.clear()
         isCalibrated = false
+        gazeFilterX.reset()
+        gazeFilterY.reset()
+        gazeTrail.clear()
     }
 
     private fun applyEyeTracking(bitmap: Bitmap): Bitmap {
@@ -721,7 +771,34 @@ class MediaPipeProcessor(private val context: Context) {
 
         if (result.faceLandmarks().isNotEmpty()) {
             val face = result.faceLandmarks()[0]
-            if (face.size >= 478) {
+            
+            // Check face size for reliability
+            val p1 = face[234] // Left side of face
+            val p2 = face[454] // Right side of face
+            val faceWidth = sqrt((p1.x() - p2.x()).let { it * it } + (p1.y() - p2.y()).let { it * it })
+            
+            if (faceWidth < MIN_FACE_SIZE) {
+                drawHudMessage(canvas, tooFarText, h - HUD_Y_OFFSET_ERROR)
+                return output
+            }
+
+            // Head stability check (using nose tip)
+            val nose = face[HOLOGRAM_NOSE_TIP]
+            if (lastNoseX < 0) {
+                lastNoseX = nose.x()
+                lastNoseY = nose.y()
+            }
+            val dist = sqrt((nose.x() - lastNoseX).let { it * it } + (nose.y() - lastNoseY).let { it * it })
+            isFaceStable = dist < STABILITY_THRESHOLD
+            lastNoseX = nose.x()
+            lastNoseY = nose.y()
+
+            // Blink detection
+            val leftBlink = extractBlendshape(result, 0, "eyeBlinkLeft")
+            val rightBlink = extractBlendshape(result, 0, "eyeBlinkRight")
+            val isBlinking = leftBlink > BLINK_THRESHOLD || rightBlink > BLINK_THRESHOLD
+
+            if (face.size >= 478 && !isBlinking) {
                 // Get iris and eye corner landmarks.
                 val lIris = face[LEFT_IRIS_CENTER]
                 val rIris = face[RIGHT_IRIS_CENTER]
@@ -736,72 +813,115 @@ class MediaPipeProcessor(private val context: Context) {
                 val rEyeMidX = (rOuter.x() + rInner.x()) / 2f
                 val rEyeMidY = (rOuter.y() + rInner.y()) / 2f
 
-                // Iris offset from eye midpoint (normalised).
-                val dx = ((lIris.x() - lEyeMidX) + (rIris.x() - rEyeMidX)) / 2f
-                val dy = ((lIris.y() - lEyeMidY) + (rIris.y() - rEyeMidY)) / 2f
+                // Eye width for depth normalization (normalised).
+                val lEyeWidth = sqrt((lOuter.x() - lInner.x()).let { it * it } + (lOuter.y() - lInner.y()).let { it * it })
+                val rEyeWidth = sqrt((rOuter.x() - rInner.x()).let { it * it } + (rOuter.y() - rInner.y()).let { it * it })
+                val avgEyeWidth = (lEyeWidth + rEyeWidth) / 2f
 
+                // Iris offset from eye midpoint, normalized by eye width for distance invariance.
+                val dx = (((lIris.x() - lEyeMidX) + (rIris.x() - rEyeMidX)) / 2f) / avgEyeWidth
+                val dy = (((lIris.y() - lEyeMidY) + (rIris.y() - rEyeMidY)) / 2f) / avgEyeWidth
                 if (isCalibrating) {
                     processCalibrationFrame(canvas, w, h, dx, dy)
                 } else if (isCalibrated) {
                     // Map iris offset (dx, dy) to screen (sx, sy) using linear regression weights.
-                    val sx = (weightX[0] + weightX[1] * dx + weightX[2] * dy).coerceIn(0f, 1f)
-                    val sy = (weightY[0] + weightY[1] * dx + weightY[2] * dy).coerceIn(0f, 1f)
-                    val px = sx * w
-                    val py = sy * h
+                    var sx = (weightX[0] + weightX[1] * dx + weightX[2] * dy).toDouble()
+                    var sy = (weightY[0] + weightY[1] * dx + weightY[2] * dy).toDouble()
+                    
+                    // Temporal smoothing
+                    val nowNs = System.nanoTime()
+                    sx = gazeFilterX.filter(sx, nowNs)
+                    sy = gazeFilterY.filter(sy, nowNs)
+                    
+                    val px = (sx.toFloat() * w).coerceIn(0f, w)
+                    val py = (sy.toFloat() * h).coerceIn(0f, h)
+                    
+                    // Update trail
+                    gazeTrail.add(px to py)
+                    if (gazeTrail.size > GAZE_TRAIL_SIZE) gazeTrail.removeAt(0)
+                    
+                    drawGazeTrail(canvas)
                     drawGazeReticle(canvas, px, py)
 
-                    // Display gaze convergence coordinates
-                    val coordText = String.format(Locale.US, "Gaze: (%.0f, %.0f)", px, py)
-                    canvas.drawText(coordText, px + 40f, py - 40f, hologramHudPaint)
+                    // Display gaze convergence coordinates in Polish
+                    val coordText = String.format(Locale.getDefault(), gazeFormat, px, py)
+                    drawHudMessage(canvas, coordText, h - HUD_Y_OFFSET_SECONDARY)
                 }
                 
                 // Still draw basic iris dots for visual feedback.
                 drawIrisCircle(canvas, face, output.width, output.height, LEFT_IRIS_INDICES, IRIS_COLOR_LEFT)
                 drawIrisCircle(canvas, face, output.width, output.height, RIGHT_IRIS_INDICES, IRIS_COLOR_RIGHT)
+            } else if (isBlinking && !isCalibrating) {
+                drawHudMessage(canvas, blinkText, h - HUD_Y_OFFSET_SECONDARY)
+                if (gazeTrail.isNotEmpty()) drawGazeTrail(canvas)
             }
         }
 
         // HUD overlay.
         val hudText = when {
-            isCalibrating -> context.getString(R.string.eye_tracking_calibration_point)
-            isCalibrated -> context.getString(R.string.eye_tracking_status_calibrated)
-            else -> context.getString(R.string.eye_tracking_status_not_calibrated)
+            isCalibrating -> "$calibrationPointPrefix ${calibrationPointIndex + 1}/5"
+            isCalibrated -> calibratedStatusText
+            else -> notCalibratedStatusText
         }
-        canvas.drawText(hudText, 16f, h - 20f, hologramHudPaint)
+        drawHudMessage(canvas, hudText, h - HUD_Y_OFFSET_BOTTOM)
 
         return output
+    }
+
+    private fun drawGazeTrail(canvas: Canvas) {
+        if (gazeTrail.size < 2) return
+        val path = Path()
+        path.moveTo(gazeTrail[0].first, gazeTrail[0].second)
+        for (i in 1 until gazeTrail.size) {
+            path.lineTo(gazeTrail[i].first, gazeTrail[i].second)
+        }
+        canvas.drawPath(path, trailPaint)
     }
 
     private fun processCalibrationFrame(canvas: Canvas, w: Float, h: Float, dx: Float, dy: Float) {
         val targetX: Float
         val targetY: Float
 
-        // Calibration point sequence (0.02..0.98 to maximize distance).
+        // Calibration point sequence.
         when (calibrationPointIndex) {
             0 -> { targetX = 0.5f; targetY = 0.5f } // Center
-            1 -> { targetX = 0.02f; targetY = 0.02f } // Top-left
-            2 -> { targetX = 0.98f; targetY = 0.02f } // Top-right
-            3 -> { targetX = 0.02f; targetY = 0.98f } // Bottom-left
-            4 -> { targetX = 0.98f; targetY = 0.98f } // Bottom-right
+            1 -> { targetX = 0.1f; targetY = 0.1f } // Top-left
+            2 -> { targetX = 0.9f; targetY = 0.1f } // Top-right
+            3 -> { targetX = 0.1f; targetY = 0.9f } // Bottom-left
+            4 -> { targetX = 0.9f; targetY = 0.9f } // Bottom-right
             else -> return
         }
 
-        // Draw target on screen.
         val tx = targetX * w
         val ty = targetY * h
+
+        // Draw target on screen.
+        calibrationTargetPaint.color = if (isFaceStable) Color.RED else Color.GRAY
         canvas.drawCircle(tx, ty, 40f, calibrationTargetPaint)
         canvas.drawCircle(tx, ty, 40f, calibrationStrokePaint)
-        canvas.drawCircle(tx, ty, 10f, calibrationStrokePaint)
+        
+        // Progress arc around the target
+        val sweepAngle = (samplesCollectedCount.toFloat() / SAMPLES_PER_POINT) * 360f
+        val rect = android.graphics.RectF(tx - 50f, ty - 50f, tx + 50f, ty + 50f)
+        canvas.drawArc(rect, -90f, sweepAngle, false, calibrationStrokePaint)
 
-        // Collect samples.
-        samplesCollectedCount++
-        calibrationSamples.add(CalibrationSample(targetX, targetY, dx, dy))
+        // Stability indicator
+        if (!isFaceStable) {
+            val stableText = "Trzymaj głowę nieruchomo"
+            canvas.drawText(stableText, tx - 150f, ty + 100f, hologramHudPaint)
+        }
 
-        if (samplesCollectedCount >= SAMPLES_PER_POINT) {
-            samplesCollectedCount = 0
-            calibrationPointIndex++
-            if (calibrationPointIndex >= CALIBRATION_POINTS_COUNT) {
-                finishCalibration()
+        // Collect samples ONLY if face is stable.
+        if (isFaceStable) {
+            samplesCollectedCount++
+            calibrationSamples.add(CalibrationSample(targetX, targetY, dx, dy))
+
+            if (samplesCollectedCount >= SAMPLES_PER_POINT) {
+                samplesCollectedCount = 0
+                calibrationPointIndex++
+                if (calibrationPointIndex >= CALIBRATION_POINTS_COUNT) {
+                    finishCalibration()
+                }
             }
         }
     }
@@ -861,9 +981,16 @@ class MediaPipeProcessor(private val context: Context) {
     }
 
     private fun drawGazeReticle(canvas: Canvas, x: Float, y: Float) {
-        canvas.drawCircle(x, y, 30f, gazeReticlePaint)
-        canvas.drawLine(x - 40, y, x + 40, y, gazeReticlePaint)
-        canvas.drawLine(x, y - 40, x, y + 40, gazeReticlePaint)
+        canvas.drawCircle(x, y, GAZE_RETICLE_RADIUS, gazeReticlePaint)
+        canvas.drawLine(x - GAZE_RETICLE_CROSS_SIZE, y, x + GAZE_RETICLE_CROSS_SIZE, y, gazeReticlePaint)
+        canvas.drawLine(x, y - GAZE_RETICLE_CROSS_SIZE, x, y + GAZE_RETICLE_CROSS_SIZE, gazeReticlePaint)
+    }
+
+    /**
+     * Draw a message on the HUD with consistent positioning and style.
+     */
+    private fun drawHudMessage(canvas: Canvas, text: String, y: Float) {
+        canvas.drawText(text, HUD_MARGIN_X, y, hologramHudPaint)
     }
 
     /**
@@ -966,6 +1093,98 @@ class MediaPipeProcessor(private val context: Context) {
         canvas.drawText(hudText, 16f, h - 20f, hologramHudPaint)
 
         return output
+    }
+
+    private fun applyEmotionRecognition(bitmap: Bitmap): Bitmap {
+        val detector = faceLandmarker ?: tryCreateFaceLandmarker().also { faceLandmarker = it }
+        if (detector == null) return overlayMissingModel(bitmap, context.getString(R.string.mediapipe_model_missing_face))
+
+        val argbBitmap = ensureArgb8888(bitmap)
+        val result = detector.detect(BitmapImageBuilder(argbBitmap).build())
+
+        val output = bitmap.copy(Bitmap.Config.ARGB_8888, true)
+        val canvas = Canvas(output)
+        val h = output.height.toFloat()
+
+        if (result.faceLandmarks().isNotEmpty()) {
+            // Draw mesh for feedback
+            for (face in result.faceLandmarks()) {
+                dotPaint.color = Color.argb(100, 255, 0, 0)
+                for (lm in face) {
+                    canvas.drawCircle(lm.x() * output.width, lm.y() * output.height, 1.5f, dotPaint)
+                }
+            }
+
+            // Estimate Valence and Arousal
+            // Valence (Pleasure): Smile (mouthSmileLeft/Right), Brow lowerer (negative)
+            val smileL = extractBlendshape(result, 0, "mouthSmileLeft")
+            val smileR = extractBlendshape(result, 0, "mouthSmileRight")
+            val browDownL = extractBlendshape(result, 0, "browDownLeft")
+            val browDownR = extractBlendshape(result, 0, "browDownRight")
+            val mouthFrownL = extractBlendshape(result, 0, "mouthFrownLeft")
+            val mouthFrownR = extractBlendshape(result, 0, "mouthFrownRight")
+
+            val valence = ((smileL + smileR) / 2f) - ((browDownL + browDownR + mouthFrownL + mouthFrownR) / 4f)
+            
+            // Arousal (Activation): Eye widening (eyeWideLeft/Right), Mouth opening (jawOpen)
+            val eyeWideL = extractBlendshape(result, 0, "eyeWideLeft")
+            val eyeWideR = extractBlendshape(result, 0, "eyeWideRight")
+            val jawOpen = extractBlendshape(result, 0, "jawOpen")
+            
+            val arousal = ((eyeWideL + eyeWideR) / 2f) * 0.6f + (jawOpen * 0.4f)
+
+            // Map to discrete states for display
+            val state = when {
+                valence > 0.2f && arousal > 0.2f -> "Podekscytowanie / Radość"
+                valence > 0.2f && arousal <= 0.2f -> "Zadowolenie / Relaks"
+                valence <= -0.2f && arousal > 0.2f -> "Złość / Strach"
+                valence <= -0.2f && arousal <= 0.2f -> "Smutek / Nuda"
+                else -> "Neutralny"
+            }
+
+            // Draw HUD
+            val vaText = context.getString(R.string.emotion_va_format, valence, arousal)
+            val stateText = context.getString(R.string.emotion_label, state)
+            
+            drawHudMessage(canvas, vaText, h - HUD_Y_OFFSET_SECONDARY)
+            drawHudMessage(canvas, stateText, h - HUD_Y_OFFSET_BOTTOM)
+            
+            // Visual VA Graph (simplified)
+            drawVaGraph(canvas, valence, arousal, output.width.toFloat(), h)
+        } else {
+            drawHudMessage(canvas, context.getString(R.string.hologram_no_face), h - HUD_Y_OFFSET_BOTTOM)
+        }
+
+        return output
+    }
+
+    private fun drawVaGraph(canvas: Canvas, v: Float, a: Float, w: Float, h: Float) {
+        val graphSize = 200f
+        val margin = 40f
+        val gx = w - graphSize - margin
+        val gy = margin
+        
+        // Background
+        infoBgPaint.alpha = 150
+        canvas.drawRect(gx, gy, gx + graphSize, gy + graphSize, infoBgPaint)
+        
+        // Axes
+        linePaint.color = Color.WHITE
+        linePaint.strokeWidth = 2f
+        canvas.drawLine(gx + graphSize/2, gy, gx + graphSize/2, gy + graphSize, linePaint) // Arousal axis
+        canvas.drawLine(gx, gy + graphSize/2, gx + graphSize, gy + graphSize/2, linePaint) // Valence axis
+        
+        // Point
+        val px = gx + graphSize/2 + (v.coerceIn(-1f, 1f) * graphSize/2)
+        val py = gy + graphSize/2 - (a.coerceIn(-1f, 1f) * graphSize/2)
+        
+        dotPaint.color = Color.YELLOW
+        canvas.drawCircle(px, py, 8f, dotPaint)
+        
+        // Labels
+        val smallTextPaint = Paint(hologramHudPaint).apply { textSize = 24f }
+        canvas.drawText("V", gx + graphSize - 20f, gy + graphSize/2 + 30f, smallTextPaint)
+        canvas.drawText("A", gx + graphSize/2 + 10f, gy + 30f, smallTextPaint)
     }
 
     /**
@@ -1351,15 +1570,23 @@ class MediaPipeProcessor(private val context: Context) {
     }
 
     /**
-     * Extract the `jawOpen` blendshape score from a [FaceLandmarkerResult] for the face at
-     * [faceIndex].  Returns 0 if blendshapes are unavailable or the category is not found.
+     * Extract a blendshape score by name from a [FaceLandmarkerResult] for the face at
+     * [faceIndex]. Returns 0 if blendshapes are unavailable or the category is not found.
      */
-    private fun extractJawOpen(result: FaceLandmarkerResult, faceIndex: Int): Float {
+    private fun extractBlendshape(result: FaceLandmarkerResult, faceIndex: Int, name: String): Float {
         val shapesOpt = result.faceBlendshapes()
         if (!shapesOpt.isPresent) return 0f
         val shapes = shapesOpt.get()
         if (faceIndex >= shapes.size) return 0f
-        return shapes[faceIndex].firstOrNull { it.categoryName() == "jawOpen" }?.score() ?: 0f
+        return shapes[faceIndex].firstOrNull { it.categoryName() == name }?.score() ?: 0f
+    }
+
+    /**
+     * Extract the `jawOpen` blendshape score from a [FaceLandmarkerResult] for the face at
+     * [faceIndex].
+     */
+    private fun extractJawOpen(result: FaceLandmarkerResult, faceIndex: Int): Float {
+        return extractBlendshape(result, faceIndex, "jawOpen")
     }
 
     /**

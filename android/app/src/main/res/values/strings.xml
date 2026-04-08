@@ -87,6 +87,11 @@
     <string name="mediapipe_model_missing_gesture">Model gestów niedostępny – pobieranie…</string>
     <string name="mediapipe_object_detected">Wykryto obiekt: %s</string>
     <string name="mediapipe_gesture_detected">Gest: %s</string>
+    <string name="eye_tracking_too_far">Podejdź bliżej</string>
+    <string name="eye_tracking_blink">Mrugnięcie</string>
+    <string name="eye_tracking_gaze_format">Wzrok: (%1$.0f, %2$.0f)</string>
+    <string name="emotion_va_format">Emocje: V=%1$.2f, A=%2$.2f</string>
+    <string name="emotion_label">Stan: %s</string>
 
     <!-- Eye Tracking -->
     <string name="eye_tracking_start_calibration">Rozpocznij kalibrację</string>
@@ -186,6 +191,7 @@
     <string name="filter_desc_face_blaze">Detekcja twarzy (BlazeFace): szybki model MediaPipe Face Detector zoptymalizowany pod kątem niskiego zużycia energii (inferencja co 10 klatek).</string>
     <string name="filter_desc_iris">Śledzenie wzroku (Iris): 478 punktów twarzy z 10 dodatkowymi dla tęczówek. Wizualizuje kierunek patrzenia.</string>
     <string name="filter_desc_hologram_3d">Hologram 3D: wyświetla obracający się sześcian 3D. Kąt obrotu zależy od pozycji twarzy względem środka ekranu (yaw i pitch z nosa).</string>
+    <string name="filter_desc_emotion">Rozpoznawanie emocji (VA): analizuje mimikę twarzy i wyznacza walencję (przyjemność) oraz pobudzenie w modelu VA.</string>
 
     <!-- About tab – filter descriptions (ODOMETRY mode) -->
     <string name="filter_desc_visual_odometry">Odometria wizyjna: śledzi punkty charakterystyczne między klatkami i szacuje ruch kamery (translacja i rotacja).</string>

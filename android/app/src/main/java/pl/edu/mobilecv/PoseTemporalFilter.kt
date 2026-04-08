@@ -1,5 +1,9 @@
 package pl.edu.mobilecv
 
+import org.opencv.core.Core
+import org.opencv.core.CvType
+import org.opencv.core.Mat
+import pl.edu.mobilecv.util.UnscentedKalmanFilter
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.exp
@@ -8,6 +12,7 @@ import kotlin.math.sqrt
 enum class PoseTemporalFilterType {
     EMA,
     ONE_EURO,
+    UKF,
 }
 
 enum class PoseOutputMode {
@@ -23,6 +28,8 @@ data class PoseTemporalConfig(
     val oneEuroMinCutoff: Double = 1.0,
     val oneEuroBeta: Double = 0.02,
     val oneEuroDerivativeCutoff: Double = 1.0,
+    val ukfProcessNoise: Double = 1e-3,
+    val ukfMeasurementNoise: Double = 1e-2,
     val jitterWindowSize: Int = 30,
     val staticJitterThresholdTvecMm: Double = 2.5,
     val staticJitterThresholdRvecDeg: Double = 0.35,
@@ -50,6 +57,7 @@ class PoseTemporalFilter(private var config: PoseTemporalConfig = PoseTemporalCo
         var lastTsNs: Long = 0L,
         var emaTvec: DoubleArray? = null,
         var emaRvec: DoubleArray? = null,
+        var ukf: UnscentedKalmanFilter? = null,
         val tvecFilters: Array<OneEuroScalarFilter> = Array(3) { OneEuroScalarFilter() },
         val rvecFilters: Array<OneEuroScalarFilter> = Array(3) { OneEuroScalarFilter() },
         val rawTvecHistory: ArrayDeque<DoubleArray> = ArrayDeque(),
@@ -78,6 +86,7 @@ class PoseTemporalFilter(private var config: PoseTemporalConfig = PoseTemporalCo
             when (config.filterType) {
                 PoseTemporalFilterType.EMA -> applyEma(state, safeTvec, safeRvec)
                 PoseTemporalFilterType.ONE_EURO -> applyOneEuro(state, safeTvec, safeRvec, timestampNs)
+                PoseTemporalFilterType.UKF -> applyUkf(state, safeTvec, safeRvec)
             }
         }
         state.lastTsNs = timestampNs
@@ -195,6 +204,51 @@ class PoseTemporalFilter(private var config: PoseTemporalConfig = PoseTemporalCo
         while (delta > PI) delta -= 2.0 * PI
         while (delta < -PI) delta += 2.0 * PI
         return delta
+    }
+
+    private fun applyUkf(state: MarkerState, tvec: DoubleArray, rvec: DoubleArray): Pair<DoubleArray, DoubleArray> {
+        var ukf = state.ukf
+        if (ukf == null) {
+            // State: [tx, ty, tz, rx, ry, rz] (size 6)
+            ukf = UnscentedKalmanFilter(stateDim = 6, measureDim = 6)
+            val initialState = Mat(6, 1, CvType.CV_64F)
+            for (i in 0 until 3) {
+                initialState.put(i, 0, tvec[i])
+                initialState.put(i + 3, 0, rvec[i])
+            }
+            ukf.statePost = initialState
+            
+            // Set noise covariances from config
+            val q = Mat.eye(6, 6, CvType.CV_64F)
+            Core.multiply(q, org.opencv.core.Scalar(config.ukfProcessNoise), q)
+            ukf.processNoiseCov = q
+            
+            val r = Mat.eye(6, 6, CvType.CV_64F)
+            Core.multiply(r, org.opencv.core.Scalar(config.ukfMeasurementNoise), r)
+            ukf.measurementNoiseCov = r
+            
+            state.ukf = ukf
+        }
+
+        // 1. Predict (Constant position model)
+        ukf.predict { it.clone() }
+
+        // 2. Update
+        val measurement = Mat(6, 1, CvType.CV_64F)
+        for (i in 0 until 3) {
+            measurement.put(i, 0, tvec[i])
+            measurement.put(i + 3, 0, rvec[i])
+        }
+        ukf.update(measurement) { it.clone() }
+
+        // 3. Extract result
+        val outT = DoubleArray(3)
+        val outR = DoubleArray(3)
+        for (i in 0 until 3) {
+            outT[i] = ukf.statePost.get(i, 0)[0]
+            outR[i] = ukf.statePost.get(i + 3, 0)[0]
+        }
+        return Pair(outT, outR)
     }
 }
 

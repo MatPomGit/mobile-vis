@@ -523,6 +523,35 @@
                 android:contentDescription="@string/capture_button_description"
                 android:scaleType="centerInside" />
 
+            <!-- Save/Load SLAM Map FABs -->
+            <com.google.android.material.floatingactionbutton.FloatingActionButton
+                android:id="@+id/fabSaveSlamMap"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_vertical|end"
+                android:layout_marginEnd="144dp"
+                android:contentDescription="@string/save_point_cloud_description"
+                android:visibility="gone"
+                app:backgroundTint="#4D4CAF50"
+                app:elevation="0dp"
+                app:fabSize="mini"
+                app:srcCompat="@android:drawable/ic_menu_save"
+                app:tint="@android:color/white" />
+
+            <com.google.android.material.floatingactionbutton.FloatingActionButton
+                android:id="@+id/fabLoadSlamMap"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_vertical|end"
+                android:layout_marginEnd="200dp"
+                android:contentDescription="@string/point_cloud_viewer_load"
+                android:visibility="gone"
+                app:backgroundTint="#4D2196F3"
+                app:elevation="0dp"
+                app:fabSize="mini"
+                app:srcCompat="@android:drawable/ic_menu_search"
+                app:tint="@android:color/white" />
+
             <!-- Save Point Cloud FAB (visible only during POINT_CLOUD filter) -->
             <com.google.android.material.floatingactionbutton.FloatingActionButton
                 android:id="@+id/fabSavePointCloud"

@@ -212,7 +212,7 @@ class RtmDetProcessor(private val context: Context) {
 
         val result = ensureArgb8888(bitmap)
         val canvas = Canvas(result)
-        val detections = ArrayList<MarkerDetection>()
+        val detections = ArrayList<ObjectDetection>()
 
         if (detsTensor != null && labelsTensor != null) {
             val detsData = detsTensor.dataAsFloatArray
@@ -252,9 +252,9 @@ class RtmDetProcessor(private val context: Context) {
                 val ry2 = ((box.y + box.height) * scaleY).toFloat()
                 val rectF = RectF(rx1, ry1, rx2, ry2)
 
-                val detection = MarkerDetection.RtmDetObject(label, classId, score, rectF)
+                val detection = ObjectDetection.RtmDet(label, classId, score, rectF)
                 drawBox(canvas, rectF, label, score, color)
-                logMarkerDiagnostics(detection)
+                logDetectionDiagnostics(detection)
                 detections.add(detection)
             }
         }
@@ -283,7 +283,7 @@ class RtmDetProcessor(private val context: Context) {
 
         val result = ensureArgb8888(bitmap)
         val canvas = Canvas(result)
-        val detections = ArrayList<MarkerDetection>()
+        val detections = ArrayList<ObjectDetection>()
 
         if (detsTensor != null && labelsTensor != null) {
             val detsData = detsTensor.dataAsFloatArray
@@ -327,11 +327,11 @@ class RtmDetProcessor(private val context: Context) {
                 val sAngle = box.angle.toFloat()
 
                 val bboxForDetection = RectF(scx - sw / 2, scy - sh / 2, scx + sw / 2, scy + sh / 2)
-                val detection = MarkerDetection.RtmDetObject(
+                val detection = ObjectDetection.RtmDet(
                     label, classId, score, bboxForDetection, sAngle
                 )
                 drawRotatedBox(canvas, scx, scy, sw, sh, sAngle, label, score, color)
-                logMarkerDiagnostics(detection)
+                logDetectionDiagnostics(detection)
                 detections.add(detection)
             }
         }
@@ -638,7 +638,7 @@ class RtmDetProcessor(private val context: Context) {
         if (bitmap.config == Bitmap.Config.ARGB_8888) bitmap.copy(Bitmap.Config.ARGB_8888, true)
         else bitmap.copy(Bitmap.Config.ARGB_8888, false)
 
-    private fun logMarkerDiagnostics(detection: MarkerDetection) {
-        Log.d(TAG, "marker_detection ${detection.toDiagnosticSummary()}")
+    private fun logDetectionDiagnostics(detection: ObjectDetection) {
+        Log.d(TAG, "object_detection ${detection.toDiagnosticSummary()}")
     }
 }

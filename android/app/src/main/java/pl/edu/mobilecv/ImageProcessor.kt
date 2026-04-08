@@ -122,6 +122,9 @@ class ImageProcessor {
     val lastPointCloud: VisualOdometryEngine.PointCloudState?
         get() = visualOdometryEngine.lastPointCloud
 
+    val currentSlamMap: FullOdometryEngine.MapState
+        get() = fullOdometryEngine.currentMap
+
     @Volatile
     var morphKernelSize: Int = 4
 
@@ -151,16 +154,34 @@ class ImageProcessor {
         it.minParallax = voMinParallax
         it.isMeshEnabled = isVoMeshEnabled
     }
-    private val fullOdometryEngine = FullOdometryEngine().also {
+    val fullOdometryEngine = FullOdometryEngine().also {
         it.maxFeatures = voMaxFeatures
         it.minParallax = voMinParallax
     }
 
+    /** Callback for automatic map export. */
+    var onLargeMapDetected: ((FullOdometryEngine.MapState) -> Unit)? = null
+        set(value) {
+            field = value
+            fullOdometryEngine.onLargeMapDetected = value
+        }
+
+    /** Callback for loop closure events. */
+    var onLoopClosed: ((String) -> Unit)? = null
+        set(value) {
+            field = value
+            fullOdometryEngine.onLoopClosed = value
+        }
+
     private val detectorParameters by lazy {
         DetectorParameters().apply {
             _adaptiveThreshWinSizeMin = 3
-            _adaptiveThreshWinSizeMax = 23
+            _adaptiveThreshWinSizeMax = 33
             _adaptiveThreshWinSizeStep = 10
+            _cornerRefinementMethod = Objdetect.CORNER_REFINE_SUBPIX
+            _cornerRefinementWinSize = 5
+            _cornerRefinementMaxIterations = 30
+            _cornerRefinementMinAccuracy = 0.1
         }
     }
 
@@ -315,8 +336,12 @@ class ImageProcessor {
             OpenCvFilter.TOP_HAT -> Triple(LegacyFilters.applyMorphology(baseFrame, Imgproc.MORPH_TOPHAT, morphKernelSize), true, 0L)
             OpenCvFilter.BLACK_HAT -> Triple(LegacyFilters.applyMorphology(baseFrame, Imgproc.MORPH_BLACKHAT, morphKernelSize), true, 0L)
             OpenCvFilter.APRIL_TAGS -> Triple(applyAprilTagDetection(baseFrame), true, 0L)
+            OpenCvFilter.APRIL_TAG_3D -> Triple(applyAprilTag3D(baseFrame), true, 0L)
             OpenCvFilter.ARUCO -> Triple(applyArucoDetection(baseFrame), true, 0L)
+            OpenCvFilter.ARUCO_3D -> Triple(applyAruco3D(baseFrame), true, 0L)
+            OpenCvFilter.MARKER_UKF -> Triple(applyMarkerUkf(baseFrame), true, 0L)
             OpenCvFilter.QR_CODE -> Triple(applyQrCodeDetection(baseFrame), true, 0L)
+            OpenCvFilter.QR_CODE_3D -> Triple(applyQrCode3D(baseFrame), true, 0L)
             OpenCvFilter.CCTAG -> Triple(applyCCTagDetection(baseFrame), true, 0L)
             OpenCvFilter.CHESSBOARD_CALIBRATION -> Triple(applyChessboardCalibration(baseFrame), true, 0L)
             OpenCvFilter.UNDISTORT -> Triple(applyUndistort(baseFrame), true, 0L)
@@ -340,6 +365,7 @@ class ImageProcessor {
             OpenCvFilter.FULL_ODOMETRY -> Triple(applyFullOdometry(baseFrame), true, 0L)
             OpenCvFilter.ODOMETRY_TRAJECTORY -> Triple(applyOdometryTrajectory(baseFrame), true, 0L)
             OpenCvFilter.ODOMETRY_MAP -> Triple(applyOdometryMap(baseFrame), true, 0L)
+            OpenCvFilter.DISTANCE_ESTIMATION -> Triple(applyDistanceEstimation(baseFrame), true, 0L)
             else -> Triple(baseFrame.clone(), true, 0L)
         }
         val processed = processedPair.first
@@ -427,62 +453,241 @@ class ImageProcessor {
         return RuntimeBenchmarkSnapshot(filter, acc.samples, avgBeforeMs, avgAfterMs, fpsBefore, fpsAfter)
     }
 
-    private fun applyAprilTagDetection(src: Mat): Mat {
-        val res = src.clone(); val corners = ArrayList<Mat>(); val ids = Mat()
-        val gray = Mat(); Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
-        try {
-            aprilTagDetector.detectMarkers(gray, corners, ids)
-            
-            if (ids.rows() > 0) {
-                Objdetect.drawDetectedMarkers(res, corners, ids, Scalar(0.0, 255.0, 0.0, 255.0))
-                for (i in 0 until corners.size) {
-                    val pts = ptsToList(corners[i])
-                    val markerId = ids.get(i, 0)[0].toInt()
-                    val poseEstimate = drawMarkerPoseOverlay(res, pts, "april:$markerId", "AprilTag#$markerId")
-                    val detection = MarkerDetection.AprilTag(markerId, pts, poseEstimate?.rvec, poseEstimate?.tvec, poseEstimate?.quality ?: MarkerDetection.Quality())
-                    drawCornerOutlineWithOrder(res, pts)
-                    drawMarkerLabel(res, detection, poseEstimate?.metrics)
-                }
-            }
-        } finally {
-            gray.release()
-            ids.release()
-            corners.forEach { it.release() }
+    private fun applyAprilTag3D(src: Mat): Mat {
+        val res = src.clone()
+        val detections = detectAprilTags(src)
+        detections.forEach { detection ->
+            val poseEstimate = drawMarker3DObject(res, detection.corners, "april3d:${detection.id}")
+            drawCornerOutlineWithOrder(res, detection.corners)
+            drawMarkerLabel(res, detection, poseEstimate?.metrics)
         }
         return res
     }
 
-    private fun applyArucoDetection(src: Mat): Mat {
-        val res = src.clone(); val corners = ArrayList<Mat>(); val ids = Mat()
-        val gray = Mat(); Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
+    private fun applyAruco3D(src: Mat): Mat {
+        val res = src.clone()
+        val detections = detectArucoMarkers(src)
+        detections.forEach { detection ->
+            val poseEstimate = drawMarker3DObject(res, detection.corners, "aruco3d:${detection.id}")
+            drawCornerOutlineWithOrder(res, detection.corners)
+            drawMarkerLabel(res, detection, poseEstimate?.metrics)
+        }
+        return res
+    }
+
+    private fun applyQrCode3D(src: Mat): Mat {
+        val res = src.clone(); val points = Mat(); val gray = Mat()
         try {
-            arucoDetector.detectMarkers(gray, corners, ids)
-            if (ids.rows() > 0) {
-                Objdetect.drawDetectedMarkers(res, corners, ids, Scalar(255.0, 255.0, 0.0, 255.0))
-                for (i in 0 until corners.size) {
-                    val pts = ptsToList(corners[i])
-                    val markerId = ids.get(i, 0)[0].toInt()
-                    val poseEstimate = drawMarkerPoseOverlay(res, pts, "aruco:$markerId", "ArUco#$markerId")
-                    val detection = MarkerDetection.Aruco(markerId, pts, poseEstimate?.rvec, poseEstimate?.tvec, poseEstimate?.quality ?: MarkerDetection.Quality())
-                    drawCornerOutlineWithOrder(res, pts)
-                    drawMarkerLabel(res, detection, poseEstimate?.metrics)
-                }
+            Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
+            val data = qrCodeDetector.detectAndDecode(gray, points)
+            if (!data.isNullOrEmpty() && points.rows() >= 4) {
+                val pts = ptsToList(points)
+                val poseEstimate = drawMarker3DObject(res, pts, "qr3d:$data")
+                val detection = MarkerDetection.QrCode(data, pts, poseEstimate?.rvec, poseEstimate?.tvec, poseEstimate?.quality ?: MarkerDetection.Quality())
+                drawCornerOutlineWithOrder(res, pts)
+                drawMarkerLabel(res, detection, poseEstimate?.metrics)
             }
         } finally {
-            gray.release()
-            ids.release()
-            corners.forEach { it.release() }
+            gray.release(); points.release()
+        }
+        return res
+    }
+
+    private fun drawMarker3DObject(res: Mat, corners: List<Pair<Float, Float>>, markerKey: String): MarkerPoseEstimate? {
+        val calib = calibrator?.calibrationResult ?: return null
+        if (corners.size != 4) return null
+        
+        val imagePoints = MatOfPoint2f(
+            Point(corners[0].first.toDouble(), corners[0].second.toDouble()),
+            Point(corners[1].first.toDouble(), corners[1].second.toDouble()),
+            Point(corners[2].first.toDouble(), corners[2].second.toDouble()),
+            Point(corners[3].first.toDouble(), corners[3].second.toDouble())
+        )
+        
+        val half = MARKER_SIZE_METERS / 2.0
+        val objectPoints = MatOfPoint3f(
+            Point3(-half, half, 0.0),
+            Point3(half, half, 0.0),
+            Point3(half, -half, 0.0),
+            Point3(-half, -half, 0.0)
+        )
+        
+        val rvec = Mat(); val tvec = Mat()
+        val solved = Calib3d.solvePnP(objectPoints, imagePoints, calib.cameraMatrix, calib.distCoeffs, rvec, tvec, false, Calib3d.SOLVEPNP_IPPE_SQUARE) || Calib3d.solvePnP(objectPoints, imagePoints, calib.cameraMatrix, calib.distCoeffs, rvec, tvec)
+        
+        if (!solved) {
+            imagePoints.release(); objectPoints.release(); rvec.release(); tvec.release()
+            return null
+        }
+
+        val filtered = selectPoseForRender(markerKey, tvec, rvec)
+        val rmat = Mat(); Calib3d.Rodrigues(filtered.second, rmat)
+        val euler = rotationMatrixToEuler(rmat)
+        
+        // Draw 3D Cube on the marker
+        draw3DCubeOnMarker(res, filtered.second, filtered.first, calib.cameraMatrix, calib.distCoeffs)
+        
+        val reprojectionError = computeReprojectionError(objectPoints, imagePoints, filtered.second, filtered.first, calib.cameraMatrix, calib.distCoeffs)
+        val distance = norm3(filtered.first)
+        val confidence = 1.0 / (1.0 + reprojectionError)
+
+        val poseRvec = List(3) { filtered.second.get(it, 0)[0] }
+        val poseTvec = List(3) { filtered.first.get(it, 0)[0] }
+        val metrics = PoseOverlayMetrics(distance, euler[0], euler[1], euler[2], reprojectionError, confidence, filtered.third)
+        
+        imagePoints.release(); objectPoints.release(); rvec.release(); tvec.release(); rmat.release(); filtered.first.release(); filtered.second.release()
+        return MarkerPoseEstimate(poseRvec, poseTvec, MarkerDetection.Quality(confidence, reprojectionError), metrics)
+    }
+
+    private fun draw3DCubeOnMarker(res: Mat, rvec: Mat, tvec: Mat, cameraMatrix: Mat, distCoeffs: MatOfDouble) {
+        val h = MARKER_SIZE_METERS / 2.0
+        // Cube vertices in 3D (marker coordinate system)
+        // Marker is in XY plane at Z=0. We draw the cube "above" the marker.
+        // In OpenCV's default solvePnP for this setup, Z axis points into the marker (away from camera).
+        // To make the cube appear in front of the marker (towards camera), we use positive Z if Z points towards camera, 
+        // or negative Z if Z points away. Usually for solvePnP, Z-forward is into the scene.
+        // Let's use -MARKER_SIZE_METERS to bring it towards the camera if Z is into the marker.
+        val s = MARKER_SIZE_METERS
+        val boxPoints = MatOfPoint3f(
+            Point3(-h, -h, 0.0), Point3(h, -h, 0.0), Point3(h, h, 0.0), Point3(-h, h, 0.0),
+            Point3(-h, -h, -s), Point3(h, -h, -s), Point3(h, h, -s), Point3(-h, h, -s)
+        )
+        
+        val projectedPoints = MatOfPoint2f()
+        Calib3d.projectPoints(boxPoints, rvec, tvec, cameraMatrix, distCoeffs, projectedPoints)
+        val pts = projectedPoints.toArray()
+        
+        if (pts.size >= 8) {
+            val color = Scalar(0.0, 255.0, 255.0, 255.0) // Cyan
+            val thickness = 3
+            
+            // Draw base
+            for (i in 0..3) {
+                Imgproc.line(res, pts[i], pts[(i + 1) % 4], color, thickness)
+            }
+            // Draw top
+            for (i in 0..3) {
+                Imgproc.line(res, pts[i + 4], pts[((i + 1) % 4) + 4], color, thickness)
+            }
+            // Draw pillars
+            for (i in 0..3) {
+                Imgproc.line(res, pts[i], pts[i + 4], color, thickness)
+            }
+            
+            // Optional: fill the "front" face with semi-transparent color if we had a way to determine depth easily here
+            // or just use a fixed alpha blend for the whole cube if desired.
+        }
+        
+        boxPoints.release()
+        projectedPoints.release()
+    }
+
+    private fun applyAprilTagDetection(src: Mat): Mat {
+        val res = src.clone()
+        val detections = detectAprilTags(src)
+        detections.forEach { detection ->
+            val poseEstimate = drawMarkerPoseOverlay(res, detection.corners, "april:${detection.id}", "AprilTag#${detection.id}")
+            drawCornerOutlineWithOrder(res, detection.corners)
+            drawMarkerLabel(res, detection, poseEstimate?.metrics)
+        }
+        return res
+    }
+
+    private fun detectAprilTags(src: Mat): List<MarkerDetection.AprilTag> {
+        val gray = Mat()
+        Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
+        val corners = ArrayList<Mat>()
+        val ids = Mat()
+        val detections = mutableListOf<MarkerDetection.AprilTag>()
+        try {
+            aprilTagDetector.detectMarkers(gray, corners, ids)
+            for (i in 0 until corners.size) {
+                val pts = ptsToList(corners[i])
+                val markerId = ids.get(i, 0)[0].toInt()
+                detections.add(MarkerDetection.AprilTag(markerId, pts))
+            }
+        } finally {
+            gray.release(); ids.release(); corners.forEach { it.release() }
+        }
+        return detections
+    }
+
+    private fun applyArucoDetection(src: Mat): Mat {
+        val res = src.clone()
+        val detections = detectArucoMarkers(src)
+        detections.forEach { detection ->
+            val poseEstimate = drawMarkerPoseOverlay(res, detection.corners, "aruco:${detection.id}", "ArUco#${detection.id}")
+            drawCornerOutlineWithOrder(res, detection.corners)
+            drawMarkerLabel(res, detection, poseEstimate?.metrics)
+        }
+        return res
+    }
+
+    private fun detectArucoMarkers(src: Mat): List<MarkerDetection.Aruco> {
+        val gray = Mat()
+        Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
+        val corners = ArrayList<Mat>()
+        val ids = Mat()
+        val detections = mutableListOf<MarkerDetection.Aruco>()
+        try {
+            arucoDetector.detectMarkers(gray, corners, ids)
+            for (i in 0 until corners.size) {
+                val pts = ptsToList(corners[i])
+                val markerId = ids.get(i, 0)[0].toInt()
+                detections.add(MarkerDetection.Aruco(markerId, pts))
+            }
+        } finally {
+            gray.release(); ids.release(); corners.forEach { it.release() }
+        }
+        return detections
+    }
+
+    private fun applyMarkerUkf(src: Mat): Mat {
+        val res = src.clone()
+        val oldSmoothing = poseSmoothingEnabled
+        val oldFilterType = poseTemporalFilterType
+        poseSmoothingEnabled = true
+        poseTemporalFilterType = PoseTemporalFilterType.UKF
+
+        try {
+            val aruco = detectArucoMarkers(src)
+            aruco.forEach { 
+                val pose = drawMarkerPoseOverlay(res, it.corners, "aruco:${it.id}", "ArUco#${it.id}")
+                drawCornerOutlineWithOrder(res, it.corners)
+                drawMarkerLabel(res, it, pose?.metrics)
+            }
+            val april = detectAprilTags(src)
+            april.forEach {
+                val pose = drawMarkerPoseOverlay(res, it.corners, "april:${it.id}", "AprilTag#${it.id}")
+                drawCornerOutlineWithOrder(res, it.corners)
+                drawMarkerLabel(res, it, pose?.metrics)
+            }
+        } finally {
+            poseSmoothingEnabled = oldSmoothing
+            poseTemporalFilterType = oldFilterType
         }
         return res
     }
 
     private fun ptsToList(c: Mat): List<Pair<Float, Float>> {
-        return listOf(
-            Pair(c.get(0,0)[0].toFloat(), c.get(0,0)[1].toFloat()),
-            Pair(c.get(0,1)[0].toFloat(), c.get(0,1)[1].toFloat()),
-            Pair(c.get(0,2)[0].toFloat(), c.get(0,2)[1].toFloat()),
-            Pair(c.get(0,3)[0].toFloat(), c.get(0,3)[1].toFloat())
-        )
+        if (c.rows() == 1 && c.cols() == 4) {
+            // ArUco/AprilTag format (1x4)
+            return listOf(
+                Pair(c.get(0, 0)[0].toFloat(), c.get(0, 0)[1].toFloat()),
+                Pair(c.get(0, 1)[0].toFloat(), c.get(0, 1)[1].toFloat()),
+                Pair(c.get(0, 2)[0].toFloat(), c.get(0, 2)[1].toFloat()),
+                Pair(c.get(0, 3)[0].toFloat(), c.get(0, 3)[1].toFloat())
+            )
+        } else if (c.rows() == 4 && c.cols() == 1) {
+            // QR Code format (4x1)
+            return listOf(
+                Pair(c.get(0, 0)[0].toFloat(), c.get(0, 0)[1].toFloat()),
+                Pair(c.get(1, 0)[0].toFloat(), c.get(1, 0)[1].toFloat()),
+                Pair(c.get(2, 0)[0].toFloat(), c.get(2, 0)[1].toFloat()),
+                Pair(c.get(3, 0)[0].toFloat(), c.get(3, 0)[1].toFloat())
+            )
+        }
+        return emptyList()
     }
 
     private fun drawCornerOutlineWithOrder(res: Mat, corners: List<Pair<Float, Float>>) {
@@ -599,17 +804,12 @@ class ImageProcessor {
         try {
             Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
             val data = qrCodeDetector.detectAndDecode(gray, points)
-            if (!data.isNullOrEmpty()) {
-                val pts = MatOfPoint2f()
-                try {
-                    points.convertTo(pts, CvType.CV_32F)
-                    for (i in 0 until pts.rows()) {
-                        val p = Point(pts.get(i, 0)[0], pts.get(i, 0)[1])
-                        Imgproc.line(res, p, Point(pts.get((i + 1) % pts.rows(), 0)[0], pts.get((i + 1) % pts.rows(), 0)[1]), Scalar(255.0, 0.0, 0.0, 255.0), 3)
-                    }
-                } finally {
-                    pts.release()
-                }
+            if (!data.isNullOrEmpty() && points.rows() >= 4) {
+                val pts = ptsToList(points)
+                val poseEstimate = drawMarkerPoseOverlay(res, pts, "qr:$data", "QR:$data")
+                val detection = MarkerDetection.QrCode(data, pts, poseEstimate?.rvec, poseEstimate?.tvec, poseEstimate?.quality ?: MarkerDetection.Quality())
+                drawCornerOutlineWithOrder(res, pts)
+                drawMarkerLabel(res, detection, poseEstimate?.metrics)
             }
         } finally {
             gray.release()
@@ -622,24 +822,23 @@ class ImageProcessor {
         val res = src.clone()
         val gray = Mat()
         Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
-        val blurred = Mat()
-        Imgproc.GaussianBlur(gray, blurred, Size(5.0, 5.0), 0.0)
+        
         val binary = Mat()
-        Imgproc.threshold(blurred, binary, 0.0, 255.0, Imgproc.THRESH_BINARY or Imgproc.THRESH_OTSU)
+        Imgproc.adaptiveThreshold(gray, binary, 255.0, Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C, Imgproc.THRESH_BINARY_INV, 21, 5.0)
 
         val contours = mutableListOf<MatOfPoint>()
         val hierarchy = Mat()
         Imgproc.findContours(binary, contours, hierarchy, Imgproc.RETR_TREE, Imgproc.CHAIN_APPROX_SIMPLE)
 
         if (hierarchy.empty()) {
-            gray.release(); blurred.release(); binary.release(); hierarchy.release()
+            gray.release(); binary.release(); hierarchy.release()
             return res
         }
 
         val candidates = mutableListOf<CircleData>()
         for (i in contours.indices) {
             val h = hierarchy.get(0, i)
-            if (h == null || h[3].toInt() == -1) continue // Skip top-level contours
+            if (h == null) continue
 
             val contour = contours[i]
             val area = Imgproc.contourArea(contour)
@@ -664,7 +863,7 @@ class ImageProcessor {
             contour2f.release()
         }
 
-        // Group concentric circles
+        // Group concentric circles with higher precision
         val sortedCandidates = candidates.sortedByDescending { it.radius }
         val used = BooleanArray(sortedCandidates.size)
         val groups = mutableListOf<List<CircleData>>()
@@ -678,11 +877,12 @@ class ImageProcessor {
             for (j in sortedCandidates.indices) {
                 if (i == j || used[j]) continue
                 val inner = sortedCandidates[j]
-                if (inner.radius >= outer.radius) continue
+                if (inner.radius >= outer.radius * 0.95) continue // Must be significantly smaller
 
                 val dx = outer.center.x - inner.center.x
                 val dy = outer.center.y - inner.center.y
                 val dist = sqrt(dx * dx + dy * dy)
+                // Offset must be relative to the outer radius
                 if (dist <= CCTAG_MAX_CENTRE_OFFSET_FRACTION * outer.radius) {
                     group.add(inner)
                     used[j] = true
@@ -700,14 +900,13 @@ class ImageProcessor {
             val confidence = group.map { it.circularity }.average()
 
             // Draw circle and center
-            Imgproc.circle(res, outer.center, outer.radius.toInt(), Scalar(0.0, 165.0, 255.0, 255.0), 2)
-            Imgproc.circle(res, outer.center, 2, Scalar(0.0, 165.0, 255.0, 255.0), -1)
+            Imgproc.circle(res, outer.center, outer.radius.toInt(), Scalar(255.0, 165.0, 0.0, 255.0), 3)
+            Imgproc.circle(res, outer.center, 3, Scalar(255.0, 165.0, 0.0, 255.0), -1)
 
-            // Generate corners for pose estimation (square corners)
             val r = outer.radius.toDouble()
             val cx = outer.center.x
             val cy = outer.center.y
-            // top-left, top-right, bottom-right, bottom-left
+            // Generate a better approximation for CCTag corners for PnP
             val corners = listOf(
                 Pair((cx - r).toFloat(), (cy - r).toFloat()),
                 Pair((cx + r).toFloat(), (cy - r).toFloat()),
@@ -729,10 +928,8 @@ class ImageProcessor {
             drawMarkerLabel(res, detection, poseEstimate?.metrics)
         }
 
-        // Cleanup
-        gray.release(); blurred.release(); binary.release(); hierarchy.release()
+        gray.release(); binary.release(); hierarchy.release()
         contours.forEach { it.release() }
-
         return res
     }
 
@@ -764,7 +961,9 @@ class ImageProcessor {
     private fun applyVisualOdometry(src: Mat): Mat {
         val geometryInput = prepareGeometryInput(src, "vo")
         val res = src.clone()
+        val markers = detectMarkersForOdometry(geometryInput)
         visualOdometryEngine.processFrameRgba(geometryInput, calibrator)
+        // ... (remaining code using markers if needed)
         val tracks = visualOdometryEngine.currentTracks
         for (track in tracks) {
             if (track.size < 2) continue
@@ -828,7 +1027,8 @@ class ImageProcessor {
     private fun applyFullOdometry(src: Mat): Mat {
         val geometryInput = prepareGeometryInput(src, "full_odometry")
         val res = src.clone()
-        fullOdometryEngine.processFrameRgba(geometryInput, calibrator)
+        val markers = detectMarkersForOdometry(geometryInput)
+        fullOdometryEngine.processFrameRgba(geometryInput, calibrator, markers)
         val tracks = fullOdometryEngine.currentTracks
         for (track in tracks) {
             val color = if (track.isInlier) Scalar(0.0, 255.0, 0.0, 255.0) else Scalar(255.0, 0.0, 0.0, 200.0)
@@ -857,7 +1057,9 @@ class ImageProcessor {
 
     private fun applyOdometryTrajectory(src: Mat): Mat {
         val geometryInput = prepareGeometryInput(src, "odometry_trajectory")
-        fullOdometryEngine.processFrameRgba(geometryInput, calibrator); geometryInput.release()
+        val markers = detectMarkersForOdometry(geometryInput)
+        fullOdometryEngine.processFrameRgba(geometryInput, calibrator, markers)
+        geometryInput.release()
         val res = Mat.zeros(src.rows(), src.cols(), src.type())
         val positions = fullOdometryEngine.currentTrajectory.positions
         Imgproc.putText(res, "$labelTrajectory: ${positions.size}", Point(FULL_ODOMETRY_HUD_X, 36.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.65, Scalar(200.0, 200.0, 200.0, 255.0), 2)
@@ -893,18 +1095,21 @@ class ImageProcessor {
 
     private fun applyOdometryMap(src: Mat): Mat {
         val geometryInput = prepareGeometryInput(src, "odometry_map")
-        fullOdometryEngine.processFrameRgba(geometryInput, calibrator); geometryInput.release()
+        val markers = detectMarkersForOdometry(geometryInput)
+        fullOdometryEngine.processFrameRgba(geometryInput, calibrator, markers)
+        geometryInput.release()
         val res = Mat.zeros(src.rows(), src.cols(), src.type())
         val mapState = fullOdometryEngine.currentMap
         val points = mapState.points3d
         val colors = mapState.colors
         Imgproc.putText(res, "$labelMap3D: ${points.size} $labelOdometryPoints", Point(FULL_ODOMETRY_HUD_X, 36.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.65, Scalar(200.0, 200.0, 200.0, 255.0), 2)
-        if (points.isEmpty()) {
+        if (points.isEmpty() && mapState.markers.isEmpty()) {
             Imgproc.putText(res, labelCollectingPoints, Point(FULL_ODOMETRY_HUD_X, 72.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.55, Scalar(150.0, 150.0, 150.0, 255.0), 1)
             return res
         }
         val camPos = mapState.cameraPosition
-        val combinedPoints = if (camPos != null) points + camPos else points
+        val markerPoints = mapState.markers.map { it.position }
+        val combinedPoints = if (camPos != null) points + markerPoints + camPos else points + markerPoints
         val bounds = computeXzBounds(combinedPoints)
         val margin = 40; val drawW = res.cols() - 2 * margin; val drawH = res.rows() - 2 * margin - 50; val scale = computeXzScale(bounds, drawW, drawH)
         
@@ -919,6 +1124,13 @@ class ImageProcessor {
             val c = colors[i]
             val scalar = Scalar(android.graphics.Color.red(c).toDouble(), android.graphics.Color.green(c).toDouble(), android.graphics.Color.blue(c).toDouble(), 255.0)
             Imgproc.circle(res, toScreenCoord(pt.x, pt.z), 2, scalar, -1)
+        }
+
+        // Draw Markers on Map
+        for (m in mapState.markers) {
+            val sc = toScreenCoord(m.position.x, m.position.z)
+            Imgproc.drawMarker(res, sc, Scalar(0.0, 255.0, 255.0, 255.0), Imgproc.MARKER_SQUARE, 15, 2)
+            Imgproc.putText(res, m.label, Point(sc.x + 10, sc.y - 10), Imgproc.FONT_HERSHEY_SIMPLEX, 0.4, Scalar(0.0, 255.0, 255.0, 255.0), 1)
         }
         
         if (camPos != null) {
@@ -938,6 +1150,7 @@ class ImageProcessor {
             geometryInput.release(); return blocked
         }
         val res = geometryInput.clone()
+        val markers = detectMarkersForOdometry(geometryInput)
         val labels = mapOf("noPlanes" to labelNoPlanes, "lines" to labelLines, "planes" to labelPlanes)
         val planeIdx = geometryProcessor.detectPlanes(geometryInput, res, labels)
         if (planeIdx == 0) {
@@ -955,10 +1168,136 @@ class ImageProcessor {
         return res
     }
 
+    private fun applyDistanceEstimation(src: Mat): Mat {
+        val res = src.clone()
+        val calib = calibrator?.calibrationResult
+        if (calib == null) {
+            Imgproc.putText(res, labelNoCalibration, Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 1.0, Scalar(255.0, 0.0, 0.0, 255.0), 2)
+            return res
+        }
+
+        // Detect all types of markers to estimate distance
+        val markers = detectMarkersForOdometry(src).toMutableList()
+        
+        // Add CCTags manually if not already in detectMarkersForOdometry
+        val gray = Mat(); Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
+        val binary = Mat()
+        Imgproc.adaptiveThreshold(gray, binary, 255.0, Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C, Imgproc.THRESH_BINARY_INV, 21, 5.0)
+        val contours = mutableListOf<MatOfPoint>()
+        val hierarchy = Mat()
+        Imgproc.findContours(binary, contours, hierarchy, Imgproc.RETR_TREE, Imgproc.CHAIN_APPROX_SIMPLE)
+
+        if (!hierarchy.empty()) {
+            val candidates = mutableListOf<CircleData>()
+            for (i in contours.indices) {
+                val contour = contours[i]
+                val area = Imgproc.contourArea(contour)
+                if (area < CCTAG_MIN_CONTOUR_AREA) continue
+                val contour2f = MatOfPoint2f(*contour.toArray())
+                val perimeter = Imgproc.arcLength(contour2f, true)
+                if (perimeter <= 0) { contour2f.release(); continue }
+                val circularity = 4.0 * Math.PI * area / (perimeter * perimeter)
+                if (circularity < CCTAG_MIN_CIRCULARITY) { contour2f.release(); continue }
+                val center = Point(); val radius = FloatArray(1)
+                Imgproc.minEnclosingCircle(contour2f, center, radius)
+                candidates.add(CircleData(center, radius[0], circularity))
+                contour2f.release()
+            }
+            val sortedCandidates = candidates.sortedByDescending { it.radius }
+            val used = BooleanArray(sortedCandidates.size)
+            for (i in sortedCandidates.indices) {
+                if (used[i]) continue
+                val outer = sortedCandidates[i]
+                val group = mutableListOf(outer); used[i] = true
+                for (j in sortedCandidates.indices) {
+                    if (i == j || used[j]) continue
+                    val inner = sortedCandidates[j]
+                    if (inner.radius >= outer.radius * 0.95) continue
+                    val dx = outer.center.x - inner.center.x; val dy = outer.center.y - inner.center.y
+                    if (sqrt(dx * dx + dy * dy) <= CCTAG_MAX_CENTRE_OFFSET_FRACTION * outer.radius) {
+                        group.add(inner); used[j] = true
+                    }
+                }
+                if (group.size in CCTAG_MIN_RINGS..CCTAG_MAX_RINGS) {
+                    val r = outer.radius.toDouble(); val cx = outer.center.x; val cy = outer.center.y
+                    val corners = listOf(Pair((cx-r).toFloat(), (cy-r).toFloat()), Pair((cx+r).toFloat(), (cy-r).toFloat()), Pair((cx+r).toFloat(), (cy+r).toFloat()), Pair((cx-r).toFloat(), (cy+r).toFloat()))
+                    val pose = estimateMarkerPoseRaw(corners)
+                    markers.add(MarkerDetection.CCTag(group.size, Pair(cx.toFloat(), cy.toFloat()), outer.radius, corners, pose?.first, pose?.second, MarkerDetection.Quality(group.map { it.circularity }.average())))
+                }
+            }
+        }
+
+        markers.forEach { m ->
+            val pose = drawMarkerPoseOverlay(res, m.corners, "${m.type}:${m.id}", "${m.type}#${m.id}")
+            if (pose != null) {
+                drawCornerOutlineWithOrder(res, m.corners)
+                drawMarkerLabel(res, m, pose.metrics)
+            }
+        }
+
+        if (markers.isEmpty()) {
+            Imgproc.putText(res, "Szukaj markerów do pomiaru...", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.7, Scalar(255.0, 255.0, 255.0), 2)
+        }
+
+        gray.release(); binary.release(); hierarchy.release(); contours.forEach { it.release() }
+        return res
+    }
+
     private fun prepareGeometryInput(src: Mat, stage: String): Mat {
         val profile = calibrator?.getCalibrationProfile(src.size())
         if (!debugUndistortBeforeGeometry || profile?.isCompatible != true) return src.clone()
         val undistorted = Mat(); Calib3d.undistort(src, undistorted, profile.calibration.cameraMatrix, profile.calibration.distCoeffs)
         return undistorted
+    }
+
+    private fun detectMarkersForOdometry(src: Mat): List<MarkerDetection> {
+        val markers = mutableListOf<MarkerDetection>()
+        
+        // 1. ArUco
+        detectArucoMarkers(src).forEach { 
+            val pose = estimateMarkerPoseRaw(it.corners)
+            markers.add(it.copy(rvec = pose?.first, tvec = pose?.second))
+        }
+
+        // 2. AprilTags
+        detectAprilTags(src).forEach {
+            val pose = estimateMarkerPoseRaw(it.corners)
+            markers.add(it.copy(rvec = pose?.first, tvec = pose?.second))
+        }
+
+        // 3. QR Codes
+        val gray = Mat(); Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
+        val points = Mat()
+        try {
+            val data = qrCodeDetector.detectAndDecode(gray, points)
+            if (!data.isNullOrEmpty() && points.rows() >= 4) {
+                val pts = ptsToList(points)
+                val pose = estimateMarkerPoseRaw(pts)
+                markers.add(MarkerDetection.QrCode(data, pts, pose?.first, pose?.second))
+            }
+        } finally {
+            gray.release(); points.release()
+        }
+
+        return markers
+    }
+
+    private fun estimateMarkerPoseRaw(corners: List<Pair<Float, Float>>): Pair<List<Double>, List<Double>>? {
+        val calib = calibrator?.calibrationResult ?: return null
+        if (corners.size < 4) return null
+        val imagePoints = MatOfPoint2f(
+            Point(corners[0].first.toDouble(), corners[0].second.toDouble()),
+            Point(corners[1].first.toDouble(), corners[1].second.toDouble()),
+            Point(corners[2].first.toDouble(), corners[2].second.toDouble()),
+            Point(corners[3].first.toDouble(), corners[3].second.toDouble())
+        )
+        val half = MARKER_SIZE_METERS / 2.0
+        val objectPoints = MatOfPoint3f(Point3(-half, half, 0.0), Point3(half, half, 0.0), Point3(half, -half, 0.0), Point3(-half, -half, 0.0))
+        val rvec = Mat(); val tvec = Mat()
+        val solved = Calib3d.solvePnP(objectPoints, imagePoints, calib.cameraMatrix, calib.distCoeffs, rvec, tvec, false, Calib3d.SOLVEPNP_IPPE_SQUARE) || Calib3d.solvePnP(objectPoints, imagePoints, calib.cameraMatrix, calib.distCoeffs, rvec, tvec)
+        if (!solved) { imagePoints.release(); objectPoints.release(); rvec.release(); tvec.release(); return null }
+        val r = List(3) { rvec.get(it, 0)[0] }; val t = List(3) { tvec.get(it, 0)[0] }
+        imagePoints.release(); objectPoints.release(); rvec.release(); tvec.release()
+        return Pair(r, t)
     }
 }

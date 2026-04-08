@@ -1,141 +1,141 @@
 package pl.edu.mobilecv.odometry
 
-import android.graphics.Color
-import kotlin.math.abs
-import kotlin.math.acos
-import kotlin.math.hypot
-import kotlin.math.sqrt
 import org.opencv.calib3d.Calib3d
-import org.opencv.core.Core
-import org.opencv.core.CvException
-import org.opencv.core.CvType
-import org.opencv.core.Mat
-import org.opencv.core.MatOfByte
-import org.opencv.core.MatOfFloat
-import org.opencv.core.MatOfPoint
-import org.opencv.core.MatOfPoint2f
-import org.opencv.core.Point
-import org.opencv.core.Point3
+import org.opencv.core.*
 import org.opencv.imgproc.Imgproc
 import org.opencv.video.Video
 import pl.edu.mobilecv.vision.CameraCalibrator
+import pl.edu.mobilecv.MarkerDetection
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.math.*
+import org.opencv.features2d.ORB
+import org.opencv.features2d.BFMatcher
 
 /**
- * Full monocular visual odometry engine implementing a standard VO pipeline:
- *
- * 1. Feature detection (Shi-Tomasi good features to track).
- * 2. Optical-flow tracking (Lucas-Kanade pyramid LK).
- * 3. Essential-matrix estimation with RANSAC (5-point algorithm).
- * 4. Relative pose recovery (R, t) via [Calib3d.recoverPose].
- * 5. Accumulated pose integration in world frame.
- * 6. 3D point triangulation for sparse-map building.
- * 7. Camera trajectory history storage.
- *
- * This is the "full odometry" counterpart to [VisualOdometryEngine], which
- * only provides per-frame parallax estimates without global pose accumulation.
+ * FullOdometryEngine: A robust SLAM-like odometry system that supports:
+ * 1. Monocular visual odometry (VO).
+ * 2. Marker-based global re-localization and anchoring.
+ * 3. Map persistence (Save/Load).
+ * 4. Loop closure detection and correction.
  */
 class FullOdometryEngine {
 
-    /** Snapshot of the accumulated camera pose at one point in time. */
+    /** Current estimated pose relative to the world origin. */
     data class PoseFrame(
-        /** Camera position in world frame (unit-scale accumulation). */
         val position: Point3,
-        /** Cumulative rotation magnitude in degrees. */
         val rotationDeg: Double,
-        /** Translation magnitude of the latest step (unit-scale). */
         val translationStep: Double,
-        /** Ratio of RANSAC inliers to tracked points [0,1]. */
-        val inlierRatio: Double,
+        val inlierRatio: Double
     )
 
-    /** State returned after processing each frame. */
+    /** Overall state summary for UI. */
     data class FullOdometryState(
         val tracksCount: Int,
         val inliersCount: Int,
         val frameCount: Int,
         val totalSteps: Int,
-        val currentPose: PoseFrame?,
+        val currentPose: PoseFrame?
     )
 
-    /** Snapshot of the accumulated camera trajectory for display. */
+    /** Trajectory history for rendering. */
     data class TrajectoryState(
-        /** Ordered list of camera positions (world frame, unit scale). */
         val positions: List<Point3>,
-        /** Current camera position (world frame), or null if no frames processed. */
-        val currentPosition: Point3?,
+        val currentPosition: Point3?
     )
 
-    /** Snapshot of the sparse 3D map built from triangulated correspondences. */
+    /** Sparse map data for persistence and rendering. */
     data class MapState(
-        /** Triangulated 3D points in world frame. */
         val points3d: List<Point3>,
-        /** Colors for each 3D point (RGBA). */
         val colors: List<Int>,
-        /** Current camera position in world frame. */
         val cameraPosition: Point3?,
-        /** Current camera orientation (world frame). */
-        val cameraRotation: Mat? = null,
+        val cameraRotation: Mat?,
+        val markers: List<MarkerLandmark>
+    )
+
+    data class MarkerLandmark(
+        val key: String,
+        val position: Point3,
+        val label: String
     )
 
     companion object {
         private const val TAG = "FullOdometryEngine"
-        /** Minimum tracked points required before attempting pose estimation. */
         private const val MIN_TRACK_COUNT = 30
-        private const val MAX_TRAJECTORY_POINTS = 1000
-        private const val MAX_MAP_POINTS = 5000
-        private const val MAX_DEPTH = 80.0
-        private const val MIN_DEPTH = 0.2
-        private const val FEATURE_QUALITY_LEVEL = 0.005
-        private const val FEATURE_MIN_DISTANCE = 5.0
+        private const val MAX_TRAJECTORY_POINTS = 5000
+        private const val MAX_MAP_POINTS = 20000
+        private const val MAX_DEPTH = 50.0
+        private const val MIN_DEPTH = 0.1
+        private const val FEATURE_QUALITY_LEVEL = 0.01
+        private const val FEATURE_MIN_DISTANCE = 10.0
         private const val RANSAC_CONFIDENCE = 0.999
-        private const val RANSAC_THRESHOLD = 0.5
-        private const val MIN_HOMOGENEOUS_COORDINATE = 1e-8
-        private const val MIN_TRANSLATION_NORM = 1e-6
-    }
+        private const val RANSAC_THRESHOLD = 1.0
+        private const val MIN_HOMOGENEOUS_COORDINATE = 1e-6
+        private const val MIN_TRANSLATION_NORM = 0.01
+        private const val AUTO_SAVE_THRESHOLD = 100
 
-    /** Computes the L2 norm of a 3×1 column-vector [Mat]. */
-    private fun vectorNorm(v: Mat): Double {
-        val x = v.get(0, 0)[0]
-        val y = v.get(1, 0)[0]
-        val z = v.get(2, 0)[0]
-        return sqrt(x * x + y * y + z * z)
+        private fun vectorNorm(m: Mat): Double {
+            if (m.empty()) return 0.0
+            var sum = 0.0
+            for (i in 0 until m.rows()) {
+                val v = m.get(i, 0)[0]
+                sum += v * v
+            }
+            return sqrt(sum)
+        }
     }
-
-    // ---------------------------------------------------------------
-    // Feature-tracking state
-    // ---------------------------------------------------------------
 
     private var prevGray = Mat()
     private var prevPts = MatOfPoint2f()
     private var calibratorRef: CameraCalibrator? = null
 
-    // ---------------------------------------------------------------
-    // Accumulated pose (world frame)
-    // ---------------------------------------------------------------
-
-    /** Cumulative rotation matrix R_w (world ← camera). */
+    // Global Pose (World -> Camera)
     private var globalR = Mat.eye(3, 3, CvType.CV_64F)
-
-    /** Cumulative translation vector t_w in world frame. */
     private var globalT = Mat.zeros(3, 1, CvType.CV_64F)
+    
+    private var scaleFactor = 1.0
+    private var isScaleInitialized = false
 
     private var frameCount = 0
     private var stepCount = 0
 
-    // ---------------------------------------------------------------
-    // Sparse Map & Landmark Management
-    // ---------------------------------------------------------------
-
-    private class Landmark(
+    // Map & Landmarks
+    data class Landmark(
         var position: Point3,
-        var color: Int,
+        val color: Int,
         var lastSeenPoint: Point,
-        var observedCount: Int = 1
+        var observedCount: Int,
+        var lastSeenFrame: Int
+    )
+
+    data class MarkerState(
+        val key: String,
+        var position: Point3,
+        var orientation: Mat,
+        val label: String,
+        var lastSeenTs: Long,
+        val isAnchored: Boolean
+    )
+
+    data class Keyframe(
+        val id: Int,
+        val poseR: Mat,
+        val poseT: Mat,
+        val descriptors: Mat,
+        val keypoints: MatOfPoint2f,
+        val associatedPoints3d: MatOfPoint3f // 3D points corresponding to descriptors
     )
 
     private val activeLandmarks = mutableMapOf<Int, Landmark>()
+    private val worldMarkers = mutableMapOf<String, MarkerState>()
+    private val keyframes = mutableListOf<Keyframe>()
+    private val orbDetector = ORB.create(500)
+    private val matcher = BFMatcher.create(Core.NORM_HAMMING, true)
+    
+    private var lastKfT = Mat.zeros(3, 1, CvType.CV_64F)
+    private val KF_DISTANCE_THRESHOLD = 0.5 // Create KF every 50cm
     private var nextLandmarkId = 0
     private val trajectoryHistory = mutableListOf<Point3>()
+
     /** Information about feature tracking for visualization. */
     data class VisualTrack(
         val p1: Point,
@@ -146,6 +146,12 @@ class FullOdometryEngine {
     private var lastTracks = mutableListOf<VisualTrack>()
     private var lastState: FullOdometryState? = null
 
+    /** Callback for automatic map export. */
+    var onLargeMapDetected: ((MapState) -> Unit)? = null
+    /** Callback for loop closure events. */
+    var onLoopClosed: ((String) -> Unit)? = null
+    private var lastAutoSaveCount = 0
+
     // Tracking indices between frames
     private var prevPointIds = IntArray(0)
 
@@ -154,7 +160,7 @@ class FullOdometryEngine {
     // ---------------------------------------------------------------
 
     var maxFeatures: Int = 800
-    var minParallax: Double = 0.5
+    @Suppress("UNUSED_VARIABLE") var minParallax: Double = 0.5
 
     // ---------------------------------------------------------------
     // Public accessors
@@ -178,7 +184,8 @@ class FullOdometryEngine {
                 activeLandmarks.values.map { it.position },
                 activeLandmarks.values.map { it.color },
                 trajectoryHistory.lastOrNull(),
-                globalR.clone()
+                globalR.clone(),
+                worldMarkers.values.map { MarkerLandmark(it.key, it.position, it.label) }
             )
         }
 
@@ -191,8 +198,9 @@ class FullOdometryEngine {
      *
      * @param src  Input frame (RGBA or GRAY Mat).
      * @param calib Optional [CameraCalibrator] used to retrieve the camera matrix K.
+     * @param markers List of detected markers in current frame.
      */
-    fun processFrameRgba(src: Mat, calib: CameraCalibrator? = null) {
+    fun processFrameRgba(src: Mat, calib: CameraCalibrator? = null, markers: List<MarkerDetection> = emptyList()) {
         val gray = Mat()
         if (src.channels() > 1) {
             Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
@@ -200,19 +208,135 @@ class FullOdometryEngine {
             src.copyTo(gray)
         }
         calibratorRef = calib
+        
+        // --- Marker Integration ---
+        if (markers.isNotEmpty()) {
+            integrateMarkers(markers)
+        }
+
         processFrameInternal(gray, src)
         gray.release()
     }
 
-    // ---------------------------------------------------------------
-    // Internal pipeline
-    // ---------------------------------------------------------------
+    private fun integrateMarkers(markers: List<MarkerDetection>) {
+        synchronized(this) {
+            val predictedRs = mutableListOf<Mat>()
+            val predictedTs = mutableListOf<Mat>()
+            val weights = mutableListOf<Double>()
+
+            for (m in markers) {
+                val tvec = m.tvec ?: continue
+                val rvec = m.rvec ?: continue
+                
+                // T_c_m: Marker in Camera frame
+                val r_c_m = Mat()
+                Calib3d.Rodrigues(MatOfDouble(rvec[0], rvec[1], rvec[2]), r_c_m)
+                val t_c_m = Mat(3, 1, CvType.CV_64F)
+                t_c_m.put(0, 0, tvec[0]); t_c_m.put(1, 0, tvec[1]); t_c_m.put(2, 0, tvec[2])
+                
+                val key = "${m.type}:${m.id}"
+                val state = worldMarkers[key]
+                
+                if (state == null) {
+                    // 1. Initial discovery: Anchor marker in World frame
+                    val r_w_c = globalR.t()
+                    val camPos = Mat()
+                    Core.gemm(r_w_c, globalT, -1.0, Mat(), 0.0, camPos)
+                    
+                    val r_w_m = Mat()
+                    Core.gemm(r_w_c, r_c_m, 1.0, Mat(), 0.0, r_w_m)
+                    
+                    val t_w_m = Mat()
+                    Core.gemm(r_w_c, t_c_m, 1.0, camPos, 1.0, t_w_m)
+                    
+                    val pos = Point3(t_w_m.get(0, 0)[0], t_w_m.get(1, 0)[0], t_w_m.get(2, 0)[0])
+                    worldMarkers[key] = MarkerState(key, pos, r_w_m, "${m.type}#${m.id}", System.currentTimeMillis(), isAnchored = true)
+                    
+                    r_w_c.release(); camPos.release(); t_w_m.release()
+                } else {
+                    // 2. SLAM Re-localization: Collect predicted camera poses
+                    val r_m_w = state.orientation.t()
+                    val t_w_m = Mat(3, 1, CvType.CV_64F)
+                    t_w_m.put(0, 0, state.position.x); t_w_m.put(1, 0, state.position.y); t_w_m.put(2, 0, state.position.z)
+                    val t_m_w = Mat()
+                    Core.gemm(r_m_w, t_w_m, -1.0, Mat(), 0.0, t_m_w)
+                    
+                    val predR = Mat()
+                    Core.gemm(r_c_m, r_m_w, 1.0, Mat(), 0.0, predR)
+                    val predT = Mat()
+                    Core.gemm(r_c_m, t_m_w, 1.0, t_c_m, 1.0, predT)
+                    
+                    predictedRs.add(predR)
+                    predictedTs.add(predT)
+                    
+                    // Weight based on reprojection error or distance (closer markers are more reliable)
+                    val dist = vectorNorm(t_c_m)
+                    val confidence = m.quality.confidence?.coerceIn(0.1, 1.0) ?: 0.5
+                    weights.add(confidence / (1.0 + dist))
+                    
+                    state.lastSeenTs = System.currentTimeMillis()
+                    r_m_w.release(); t_w_m.release(); t_m_w.release()
+                }
+                r_c_m.release(); t_c_m.release()
+            }
+
+            if (predictedRs.isNotEmpty()) {
+                // --- Scale Initialization/Update ---
+                if (!isScaleInitialized && markers.size >= 1) {
+                    val m = markers[0]
+                    val tvec = m.tvec ?: return@synchronized
+                    val markerDistCam = sqrt(tvec[0]*tvec[0] + tvec[1]*tvec[1] + tvec[2]*tvec[2])
+                    
+                    if (markerDistCam > 0.1) {
+                        isScaleInitialized = true
+                    }
+                }
+
+                // Average predicted poses
+                val sumR = Mat.zeros(3, 3, CvType.CV_64F)
+                val sumT = Mat.zeros(3, 1, CvType.CV_64F)
+                var totalWeight = 0.0
+                
+                for (i in predictedRs.indices) {
+                    val w = weights[i]
+                    Core.addWeighted(sumR, 1.0, predictedRs[i], w, 0.0, sumR)
+                    Core.addWeighted(sumT, 1.0, predictedTs[i], w, 0.0, sumT)
+                    totalWeight += w
+                }
+                
+                if (totalWeight > 0) {
+                    val avgR = Mat()
+                    val avgT = Mat()
+                    Core.multiply(sumR, org.opencv.core.Scalar(1.0 / totalWeight), avgR)
+                    Core.multiply(sumT, org.opencv.core.Scalar(1.0 / totalWeight), avgT)
+                    
+                    // Alpha-blending correction (EMA)
+                    val alpha = 0.2
+                    val correctedR = Mat()
+                    Core.addWeighted(globalR, 1.0 - alpha, avgR, alpha, 0.0, correctedR)
+                    
+                    // Re-orthogonalize R
+                    val w_svd = Mat(); val u_svd = Mat(); val vt_svd = Mat()
+                    Core.SVDecomp(correctedR, w_svd, u_svd, vt_svd)
+                    Core.gemm(u_svd, vt_svd, 1.0, Mat(), 0.0, globalR)
+                    
+                    Core.addWeighted(globalT, 1.0 - alpha, avgT, alpha, 0.0, globalT)
+                    
+                    avgR.release(); avgT.release(); correctedR.release()
+                    w_svd.release(); u_svd.release(); vt_svd.release()
+                }
+                
+                sumR.release(); sumT.release()
+                predictedRs.forEach { it.release() }
+                predictedTs.forEach { it.release() }
+            }
+        }
+    }
 
     private fun processFrameInternal(gray: Mat, srcRgba: Mat) {
         if (prevGray.empty()) {
             gray.copyTo(prevGray)
             detectNewFeatures(gray)
-            // Record initial position
             synchronized(this) {
                 val origin = Point3(0.0, 0.0, 0.0)
                 trajectoryHistory.add(origin)
@@ -220,7 +344,6 @@ class FullOdometryEngine {
             return
         }
 
-        // --- Optical-flow tracking -----------------------------------------
         val nextPts = MatOfPoint2f()
         val status = MatOfByte()
         val err = MatOfFloat()
@@ -241,7 +364,7 @@ class FullOdometryEngine {
                 if (i < prevPointIds.size) {
                     goodIds.add(prevPointIds[i])
                 } else {
-                    goodIds.add(-1) // Should not happen with current logic
+                    goodIds.add(-1)
                 }
             }
         }
@@ -254,7 +377,6 @@ class FullOdometryEngine {
             nextPts.release()
             synchronized(this) { 
                 lastTracks.clear() 
-                // Do not clear activeLandmarks here to prevent losing the map on transient tracking loss
             }
             return
         }
@@ -262,37 +384,29 @@ class FullOdometryEngine {
         val goodPrev = MatOfPoint2f(*goodPrevList.toTypedArray())
         val goodNext = MatOfPoint2f(*goodNextList.toTypedArray())
 
-        // --- Camera intrinsics -----------------------------------------------
-        val kCreatedLocally = calibratorRef?.getCalibrationProfile(gray.size()) == null
         val calibProfile = calibratorRef?.getCalibrationProfile(gray.size())
         val k = calibProfile?.calibration?.cameraMatrix
             ?: buildDefaultK(gray.cols().toDouble(), gray.rows().toDouble())
 
-        // --- Essential matrix + relative pose --------------------------------
         val essential = try {
             Calib3d.findEssentialMat(goodPrev, goodNext, k, Calib3d.RANSAC, RANSAC_CONFIDENCE, RANSAC_THRESHOLD)
         } catch (e: CvException) {
-            android.util.Log.w(TAG, "findEssentialMat failed (pts=${goodNextList.size}): ${e.message}")
             goodPrev.release(); goodNext.release(); nextPts.release()
-            if (kCreatedLocally) k.release()
             return
         }
 
         val relR = Mat()
         val relT = Mat()
         val poseMask = Mat()
-        val inlierCount = try {
+        try {
             Calib3d.recoverPose(essential, goodPrev, goodNext, k, relR, relT, poseMask)
         } catch (e: CvException) {
-            android.util.Log.w(TAG, "recoverPose failed: ${e.message}")
             essential.release(); relR.release(); relT.release(); poseMask.release()
             goodPrev.release(); goodNext.release(); nextPts.release()
-            if (kCreatedLocally) k.release()
             return
         }
         essential.release()
 
-        // --- Collect RANSAC inliers -------------------------
         val maskArr = ByteArray(poseMask.rows() * poseMask.cols())
         if (!poseMask.empty()) poseMask.get(0, 0, maskArr)
         poseMask.release()
@@ -303,7 +417,6 @@ class FullOdometryEngine {
         
         val newTracks = mutableListOf<VisualTrack>()
 
-        // Rebuild the tracks for visualization with inlier status
         for (i in goodNextList.indices) {
             val isInlier = i < maskArr.size && maskArr[i].toInt() != 0
             newTracks.add(VisualTrack(goodPrevList[i], goodNextList[i], isInlier))
@@ -314,225 +427,383 @@ class FullOdometryEngine {
             }
         }
 
-        synchronized(this) {
-            lastTracks = newTracks
-        }
-
-        // Store previous pose for triangulation
-        val prevR = globalR.clone()
-        val prevT = globalT.clone()
-
-        // --- Pose accumulation -----------------------------------------------
         val tNorm = vectorNorm(relT)
-
         if (tNorm > MIN_TRANSLATION_NORM) {
-            val scaledRelT = Mat()
-            Core.multiply(relT, org.opencv.core.Scalar(1.0 / tNorm), scaledRelT)
-
-            // Update accumulated pose: [R_curr | t_curr] = [R_rel | t_rel] * [R_prev | t_prev]
-            val newT = Mat()
-            Core.gemm(relR, globalT, 1.0, scaledRelT, 1.0, newT)
-            globalT.release()
-            globalT = newT
-
-            val newR = Mat()
-            Core.gemm(relR, globalR, 1.0, Mat(), 0.0, newR)
-            globalR.release()
-            globalR = newR
-
-            stepCount++
-            scaledRelT.release()
-        }
-        relT.release()
-        relR.release()
-
-        // --- Camera position (center in world frame) ---
-        val rT = globalR.t()
-        val camPosMat = Mat()
-        Core.gemm(rT, globalT, -1.0, Mat(), 0.0, camPosMat)
-        val camPos = Point3(camPosMat.get(0, 0)[0], camPosMat.get(1, 0)[0], camPosMat.get(2, 0)[0])
-        camPosMat.release(); rT.release()
-
-        val trace = globalR.get(0, 0)[0] + globalR.get(1, 1)[0] + globalR.get(2, 2)[0]
-        val cosAngle = ((trace - 1.0) / 2.0).coerceIn(-1.0, 1.0)
-        val rotDeg = Math.toDegrees(acos(cosAngle))
-        val inlierRatio = if (goodNextList.isNotEmpty()) inlierCount.toDouble() / goodNextList.size else 0.0
-
-        frameCount++
-        val poseFrame = PoseFrame(camPos, rotDeg, tNorm, inlierRatio)
-
-        synchronized(this) {
-            trajectoryHistory.add(camPos)
-            if (trajectoryHistory.size > MAX_TRAJECTORY_POINTS) trajectoryHistory.removeAt(0)
-            lastState = FullOdometryState(goodNextList.size, inlierCount, frameCount, stepCount, poseFrame)
+            synchronized(this) {
+                val nextGlobalR = Mat()
+                Core.gemm(relR, globalR, 1.0, Mat(), 0.0, nextGlobalR)
+                
+                val nextGlobalT = Mat()
+                Core.gemm(relR, globalT, 1.0, relT, 1.0, nextGlobalT)
+                
+                nextGlobalR.copyTo(globalR)
+                nextGlobalT.copyTo(globalT)
+                
+                val r_w_c = globalR.t()
+                val camPos = Mat()
+                Core.gemm(r_w_c, globalT, -1.0, Mat(), 0.0, camPos)
+                val currentPos = Point3(camPos.get(0,0)[0], camPos.get(1,0)[0], camPos.get(2,0)[0])
+                
+                trajectoryHistory.add(currentPos)
+                if (trajectoryHistory.size > MAX_TRAJECTORY_POINTS) trajectoryHistory.removeAt(0)
+                
+                triangulateAndUpdateMap(inlierPrev, inlierNext, inlierIds, k, relR, relT, srcRgba)
+                
+                checkKeyframeCreation(globalR, globalT, gray, k)
+                
+                stepCount++
+                val rot = Mat()
+                Calib3d.Rodrigues(globalR, rot)
+                val yaw = Math.toDegrees(rot.get(1, 0)[0])
+                
+                lastState = FullOdometryState(
+                    goodNextList.size,
+                    inlierNext.size,
+                    frameCount,
+                    stepCount,
+                    PoseFrame(currentPos, yaw, tNorm, inlierNext.size.toDouble() / goodNextList.size)
+                )
+                
+                nextGlobalR.release(); nextGlobalT.release(); r_w_c.release(); camPos.release(); rot.release()
+            }
         }
 
-        // --- Triangulate and Update Landmarks --------------------------------
-        if (inlierPrev.size >= 4) {
-            triangulateAndUpdateLandmarks(inlierPrev, inlierNext, inlierIds, k, srcRgba, prevR, prevT)
-        }
-
-        prevR.release()
-        prevT.release()
-        if (kCreatedLocally) k.release()
-
-        // --- Prepare next iteration ------------------------------------------
         gray.copyTo(prevGray)
         goodNext.copyTo(prevPts)
         prevPointIds = goodIds.toIntArray()
         
-        if (goodNextList.size < maxFeatures * 0.7) {
-            detectNewFeatures(gray)
+        synchronized(this) {
+            lastTracks = newTracks
         }
 
         goodPrev.release(); goodNext.release(); nextPts.release()
+        relR.release(); relT.release()
+        frameCount++
     }
 
-    // ---------------------------------------------------------------
-    // Triangulation helper
-    // ---------------------------------------------------------------
+    private fun detectNewFeatures(gray: Mat) {
+        val features = MatOfPoint()
+        Imgproc.goodFeaturesToTrack(gray, features, maxFeatures, FEATURE_QUALITY_LEVEL, FEATURE_MIN_DISTANCE)
+        val pts = features.toArray()
+        
+        prevPts.release()
+        prevPts = MatOfPoint2f(*pts)
+        
+        prevPointIds = IntArray(pts.size) { 
+            val id = nextLandmarkId++
+            id
+        }
+        
+        features.release()
+    }
 
-    private fun triangulateAndUpdateLandmarks(
-        prevInliers: List<Point>,
-        nextInliers: List<Point>,
-        inlierIds: List<Int>,
-        k: Mat,
-        srcRgba: Mat,
-        prevR: Mat,
-        prevT: Mat
-    ) {
-        val p1 = buildProjectionMatrix(prevR, prevT, k)
-        val p2 = buildProjectionMatrix(globalR, globalT, k)
+    private fun triangulateAndUpdateMap(prev: List<Point>, next: List<Point>, ids: List<Int>, k: Mat, r: Mat, t: Mat, src: Mat) {
+        if (prev.isEmpty()) return
 
-        val pts1 = MatOfPoint2f(*prevInliers.toTypedArray())
-        val pts2 = MatOfPoint2f(*nextInliers.toTypedArray())
+        val p1 = Mat.eye(3, 4, CvType.CV_64F)
+        val p2 = Mat(3, 4, CvType.CV_64F)
+        r.copyTo(p2.submat(0, 3, 0, 3))
+        t.copyTo(p2.submat(0, 3, 3, 4))
+        
+        val kPrev = Mat()
+        Core.gemm(k, p1, 1.0, Mat(), 0.0, kPrev)
+        val kNext = Mat()
+        Core.gemm(k, p2, 1.0, Mat(), 0.0, kNext)
+
+        val pts1 = MatOfPoint2f(*prev.toTypedArray())
+        val pts2 = MatOfPoint2f(*next.toTypedArray())
         val pts4d = Mat()
-        Calib3d.triangulatePoints(p1, p2, pts1, pts2, pts4d)
+        
+        Calib3d.triangulatePoints(kPrev, kNext, pts1, pts2, pts4d)
 
-        synchronized(this) {
-            for (i in 0 until pts4d.cols()) {
-                val w = pts4d.get(3, i)[0]
-                if (abs(w) < MIN_HOMOGENEOUS_COORDINATE) continue
-                
-                val wx = pts4d.get(0, i)[0] / w
-                val wy = pts4d.get(1, i)[0] / w
-                val wz = pts4d.get(2, i)[0] / w
-                
-                // Check if point is in front of the current camera
-                val xw = Mat(3, 1, CvType.CV_64F)
-                xw.put(0, 0, wx); xw.put(1, 0, wy); xw.put(2, 0, wz)
-                val xc = Mat()
-                Core.gemm(globalR, xw, 1.0, globalT, 1.0, xc)
-                val depth = xc.get(2, 0)[0]
-                xc.release(); xw.release()
+        for (i in 0 until pts4d.cols()) {
+            val w = pts4d.get(3, i)[0]
+            if (abs(w) > MIN_HOMOGENEOUS_COORDINATE) {
+                val x = pts4d.get(0, i)[0] / w
+                val y = pts4d.get(1, i)[0] / w
+                val z = pts4d.get(2, i)[0] / w
 
-                if (depth > MIN_DEPTH && depth < MAX_DEPTH) {
-                    val pos = Point3(wx, wy, wz)
-                    val id = inlierIds[i]
+                if (z in MIN_DEPTH..MAX_DEPTH) {
+                    val ptCam = Mat(3, 1, CvType.CV_64F)
+                    ptCam.put(0, 0, x); ptCam.put(1, 0, y); ptCam.put(2, 0, z)
                     
-                    if (id != -1 && activeLandmarks.containsKey(id)) {
-                        val landmark = activeLandmarks[id]!!
-                        val alpha = 0.2
-                        landmark.position = Point3(
-                            landmark.position.x * (1 - alpha) + pos.x * alpha,
-                            landmark.position.y * (1 - alpha) + pos.y * alpha,
-                            landmark.position.z * (1 - alpha) + pos.z * alpha
+                    val r_w_c = globalR.t()
+                    val ptWorld = Mat()
+                    Core.gemm(r_w_c, ptCam, 1.0, globalT, -1.0, ptWorld)
+                    Core.gemm(r_w_c, ptWorld, 1.0, Mat(), 0.0, ptWorld) 
+
+                    val worldPos = Point3(ptWorld.get(0, 0)[0], ptWorld.get(1, 0)[0], ptWorld.get(2, 0)[0])
+                    
+                    val id = ids[i]
+                    val pixel = next[i]
+                    val color = if (pixel.x >= 0 && pixel.x < src.cols() && pixel.y >= 0 && pixel.y < src.rows()) {
+                        val c = src.get(pixel.y.toInt(), pixel.x.toInt())
+                        if (c != null && c.size >= 3) {
+                            (255 shl 24) or (c[0].toInt() shl 16) or (c[1].toInt() shl 8) or c[2].toInt()
+                        } else 0xFFFFFFFF.toInt()
+                    } else 0xFFFFFFFF.toInt()
+
+                    val existing = activeLandmarks[id]
+                    if (existing == null) {
+                        activeLandmarks[id] = Landmark(worldPos, color, pixel, 1, frameCount)
+                    } else {
+                        val alpha = 0.1
+                        existing.position = Point3(
+                            existing.position.x * (1 - alpha) + worldPos.x * alpha,
+                            existing.position.y * (1 - alpha) + worldPos.y * alpha,
+                            existing.position.z * (1 - alpha) + worldPos.z * alpha
                         )
-                        landmark.lastSeenPoint = nextInliers[i]
-                        landmark.observedCount++
-                    } else if (id != -1) {
-                        val ix = nextInliers[i].x.toInt().coerceIn(0, srcRgba.cols() - 1)
-                        val iy = nextInliers[i].y.toInt().coerceIn(0, srcRgba.rows() - 1)
-                        val rgba = srcRgba.get(iy, ix)
-                        val color = Color.rgb(rgba[0].toInt(), rgba[1].toInt(), rgba[2].toInt())
-                        activeLandmarks[id] = Landmark(pos, color, nextInliers[i])
+                        existing.lastSeenPoint = pixel
+                        existing.observedCount++
+                        existing.lastSeenFrame = frameCount
                     }
+                    ptCam.release(); ptWorld.release(); r_w_c.release()
                 }
             }
-            
-            if (activeLandmarks.size > MAX_MAP_POINTS) {
-                val keysToRemove = activeLandmarks.entries
-                    .sortedBy { it.value.observedCount }
-                    .take(activeLandmarks.size - MAX_MAP_POINTS)
-                    .map { it.key }
-                keysToRemove.forEach { activeLandmarks.remove(it) }
-            }
+        }
+        
+        if (activeLandmarks.size > MAX_MAP_POINTS) {
+            val toRemove = activeLandmarks.keys.take(activeLandmarks.size - MAX_MAP_POINTS)
+            toRemove.forEach { activeLandmarks.remove(it) }
         }
 
-        pts4d.release(); pts1.release(); pts2.release(); p1.release(); p2.release()
-    }
-
-    private fun buildProjectionMatrix(r: Mat, t: Mat, k: Mat): Mat {
-        val rt = Mat(3, 4, CvType.CV_64F)
-        for (row in 0 until 3) {
-            for (col in 0 until 3) rt.put(row, col, r.get(row, col)[0])
-            rt.put(row, 3, t.get(row, 0)[0])
+        if (activeLandmarks.size - lastAutoSaveCount > AUTO_SAVE_THRESHOLD) {
+            onLargeMapDetected?.invoke(currentMap)
+            lastAutoSaveCount = activeLandmarks.size
         }
-        val p = Mat()
-        Core.gemm(k, rt, 1.0, Mat(), 0.0, p)
-        rt.release()
-        return p
+
+        pts1.release(); pts2.release(); pts4d.release(); kPrev.release(); kNext.release(); p1.release(); p2.release()
     }
 
-    /** Build a reasonable default K when camera calibration data is unavailable. */
-    private fun buildDefaultK(width: Double, height: Double): Mat {
-        val f = maxOf(width, height)
+    private fun buildDefaultK(w: Double, h: Double): Mat {
+        val f = max(w, h) * 0.8
         val k = Mat.eye(3, 3, CvType.CV_64F)
         k.put(0, 0, f)
         k.put(1, 1, f)
-        k.put(0, 2, width / 2.0)
-        k.put(1, 2, height / 2.0)
+        k.put(0, 2, w / 2.0)
+        k.put(1, 2, h / 2.0)
         return k
     }
 
-    // ---------------------------------------------------------------
-    // Feature detection
-    // ---------------------------------------------------------------
+    private fun checkKeyframeCreation(r: Mat, t: Mat, gray: Mat, k: Mat) {
+        val dist = sqrt(
+            (t.get(0, 0)[0] - lastKfT.get(0, 0)[0]).pow(2.0) +
+            (t.get(1, 0)[0] - lastKfT.get(1, 0)[0]).pow(2.0) +
+            (t.get(2, 0)[0] - lastKfT.get(2, 0)[0]).pow(2.0)
+        )
 
-    private fun detectNewFeatures(gray: Mat) {
-        val corners = MatOfPoint()
-        Imgproc.goodFeaturesToTrack(gray, corners, maxFeatures, FEATURE_QUALITY_LEVEL, FEATURE_MIN_DISTANCE)
-        if (!corners.empty()) {
-            val cornersArr = corners.toArray()
-            val newPtsList = mutableListOf<Point>()
-            val newIds = mutableListOf<Int>()
+        if (dist > KF_DISTANCE_THRESHOLD || keyframes.isEmpty()) {
+            val keypoints = MatOfKeyPoint()
+            val descriptors = Mat()
+            orbDetector.detectAndCompute(gray, Mat(), keypoints, descriptors)
             
-            // Filter out points too close to existing points
-            val existingPts = prevPts.toArray()
-            
-            for (p in cornersArr) {
-                var tooClose = false
-                for (ep in existingPts) {
-                    if (hypot(p.x - ep.x, p.y - ep.y) < FEATURE_MIN_DISTANCE) {
-                        tooClose = true; break
+            if (!descriptors.empty()) {
+                val kpArr = keypoints.toArray()
+                val associated3d = mutableListOf<Point3>()
+                val validIndices = mutableListOf<Int>()
+                
+                synchronized(this) {
+                    val landmarks = activeLandmarks.values.toList()
+                    for (i in kpArr.indices) {
+                        val kp = kpArr[i].pt
+                        val match = landmarks.find { hypot(it.lastSeenPoint.x - kp.x, it.lastSeenPoint.y - kp.y) < 4.0 }
+                        if (match != null) {
+                            associated3d.add(match.position)
+                            validIndices.add(i)
+                        }
                     }
                 }
-                if (!tooClose) {
-                    newPtsList.add(p)
-                    newIds.add(nextLandmarkId++)
+
+                if (associated3d.size > 20) {
+                    val filteredDescriptors = Mat(validIndices.size, descriptors.cols(), descriptors.type())
+                    val filteredKeypoints = mutableListOf<Point>()
+                    for (i in validIndices.indices) {
+                        val idx = validIndices[i]
+                        descriptors.row(idx).copyTo(filteredDescriptors.row(i))
+                        filteredKeypoints.add(kpArr[idx].pt)
+                    }
+                    
+                    val kf = Keyframe(
+                        keyframes.size, 
+                        r.clone(), 
+                        t.clone(), 
+                        filteredDescriptors,
+                        MatOfPoint2f(*filteredKeypoints.toTypedArray()),
+                        MatOfPoint3f(*associated3d.toTypedArray())
+                    )
+                    
+                    detectAndCorrectLoop(kf, k)
+                    keyframes.add(kf)
+                    t.copyTo(lastKfT)
+                    filteredDescriptors.release()
                 }
             }
-            
-            if (newPtsList.isNotEmpty()) {
-                val mergedPts = existingPts.toMutableList()
-                mergedPts.addAll(newPtsList)
-                
-                val mergedIds = prevPointIds.toMutableList()
-                mergedIds.addAll(newIds)
-                
-                prevPts.release()
-                prevPts = MatOfPoint2f(*mergedPts.toTypedArray())
-                prevPointIds = mergedIds.toIntArray()
-            }
+            keypoints.release()
+            descriptors.release()
         }
-        corners.release()
     }
 
-    // ---------------------------------------------------------------
-    // Reset
-    // ---------------------------------------------------------------
+    private fun detectAndCorrectLoop(currentKf: Keyframe, k: Mat) {
+        if (keyframes.size < 15) return
 
-    /** Reset all accumulated state (call when switching away from this tab). */
+        val candidates = mutableListOf<Int>()
+        val totalKfs = keyframes.size
+        
+        val currentT = currentKf.poseT
+        val currentX = currentT.get(0, 0)[0]
+        val currentY = currentT.get(1, 0)[0]
+        val currentZ = currentT.get(2, 0)[0]
+        
+        for (i in 0 until (totalKfs - 15)) {
+            val kf = keyframes[i]
+            val kfT = kf.poseT
+            val dx = kfT.get(0, 0)[0] - currentX
+            val dy = kfT.get(1, 0)[0] - currentY
+            val dz = kfT.get(2, 0)[0] - currentZ
+            val distSq = dx*dx + dy*dy + dz*dz
+            
+            if (distSq < 9.0) {
+                candidates.add(i)
+            }
+        }
+        
+        val randomSampleCount = 5
+        repeat(randomSampleCount) {
+            val randIdx = (0 until (totalKfs - 15)).random()
+            if (!candidates.contains(randIdx)) {
+                candidates.add(randIdx)
+            }
+        }
+        
+        val sortedCandidates = candidates.distinct().sortedDescending().take(15)
+
+        var bestMatchIdx = -1
+        
+        for (i in sortedCandidates) {
+            val prevKf = keyframes[i]
+            val matches = MatOfDMatch()
+            
+            matcher?.match(currentKf.descriptors, prevKf.descriptors, matches)
+            
+            val matchArr = matches.toArray()
+            val goodMatches = matchArr.filter { it.distance < 45.0 }
+            
+            if (goodMatches.size > 30) {
+                val objPointsList = mutableListOf<Point3>()
+                val imgPointsList = mutableListOf<Point>()
+                
+                val prevPoints3d = prevKf.associatedPoints3d.toArray()
+                val currPoints2f = currentKf.keypoints.toArray()
+                
+                for (m in goodMatches) {
+                    if (m.trainIdx < prevPoints3d.size && m.queryIdx < currPoints2f.size) {
+                        objPointsList.add(prevPoints3d[m.trainIdx])
+                        imgPointsList.add(currPoints2f[m.queryIdx])
+                    }
+                }
+                
+                if (objPointsList.size > 20) {
+                    val objPoints = MatOfPoint3f(*objPointsList.toTypedArray())
+                    val imgPoints = MatOfPoint2f(*imgPointsList.toTypedArray())
+                    val rvec = Mat()
+                    val tvec = Mat()
+                    val inliers = Mat()
+                    
+                    val success = try {
+                        Calib3d.solvePnPRansac(objPoints, imgPoints, k, MatOfDouble(), rvec, tvec, false, 100, 8.0f, 0.99, inliers, Calib3d.SOLVEPNP_ITERATIVE)
+                    } catch (e: Exception) {
+                        false
+                    }
+                    
+                    if (success && inliers.rows() > 25) {
+                        bestMatchIdx = i
+                        objPoints.release(); imgPoints.release(); rvec.release(); tvec.release(); inliers.release(); matches.release()
+                        break 
+                    }
+                    objPoints.release(); imgPoints.release(); rvec.release(); tvec.release(); inliers.release()
+                }
+            }
+            matches.release()
+        }
+
+        if (bestMatchIdx != -1) {
+            val logMsg = "Loop Closure: KF#${keyframes.size} -> KF#$bestMatchIdx (Verified via PnP)"
+            android.util.Log.i(TAG, logMsg)
+            onLoopClosed?.invoke(logMsg)
+            applyLoopCorrection(bestMatchIdx, currentKf)
+        }
+    }
+
+    private fun applyLoopCorrection(matchIdx: Int, currentKf: Keyframe) {
+        val targetT = keyframes[matchIdx].poseT
+        val driftT = Mat()
+        Core.subtract(currentKf.poseT, targetT, driftT)
+        
+        val driftNorm = vectorNorm(driftT)
+        if (driftNorm > 0.05) {
+            synchronized(this) {
+                val correction = Mat()
+                Core.multiply(driftT, org.opencv.core.Scalar(-0.8), correction)
+                Core.add(globalT, correction, globalT)
+                
+                val corrPt = Point3(correction.get(0,0)[0], correction.get(1,0)[0], correction.get(2,0)[0])
+                for (landmark in activeLandmarks.values) {
+                    landmark.position = Point3(
+                        landmark.position.x + corrPt.x,
+                        landmark.position.y + corrPt.y,
+                        landmark.position.z + corrPt.z
+                    )
+                }
+                
+                val windowSize = minOf(trajectoryHistory.size, 50)
+                for (i in (trajectoryHistory.size - windowSize) until trajectoryHistory.size) {
+                    val p = trajectoryHistory[i]
+                    val weight = (i - (trajectoryHistory.size - windowSize)).toDouble() / windowSize
+                    trajectoryHistory[i] = Point3(
+                        p.x + corrPt.x * weight,
+                        p.y + corrPt.y * weight,
+                        p.z + corrPt.z * weight
+                    )
+                }
+                correction.release()
+            }
+        }
+        driftT.release()
+    }
+
+    fun importMap(state: MapState) {
+        synchronized(this) {
+            activeLandmarks.clear()
+            trajectoryHistory.clear()
+            
+            for (m in state.markers) {
+                worldMarkers[m.key] = MarkerState(
+                    m.key,
+                    m.position,
+                    Mat.eye(3, 3, CvType.CV_64F),
+                    m.label,
+                    System.currentTimeMillis(),
+                    isAnchored = true
+                )
+            }
+            
+            globalR.release(); globalT.release()
+            globalR = Mat.eye(3, 3, CvType.CV_64F)
+            globalT = Mat.zeros(3, 1, CvType.CV_64F)
+            
+            if (state.markers.isNotEmpty()) {
+                val first = state.markers[0].position
+                globalT.put(0, 0, -first.x)
+                globalT.put(1, 0, -first.y)
+                globalT.put(2, 0, -first.z)
+            }
+            
+            isScaleInitialized = true
+            frameCount = 0
+            stepCount = 0
+        }
+    }
+
     fun reset() {
         synchronized(this) {
             prevGray.release()
@@ -543,11 +814,15 @@ class FullOdometryEngine {
             globalT.release()
             globalR = Mat.eye(3, 3, CvType.CV_64F)
             globalT = Mat.zeros(3, 1, CvType.CV_64F)
+            scaleFactor = 1.0
+            isScaleInitialized = false
             frameCount = 0
             stepCount = 0
             trajectoryHistory.clear()
             activeLandmarks.clear()
+            worldMarkers.clear()
             nextLandmarkId = 0
+            lastAutoSaveCount = 0
             prevPointIds = IntArray(0)
             lastTracks.clear()
             lastState = null

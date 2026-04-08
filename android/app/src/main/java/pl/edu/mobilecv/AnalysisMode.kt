@@ -57,9 +57,13 @@ enum class AnalysisMode(val displayName: String, val filters: List<OpenCvFilter>
         "Markery",
         listOf(
             OpenCvFilter.APRIL_TAGS,
+            OpenCvFilter.APRIL_TAG_3D,
             OpenCvFilter.ARUCO,
+            OpenCvFilter.ARUCO_3D,
             OpenCvFilter.QR_CODE,
+            OpenCvFilter.QR_CODE_3D,
             OpenCvFilter.CCTAG,
+            OpenCvFilter.MARKER_UKF,
         )
     ),
 
@@ -82,6 +86,7 @@ enum class AnalysisMode(val displayName: String, val filters: List<OpenCvFilter>
             OpenCvFilter.OBJECTRON,
             OpenCvFilter.GESTURE_RECOGNIZER,
             OpenCvFilter.FACE_DETECTION_BLAZE,
+            OpenCvFilter.EMOTION_RECOGNITION,
         )
     ),
 
@@ -107,6 +112,7 @@ enum class AnalysisMode(val displayName: String, val filters: List<OpenCvFilter>
             OpenCvFilter.FULL_ODOMETRY,
             OpenCvFilter.ODOMETRY_TRAJECTORY,
             OpenCvFilter.ODOMETRY_MAP,
+            OpenCvFilter.SLAM_MARKERS,
         )
     ),
 

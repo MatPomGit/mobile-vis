@@ -205,6 +205,7 @@ class YoloProcessor(private val context: Context) {
         val kept = applyNms(boxes, scores)
         val result = ensureArgb8888(bitmap)
         val canvas = Canvas(result)
+        val detections = ArrayList<ObjectDetection>()
 
         if (!useKalman) {
             for (idx in kept) {
@@ -215,7 +216,11 @@ class YoloProcessor(private val context: Context) {
                 val color = CLASS_COLORS[classId % CLASS_COLORS.size]
                 val rectF = RectF((box.x * scaleX).toFloat(), (box.y * scaleY).toFloat(),
                                   ((box.x + box.width) * scaleX).toFloat(), ((box.y + box.height) * scaleY).toFloat())
+                
+                val detection = ObjectDetection.Yolo(label, classId, score, rectF)
                 drawBox(canvas, rectF, label, score, color)
+                logDetectionDiagnostics(detection)
+                detections.add(detection)
             }
         } else {
             applyKalmanTracking(canvas, boxes, scores, classIds, kept, scaleX, scaleY)
@@ -502,7 +507,7 @@ class YoloProcessor(private val context: Context) {
         if (bitmap.config == Bitmap.Config.ARGB_8888) bitmap.copy(Bitmap.Config.ARGB_8888, true)
         else bitmap.copy(Bitmap.Config.ARGB_8888, true)
 
-    private fun logMarkerDiagnostics(detection: MarkerDetection) {
+    private fun logDetectionDiagnostics(detection: ObjectDetection) {
         Log.d(TAG, detection.toDiagnosticSummary())
     }
 }

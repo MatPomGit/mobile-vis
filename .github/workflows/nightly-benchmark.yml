@@ -1,0 +1,55 @@
+name: Nightly VO/Planes Benchmark
+
+on:
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    name: Run benchmark and compare with baseline
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run VO/planes benchmark with strict regression checks
+        run: |
+          python scripts/benchmark_vo_planes.py --strict | tee benchmark_metrics.txt
+
+      - name: Add benchmark summary
+        if: always()
+        run: |
+          {
+            echo "## Nightly VO/planes benchmark"
+            echo ""
+            echo "Metryki VO i detekcji płaszczyzn oraz status regresji:"
+            echo ""
+            grep -E "^(VO_|PLANE_|REGRESSION_)" benchmark_metrics.txt \
+              | sed 's/^/- `/' \
+              | sed 's/$/`/'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload benchmark artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-vo-planes-benchmark
+          path: |
+            benchmark_metrics.txt
+            benchmarks/vo_planes_latest.json

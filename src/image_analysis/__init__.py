@@ -21,7 +21,15 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "DEFAULT_BOARD_HEIGHT": (".calibration", "DEFAULT_BOARD_HEIGHT"),
     "MIN_CALIBRATION_FRAMES": (".calibration", "MIN_CALIBRATION_FRAMES"),
     # Classification
-    "CLASSIFICATION_CONFIDENCE_THRESHOLD": (".classification", "CLASSIFICATION_CONFIDENCE_THRESHOLD"),
+    "CLASSIFICATION_CONFIDENCE_THRESHOLD": (
+        ".classification",
+        "CLASSIFICATION_CONFIDENCE_THRESHOLD",
+    ),
+    # Benchmarking
+    "ScenarioConfig": (".benchmarking", "ScenarioConfig"),
+    "VoMetrics": (".benchmarking", "VoMetrics"),
+    "PlaneMetrics": (".benchmarking", "PlaneMetrics"),
+    "ScenarioBenchmarkResult": (".benchmarking", "ScenarioBenchmarkResult"),
     # CCTag
     "CCTagDetection": (".cctag", "CCTagDetection"),
     # Detection
@@ -78,6 +86,13 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "detect_vanishing_points": (".planes", "detect_vanishing_points"),
     "detect_yolo": (".yolo", "detect_yolo"),
     "draw_april_tags": (".april_tags", "draw_april_tags"),
+    "default_alarm_thresholds": (".benchmarking", "default_alarm_thresholds"),
+    "default_benchmark_scenarios": (".benchmarking", "default_benchmark_scenarios"),
+    "detect_regressions": (".benchmarking", "detect_regressions"),
+    "evaluate_scenario": (".benchmarking", "evaluate_scenario"),
+    "load_json_file": (".benchmarking", "load_json_file"),
+    "run_benchmark_suite": (".benchmarking", "run_benchmark_suite"),
+    "save_json_file": (".benchmarking", "save_json_file"),
     "draw_bounding_boxes": (".detection", "draw_bounding_boxes"),
     "draw_cc_tags": (".cctag", "draw_cc_tags"),
     "draw_chessboard_corners": (".calibration", "draw_chessboard_corners"),

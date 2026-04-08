@@ -50,11 +50,27 @@ class VisualOdometryEngine {
         val meanParallax: Double
     )
 
+    private data class TrackingQuality(
+        val enoughInliers: Boolean,
+        val enoughSpatialBins: Boolean,
+        val enoughSpatialCoverage: Boolean,
+        val enoughParallax: Boolean,
+        val inliersCount: Int,
+        val occupiedBins: Int,
+        val spatialCoverage: Double,
+        val meanParallax: Double,
+    ) {
+        val isValid: Boolean
+            get() = enoughInliers && enoughSpatialBins && enoughSpatialCoverage && enoughParallax
+    }
+
     companion object {
         private const val TAG = "VisualOdometryEngine"
         private const val MIN_MATCH_COUNT = 25
-        private const val MIN_INLIERS_COUNT = 18
-        private const val MIN_SPATIAL_BINS = 4
+        private const val MIN_INLIERS_COUNT = 24
+        private const val MIN_SPATIAL_BINS = 5
+        private const val MIN_SPATIAL_COVERAGE = 0.20
+        private const val DEFAULT_MIN_PARALLAX_PX = 2.0
         private const val GRID_ROWS = 3
         private const val GRID_COLS = 3
         private const val RATIO_TEST_THRESHOLD = 0.75f
@@ -94,7 +110,7 @@ class VisualOdometryEngine {
     private var prevMarkerObservations: Map<String, MarkerObservation> = emptyMap()
 
     var maxFeatures = 300
-    var minParallax = 2.0
+    var minParallax = DEFAULT_MIN_PARALLAX_PX
     var isMeshEnabled = false
     var featureDetectorType: FeatureDetectorType = FeatureDetectorType.ORB
 
@@ -173,7 +189,7 @@ class VisualOdometryEngine {
             return trackingLost(gray, "tracking lost / reinit needed: empty descriptors")
         }
 
-        val goodMatches = findSymmetricMatches(prevDescriptors, currDescriptors)
+        val goodMatches = findCrossCheckedMatches(prevDescriptors, currDescriptors)
         if (goodMatches.size < MIN_MATCH_COUNT) {
             prevKeyPoints.release()
             currKeyPoints.release()
@@ -222,19 +238,21 @@ class VisualOdometryEngine {
         val inlierPrev = inlierPair.first
         val inlierCurr = inlierPair.second
 
-        val thresholdsMet =
-            inlierPrev.rows() >= MIN_INLIERS_COUNT &&
-                hasSufficientSpatialDistribution(inlierCurr, gray.cols(), gray.rows()) &&
-                meanParallax(inlierPrev, inlierCurr) >= minParallax
-
         prevPoints.release()
         currPoints.release()
         releaseTrackingMats(prevDescriptors, currDescriptors)
 
-        if (!thresholdsMet) {
+        val quality = evaluateTrackingQuality(inlierPrev, inlierCurr, gray.cols(), gray.rows())
+        if (!quality.isValid) {
             inlierPrev.release()
             inlierCurr.release()
-            return trackingLost(gray, "tracking lost / reinit needed: thresholds not met")
+            val reason =
+                "tracking lost / reinit needed: " +
+                    "inliers=${quality.inliersCount} (min=$MIN_INLIERS_COUNT), " +
+                    "bins=${quality.occupiedBins} (min=$MIN_SPATIAL_BINS), " +
+                    "coverage=%.3f (min=%.3f), ".format(quality.spatialCoverage, MIN_SPATIAL_COVERAGE) +
+                    "parallax=%.3f (min=%.3f)".format(quality.meanParallax, minParallax)
+            return trackingLost(gray, reason)
         }
 
         val (state, points) = estimateMotionAndPoints(inlierPrev, inlierCurr, srcRgba, calibrationProfile, markers)
@@ -267,7 +285,7 @@ class VisualOdometryEngine {
         }
     }
 
-    private fun findSymmetricMatches(prevDescriptors: Mat, currDescriptors: Mat): List<DMatch> {
+    private fun findCrossCheckedMatches(prevDescriptors: Mat, currDescriptors: Mat): List<DMatch> {
         val matcher = BFMatcher.create(Core.NORM_HAMMING, false)
         val forward = ArrayList<MatOfDMatch>()
         val backward = ArrayList<MatOfDMatch>()
@@ -352,9 +370,45 @@ class VisualOdometryEngine {
         return MatOfPoint2f(*inlierPrev.toTypedArray()) to MatOfPoint2f(*inlierNext.toTypedArray())
     }
 
-    private fun hasSufficientSpatialDistribution(points: MatOfPoint2f, width: Int, height: Int): Boolean {
+    private fun evaluateTrackingQuality(
+        prev: MatOfPoint2f,
+        curr: MatOfPoint2f,
+        width: Int,
+        height: Int,
+    ): TrackingQuality {
+        if (prev.empty() || curr.empty() || width <= 0 || height <= 0) {
+            return TrackingQuality(
+                enoughInliers = false,
+                enoughSpatialBins = false,
+                enoughSpatialCoverage = false,
+                enoughParallax = false,
+                inliersCount = 0,
+                occupiedBins = 0,
+                spatialCoverage = 0.0,
+                meanParallax = 0.0,
+            )
+        }
+
+        val occupiedBins = countOccupiedSpatialBins(curr, width, height)
+        val coverage = spatialCoverage(curr, width, height)
+        val parallax = meanParallax(prev, curr)
+        val inliers = curr.rows()
+
+        return TrackingQuality(
+            enoughInliers = inliers >= MIN_INLIERS_COUNT,
+            enoughSpatialBins = occupiedBins >= MIN_SPATIAL_BINS,
+            enoughSpatialCoverage = coverage >= MIN_SPATIAL_COVERAGE,
+            enoughParallax = parallax >= minParallax,
+            inliersCount = inliers,
+            occupiedBins = occupiedBins,
+            spatialCoverage = coverage,
+            meanParallax = parallax,
+        )
+    }
+
+    private fun countOccupiedSpatialBins(points: MatOfPoint2f, width: Int, height: Int): Int {
         if (points.empty() || width <= 0 || height <= 0) {
-            return false
+            return 0
         }
 
         val occupied = HashSet<Int>()
@@ -367,7 +421,32 @@ class VisualOdometryEngine {
             occupied.add(row * GRID_COLS + col)
         }
 
-        return occupied.size >= MIN_SPATIAL_BINS
+        return occupied.size
+    }
+
+    private fun spatialCoverage(points: MatOfPoint2f, width: Int, height: Int): Double {
+        if (points.empty() || width <= 0 || height <= 0) {
+            return 0.0
+        }
+
+        var minX = width.toDouble()
+        var minY = height.toDouble()
+        var maxX = 0.0
+        var maxY = 0.0
+        for (point in points.toArray()) {
+            if (point.x < minX) minX = point.x
+            if (point.y < minY) minY = point.y
+            if (point.x > maxX) maxX = point.x
+            if (point.y > maxY) maxY = point.y
+        }
+
+        val spreadWidth = max(0.0, maxX - minX)
+        val spreadHeight = max(0.0, maxY - minY)
+        val imageArea = width.toDouble() * height.toDouble()
+        if (imageArea <= 0.0) {
+            return 0.0
+        }
+        return (spreadWidth * spreadHeight) / imageArea
     }
 
     private fun meanParallax(prev: MatOfPoint2f, next: MatOfPoint2f): Double {

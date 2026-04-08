@@ -23,7 +23,8 @@ import kotlin.math.sin
 /**
  * Activity for loading and visualizing a saved point cloud (CSV or PLY).
  *
- * Supports the CSV format (x,y,z) and PLY ASCII format (x y z per vertex after header)
+ * Supports the CSV format (x,y,z with optional confidence/timestamp columns) and
+ * PLY ASCII format (x y z with optional extra attributes per vertex after header)
  * exported by [MainActivity]. The point cloud can be rotated in 3D by dragging on the screen.
  */
 class PointCloudViewerActivity : AppCompatActivity() {
@@ -108,13 +109,14 @@ class PointCloudViewerActivity : AppCompatActivity() {
                         }
                     }
                 } else {
-                    // CSV format: x,y[,z] per line; skip header and comment lines
+                    // CSV format: x,y[,z][,confidence][,timestamp] per line; skip header/comments
                     for (line in reader.lineSequence()) {
                         val trimmed = line.trim()
                         if (trimmed.startsWith("#") || trimmed.isEmpty()) continue
-                        // Skip header line (x,y or x,y,z)
+                        // Skip header line (x,y | x,y,z | x,y,z,confidence,timestamp_ms)
                         if (trimmed.equals("x,y", ignoreCase = true) ||
-                            trimmed.equals("x,y,z", ignoreCase = true)) continue
+                            trimmed.equals("x,y,z", ignoreCase = true) ||
+                            trimmed.equals("x,y,z,confidence,timestamp_ms", ignoreCase = true)) continue
                         val parts = trimmed.split(",")
                         if (parts.size >= 2) {
                             val x = parts[0].toFloatOrNull() ?: continue

@@ -366,6 +366,7 @@ def fit_plane_ransac(
     points: NDArray[np.float64],
     threshold: float = RANSAC_THRESHOLD,
     max_iter: int = RANSAC_MAX_ITER,
+    point_confidence: NDArray[np.float64] | None = None,
 ) -> tuple[NDArray[np.float64], NDArray[np.bool_]]:
     """Fit a plane to a 3-D point cloud using RANSAC.
 
@@ -379,6 +380,9 @@ def fit_plane_ransac(
             *points*) for a point to be counted as an inlier.  Must be
             positive.
         max_iter: Maximum number of RANSAC iterations.  Must be positive.
+        point_confidence: Optional confidence weights for each point with
+            shape ``(N,)``.  Values are clipped to ``[0, 1]`` and used for
+            weighted sampling/refinement.
 
     Returns:
         ``(normal, inliers_mask)`` where *normal* is a unit vector of
@@ -391,6 +395,7 @@ def fit_plane_ransac(
             ``N >= 3``.
         ValueError: If *threshold* is not positive.
         ValueError: If *max_iter* is not positive.
+        ValueError: If *point_confidence* is provided with invalid shape.
     """
     if not isinstance(points, np.ndarray):
         raise TypeError(f"Expected np.ndarray for points, got {type(points).__name__}")
@@ -403,6 +408,16 @@ def fit_plane_ransac(
         raise ValueError(f"threshold must be positive, got {threshold}")
     if max_iter <= 0:
         raise ValueError(f"max_iter must be positive, got {max_iter}")
+    if point_confidence is not None:
+        confidence = np.asarray(point_confidence, dtype=np.float64)
+        if confidence.ndim != 1 or confidence.shape[0] != pts.shape[0]:
+            raise ValueError(
+                "point_confidence must have shape (N,) matching points; "
+                f"got {confidence.shape} for N={pts.shape[0]}"
+            )
+        confidence = np.clip(confidence, 0.0, 1.0)
+    else:
+        confidence = np.ones(pts.shape[0], dtype=np.float64)
 
     n_pts = pts.shape[0]
     rng = np.random.default_rng(seed=0)
@@ -412,7 +427,12 @@ def fit_plane_ransac(
     best_count = 0
 
     for _ in range(max_iter):
-        sample_idx = rng.choice(n_pts, size=3, replace=False)
+        sample_idx = rng.choice(
+            n_pts,
+            size=3,
+            replace=False,
+            p=confidence / max(float(np.sum(confidence)), 1e-12),
+        )
         sample = pts[sample_idx]
 
         v1 = sample[1] - sample[0]
@@ -426,8 +446,12 @@ def fit_plane_ransac(
         distances = np.abs(pts @ normal - float(np.dot(sample[0], normal)))
         inliers: NDArray[np.bool_] = cast(NDArray[np.bool_], distances < threshold)
         count = int(np.sum(inliers))
+        weighted_count = float(np.sum(confidence[inliers]))
 
-        if count > best_count:
+        best_weighted = float(np.sum(confidence[best_inliers]))
+        is_better_count = count > best_count
+        is_better_weighted_tie = count == best_count and weighted_count > best_weighted
+        if is_better_count or is_better_weighted_tie:
             best_count = count
             best_inliers = inliers
             best_normal = normal
@@ -435,9 +459,19 @@ def fit_plane_ransac(
     # Refine with all inliers via SVD
     if best_count >= 3:
         inlier_pts = pts[best_inliers]
-        centroid = inlier_pts.mean(axis=0)
-        _, _, vh = np.linalg.svd(inlier_pts - centroid)
+        inlier_w = confidence[best_inliers]
+        w_sum = max(float(np.sum(inlier_w)), 1e-12)
+        centroid = np.sum(inlier_pts * inlier_w[:, None], axis=0) / w_sum
+        centered = inlier_pts - centroid
+        weighted = centered * np.sqrt(inlier_w[:, None])
+        _, _, vh = np.linalg.svd(weighted, full_matrices=False)
         best_normal = cast(NDArray[np.float64], vh[-1])
+        norm = float(np.linalg.norm(best_normal))
+        if norm > 1e-12:
+            best_normal = cast(NDArray[np.float64], best_normal / norm)
+        # Keep a stable sign convention for downstream usage/visualisation.
+        if best_normal[2] < 0.0:
+            best_normal = cast(NDArray[np.float64], -best_normal)
 
     logger.debug("RANSAC plane fit: %d / %d inliers", best_count, n_pts)
     return best_normal, best_inliers

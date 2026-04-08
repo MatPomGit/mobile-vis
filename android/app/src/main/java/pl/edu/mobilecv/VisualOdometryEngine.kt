@@ -1,6 +1,7 @@
 package pl.edu.mobilecv
 
 import kotlin.math.acos
+import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sqrt
@@ -14,6 +15,7 @@ import org.opencv.core.MatOfDMatch
 import org.opencv.core.MatOfFloat4
 import org.opencv.core.MatOfPoint2f
 import org.opencv.core.Point
+import org.opencv.core.Point3
 import org.opencv.core.Rect
 import org.opencv.features2d.AKAZE
 import org.opencv.features2d.BFMatcher
@@ -25,6 +27,12 @@ import org.opencv.imgproc.Subdiv2D
  * Tracks sparse visual odometry signals and creates a lightweight pseudo point cloud.
  */
 class VisualOdometryEngine {
+    data class PointCloudPoint(
+        val screenPoint: Point,
+        val worldPoint: Point3,
+        val confidence: Double,
+        val timestampMs: Long,
+    )
 
     data class OdometryState(
         val tracksCount: Int,
@@ -35,8 +43,10 @@ class VisualOdometryEngine {
 
     data class PointCloudState(
         val points: List<Point>,
+        val samples: List<PointCloudPoint>,
         val edges: List<Pair<Point, Point>>,
-        val meanParallax: Double
+        val meanParallax: Double,
+        val timestampMs: Long,
     )
 
     companion object {
@@ -50,6 +60,11 @@ class VisualOdometryEngine {
         private const val RANSAC_REPROJECTION_THRESHOLD = 1.5
         private const val PERSPECTIVE_FACTOR = 0.5
         private const val MAX_MESH_EDGE_DIST_SQ = 50000.0
+        private const val MAX_REPROJECTION_ERROR_PX = 3.0
+        private const val MIN_DEPTH_RATIO = 0.35
+        private const val DEPTH_MAD_MULTIPLIER = 3.5
+        private const val MIN_VALID_POINTS_AFTER_GATING = 12
+        private const val EPS = 1e-9
     }
 
     private enum class FeatureDetectorType {
@@ -187,9 +202,18 @@ class VisualOdometryEngine {
             return trackingLost(gray, "tracking lost / reinit needed: thresholds not met")
         }
 
-        val (state, points) = estimateMotionAndPoints(inlierPrev, inlierCurr, calibrationProfile)
+        val (state, points) = estimateMotionAndPoints(
+            inlierPrev,
+            inlierCurr,
+            calibrationProfile,
+            System.currentTimeMillis(),
+        )
         inlierPrev.release()
         inlierCurr.release()
+
+        if (points == null) {
+            return trackingLost(gray, "tracking lost / reinit needed: quality gating rejected 3D points")
+        }
 
         lastPointCloud = points
         gray.copyTo(prevGray)
@@ -332,8 +356,11 @@ class VisualOdometryEngine {
         prev: MatOfPoint2f,
         next: MatOfPoint2f,
         calibrationProfile: CameraCalibrator.CalibrationProfile?,
-    ): Pair<OdometryState, PointCloudState> {
-        val k = calibrationProfile?.calibration?.cameraMatrix ?: Mat.eye(3, 3, CvType.CV_64F)
+        timestampMs: Long,
+    ): Pair<OdometryState, PointCloudState?> {
+        val kRaw = calibrationProfile?.calibration?.cameraMatrix ?: Mat.eye(3, 3, CvType.CV_64F)
+        val k = Mat()
+        kRaw.convertTo(k, CvType.CV_64F)
         val essential = Calib3d.findEssentialMat(prev, next, k, Calib3d.RANSAC, 0.999, 1.0)
         val r = Mat()
         val t = Mat()
@@ -359,9 +386,17 @@ class VisualOdometryEngine {
 
         val state = OdometryState(prev.rows(), inlierCount, transNorm, rotDeg)
 
-        val cloudPoints = mutableListOf<Point>()
-        val prevArr = prev.toArray()
-        val nextArr = next.toArray()
+        val poseInliers = collectPoseInlierPairs(prev, next, mask)
+        val prevArr = poseInliers.first
+        val nextArr = poseInliers.second
+        if (prevArr.isEmpty() || nextArr.isEmpty()) {
+            essential.release()
+            r.release()
+            t.release()
+            mask.release()
+            k.release()
+            return state to null
+        }
         var parallaxSum = 0.0
 
         for (i in nextArr.indices) {
@@ -372,11 +407,20 @@ class VisualOdometryEngine {
             val dist = sqrt(dx * dx + dy * dy)
             parallaxSum += dist
 
-            val zScale = if (dist < minParallax) 0.0 else (dist - minParallax) / 10.0
-            cloudPoints.add(Point(nextPt.x, nextPt.y - zScale * PERSPECTIVE_FACTOR))
         }
 
         val meanParallax = if (nextArr.isEmpty()) 0.0 else parallaxSum / nextArr.size
+        val gatedSamples = buildQualityGatedCloudSamples(prevArr, nextArr, k, r, t, timestampMs)
+        if (gatedSamples.size < MIN_VALID_POINTS_AFTER_GATING) {
+            essential.release()
+            r.release()
+            t.release()
+            mask.release()
+            k.release()
+            return state to null
+        }
+
+        val cloudPoints = gatedSamples.map { it.screenPoint }
         val meshEdges = mutableListOf<Pair<Point, Point>>()
 
         if (isMeshEnabled && cloudPoints.size >= 3) {
@@ -423,9 +467,226 @@ class VisualOdometryEngine {
         r.release()
         t.release()
         mask.release()
+        k.release()
 
-        return state to PointCloudState(cloudPoints, meshEdges, meanParallax)
+        return state to PointCloudState(cloudPoints, gatedSamples, meshEdges, meanParallax, timestampMs)
     }
+
+    private fun collectPoseInlierPairs(
+        prev: MatOfPoint2f,
+        next: MatOfPoint2f,
+        mask: Mat,
+    ): Pair<Array<Point>, Array<Point>> {
+        val prevArr = prev.toArray()
+        val nextArr = next.toArray()
+        if (mask.empty()) return prevArr to nextArr
+
+        val maskData = ByteArray(mask.rows() * mask.cols())
+        mask.get(0, 0, maskData)
+        val inlierPrev = mutableListOf<Point>()
+        val inlierNext = mutableListOf<Point>()
+        for (i in maskData.indices) {
+            if (maskData[i].toInt() == 0) continue
+            inlierPrev.add(prevArr[i])
+            inlierNext.add(nextArr[i])
+        }
+        return inlierPrev.toTypedArray() to inlierNext.toTypedArray()
+    }
+
+    private fun buildQualityGatedCloudSamples(
+        prevArr: Array<Point>,
+        nextArr: Array<Point>,
+        k: Mat,
+        r: Mat,
+        t: Mat,
+        timestampMs: Long,
+    ): List<PointCloudPoint> {
+        if (prevArr.isEmpty() || prevArr.size != nextArr.size) return emptyList()
+
+        val projection1 = createProjection(k, null, null)
+        val projection2 = createProjection(k, r, t)
+        val prevMat = MatOfPoint2f(*prevArr)
+        val nextMat = MatOfPoint2f(*nextArr)
+        val points4d = Mat()
+        Calib3d.triangulatePoints(projection1, projection2, prevMat, nextMat, points4d)
+
+        val fx = k.get(0, 0)[0]
+        val fy = k.get(1, 1)[0]
+        val cx = k.get(0, 2)[0]
+        val cy = k.get(1, 2)[0]
+
+        val candidates = mutableListOf<QualityCandidate>()
+        for (i in prevArr.indices) {
+            val w = points4d.get(3, i)?.firstOrNull() ?: continue
+            if (!w.isFinite() || abs(w) < EPS) continue
+            val x = (points4d.get(0, i)?.firstOrNull() ?: continue) / w
+            val y = (points4d.get(1, i)?.firstOrNull() ?: continue) / w
+            val z = (points4d.get(2, i)?.firstOrNull() ?: continue) / w
+            if (!x.isFinite() || !y.isFinite() || !z.isFinite() || z <= EPS) continue
+
+            val zSecond = depthInSecondCamera(x, y, z, r, t)
+            if (!zSecond.isFinite() || zSecond <= EPS) continue
+
+            val projectedPrev = projectToImage(x, y, z, fx, fy, cx, cy) ?: continue
+            val projectedNext = projectToSecondImage(x, y, z, r, t, fx, fy, cx, cy) ?: continue
+            val reprojectionError = (
+                pixelDistance(projectedPrev, prevArr[i]) +
+                    pixelDistance(projectedNext, nextArr[i])
+                ) * 0.5
+            val depthRatio = min(z, zSecond) / max(z, zSecond)
+
+            candidates.add(
+                QualityCandidate(
+                    projectedPoint = nextArr[i],
+                    worldX = x,
+                    worldY = y,
+                    worldZ = z,
+                    depth = z,
+                    reprojectionError = reprojectionError,
+                    depthRatio = depthRatio,
+                ),
+            )
+        }
+
+        val clipped = clipDepthOutliers(candidates)
+        val samples = mutableListOf<PointCloudPoint>()
+        for (candidate in clipped) {
+            if (candidate.reprojectionError > MAX_REPROJECTION_ERROR_PX) continue
+            if (candidate.depthRatio < MIN_DEPTH_RATIO) continue
+
+            val zScale = if (candidate.depth < minParallax) {
+                0.0
+            } else {
+                (candidate.depth - minParallax) / 10.0
+            }
+            val point = Point(
+                candidate.projectedPoint.x,
+                candidate.projectedPoint.y - zScale * PERSPECTIVE_FACTOR,
+            )
+            samples.add(
+                PointCloudPoint(
+                    screenPoint = point,
+                    worldPoint = Point3(candidate.worldX, candidate.worldY, candidate.worldZ),
+                    confidence = computePointConfidence(candidate, clipped),
+                    timestampMs = timestampMs,
+                ),
+            )
+        }
+
+        points4d.release()
+        prevMat.release()
+        nextMat.release()
+        projection1.release()
+        projection2.release()
+        return samples
+    }
+
+    private fun createProjection(k: Mat, r: Mat?, t: Mat?): Mat {
+        val rt = Mat.zeros(3, 4, CvType.CV_64F)
+        if (r == null || t == null) {
+            for (row in 0..2) rt.put(row, row, 1.0)
+        } else {
+            for (row in 0..2) {
+                for (col in 0..2) {
+                    rt.put(row, col, r.get(row, col)[0])
+                }
+                rt.put(row, 3, t.get(row, 0)[0])
+            }
+        }
+        val projection = Mat()
+        val rhs = Mat()
+        Core.gemm(k, rt, 1.0, rhs, 0.0, projection)
+        rhs.release()
+        rt.release()
+        return projection
+    }
+
+    private fun depthInSecondCamera(x: Double, y: Double, z: Double, r: Mat, t: Mat): Double {
+        return r.get(2, 0)[0] * x + r.get(2, 1)[0] * y + r.get(2, 2)[0] * z + t.get(2, 0)[0]
+    }
+
+    private fun projectToImage(
+        x: Double,
+        y: Double,
+        z: Double,
+        fx: Double,
+        fy: Double,
+        cx: Double,
+        cy: Double,
+    ): Point? {
+        if (z <= EPS) return null
+        val u = fx * x / z + cx
+        val v = fy * y / z + cy
+        return if (u.isFinite() && v.isFinite()) Point(u, v) else null
+    }
+
+    private fun projectToSecondImage(
+        x: Double,
+        y: Double,
+        z: Double,
+        r: Mat,
+        t: Mat,
+        fx: Double,
+        fy: Double,
+        cx: Double,
+        cy: Double,
+    ): Point? {
+        val x2 = r.get(0, 0)[0] * x + r.get(0, 1)[0] * y + r.get(0, 2)[0] * z + t.get(0, 0)[0]
+        val y2 = r.get(1, 0)[0] * x + r.get(1, 1)[0] * y + r.get(1, 2)[0] * z + t.get(1, 0)[0]
+        val z2 = r.get(2, 0)[0] * x + r.get(2, 1)[0] * y + r.get(2, 2)[0] * z + t.get(2, 0)[0]
+        return projectToImage(x2, y2, z2, fx, fy, cx, cy)
+    }
+
+    private fun pixelDistance(a: Point, b: Point): Double {
+        val dx = a.x - b.x
+        val dy = a.y - b.y
+        return sqrt(dx * dx + dy * dy)
+    }
+
+    private fun clipDepthOutliers(candidates: List<QualityCandidate>): List<QualityCandidate> {
+        if (candidates.isEmpty()) return emptyList()
+        val depths = candidates.map { it.depth }.sorted()
+        val median = median(depths)
+        val mad = max(median(depths.map { abs(it - median) }.sorted()), EPS)
+        val maxDepthDelta = DEPTH_MAD_MULTIPLIER * mad
+        return candidates.filter { abs(it.depth - median) <= maxDepthDelta }
+    }
+
+    private fun computePointConfidence(
+        candidate: QualityCandidate,
+        population: List<QualityCandidate>,
+    ): Double {
+        if (population.isEmpty()) return 0.0
+        val depths = population.map { it.depth }.sorted()
+        val median = median(depths)
+        val mad = max(median(depths.map { abs(it - median) }.sorted()), EPS)
+
+        val reprojectionScore = 1.0 - (candidate.reprojectionError / MAX_REPROJECTION_ERROR_PX)
+        val depthStabilityScore = candidate.depthRatio
+        val distanceScore = 1.0 - (abs(candidate.depth - median) / (DEPTH_MAD_MULTIPLIER * mad))
+        val weightedScore = 0.5 * reprojectionScore + 0.3 * depthStabilityScore + 0.2 * distanceScore
+        return min(1.0, max(0.0, weightedScore))
+    }
+
+    private fun median(values: List<Double>): Double {
+        if (values.isEmpty()) return 0.0
+        val middle = values.size / 2
+        return if (values.size % 2 == 0) {
+            (values[middle - 1] + values[middle]) * 0.5
+        } else {
+            values[middle]
+        }
+    }
+
+    private data class QualityCandidate(
+        val projectedPoint: Point,
+        val worldX: Double,
+        val worldY: Double,
+        val worldZ: Double,
+        val depth: Double,
+        val reprojectionError: Double,
+        val depthRatio: Double,
+    )
 
     private fun releaseTrackingMats(vararg mats: Mat) {
         for (mat in mats) {

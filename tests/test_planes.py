@@ -441,6 +441,12 @@ class TestFitPlaneRansacValidation:
         with pytest.raises(ValueError, match="max_iter"):
             fit_plane_ransac(sample_point_cloud, max_iter=0)
 
+    def test_raises_for_invalid_confidence_shape(
+        self, sample_point_cloud: np.ndarray
+    ) -> None:
+        with pytest.raises(ValueError, match="point_confidence"):
+            fit_plane_ransac(sample_point_cloud, point_confidence=np.ones((3, 1)))
+
 
 # ---------------------------------------------------------------------------
 # fit_plane_ransac - correctness
@@ -489,6 +495,28 @@ class TestFitPlaneRansac:
         normal, mask = fit_plane_ransac(pts, threshold=0.1, max_iter=10)
         assert normal.shape == (3,)
         assert mask.shape == (3,)
+
+    def test_prefers_high_confidence_plane_when_two_planes_compete(self) -> None:
+        rng = np.random.default_rng(seed=123)
+        plane_a_xy = rng.uniform(-1.0, 1.0, size=(120, 2))
+        plane_a = np.column_stack([plane_a_xy, np.zeros((120, 1))])
+        plane_b_xz = rng.uniform(-1.0, 1.0, size=(120, 2))
+        plane_b = np.column_stack([np.zeros((120, 1)), plane_b_xz])
+        points = np.vstack([plane_a, plane_b]).astype(np.float64)
+        confidence = np.concatenate([
+            np.full(120, 0.95, dtype=np.float64),
+            np.full(120, 0.10, dtype=np.float64),
+        ])
+
+        normal, inliers = fit_plane_ransac(
+            points,
+            threshold=0.03,
+            max_iter=800,
+            point_confidence=confidence,
+        )
+        # High-confidence z=0 plane should dominate => normal close to +Z.
+        assert normal[2] > 0.8
+        assert np.sum(inliers[:120]) > 80
 
 
 # ---------------------------------------------------------------------------

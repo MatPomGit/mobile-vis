@@ -551,22 +551,39 @@ class MainActivity : AppCompatActivity() {
                     appendLine("format ascii 1.0")
                     appendLine("comment MobileCV pseudo-3D point cloud")
                     appendLine("comment mean_parallax=${cloud.meanParallax}")
-                    appendLine("element vertex ${cloud.points.size}")
+                    appendLine("comment cloud_timestamp_ms=${cloud.timestampMs}")
+                    appendLine("comment coordinate_frame=camera_1_triangulated")
+                    appendLine("element vertex ${cloud.samples.size}")
                     appendLine("property float x")
                     appendLine("property float y")
                     appendLine("property float z")
+                    appendLine("property float confidence")
+                    appendLine("property ulong timestamp_ms")
                     appendLine("end_header")
-                    cloud.points.forEach { p ->
-                        appendLine("${p.x} ${p.y} ${"%.4f".format(pseudoZ(p.y, cloud.meanParallax))}")
+                    cloud.samples.forEach { sample ->
+                        appendLine(
+                            "${"%.6f".format(sample.worldPoint.x)} " +
+                                "${"%.6f".format(sample.worldPoint.y)} " +
+                                "${"%.6f".format(sample.worldPoint.z)} " +
+                                "${"%.4f".format(sample.confidence)} ${sample.timestampMs}",
+                        )
                     }
                 }
                 writeToDownloads("pointcloud_$timestamp.ply", "application/octet-stream", content)
             } else {
                 val content = buildString {
-                    appendLine("x,y,z")
-                    appendLine("# Pseudo-3D point cloud (screen projections). mean_parallax=${cloud.meanParallax}")
-                    cloud.points.forEach { p ->
-                        appendLine("${p.x},${p.y},${"%.4f".format(pseudoZ(p.y, cloud.meanParallax))}")
+                    appendLine("x,y,z,confidence,timestamp_ms")
+                    appendLine(
+                        "# Triangulated point cloud in camera frame. mean_parallax=" +
+                            "${cloud.meanParallax}, cloud_timestamp_ms=${cloud.timestampMs}",
+                    )
+                    cloud.samples.forEach { sample ->
+                        appendLine(
+                            "${"%.6f".format(sample.worldPoint.x)}," +
+                                "${"%.6f".format(sample.worldPoint.y)}," +
+                                "${"%.6f".format(sample.worldPoint.z)}," +
+                                "${"%.4f".format(sample.confidence)},${sample.timestampMs}",
+                        )
                     }
                 }
                 writeToDownloads("pointcloud_$timestamp.csv", "text/csv", content)
@@ -593,9 +610,6 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, R.string.point_cloud_save_error, Toast.LENGTH_SHORT).show()
         }
     }
-
-    /** Estimates a pseudo-depth z value from screen y position and mean parallax. */
-    private fun pseudoZ(y: Double, meanParallax: Double): Double = (meanParallax - y) * 0.1
 
     private fun writeToDownloads(filename: String, mimeType: String, content: String) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {

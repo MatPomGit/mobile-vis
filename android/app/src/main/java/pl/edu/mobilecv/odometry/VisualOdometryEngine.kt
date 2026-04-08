@@ -1,6 +1,7 @@
 package pl.edu.mobilecv.odometry
 
 import kotlin.math.acos
+import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sqrt
@@ -41,7 +42,10 @@ class VisualOdometryEngine {
 
     data class PointCloudState(
         val points: List<Point>,
+        val depths: List<Double>,
         val colors: List<org.opencv.core.Scalar>,
+        val confidences: List<Double>,
+        val timestampsMs: List<Long>,
         val edges: List<Pair<Point, Point>>,
         val meanParallax: Double
     )
@@ -57,6 +61,10 @@ class VisualOdometryEngine {
         private const val RANSAC_REPROJECTION_THRESHOLD = 1.5
         private const val PERSPECTIVE_FACTOR = 0.5
         private const val MAX_MESH_EDGE_DIST_SQ = 50000.0
+        private const val MAX_REPROJECTION_ERROR_PX = 2.0
+        private const val MAX_DEPTH_RELATIVE_DELTA = 0.35
+        private const val DEPTH_STABILITY_EPS = 1e-6
+        private const val DEPTH_CLIP_MAD_FACTOR = 3.5
         private const val LOCAL_BA_WINDOW_SIZE = 5
         private const val MAX_FRAME_TRANSLATION = 2.5
         private const val MAX_FRAME_ROTATION_DEG = 35.0
@@ -443,9 +451,50 @@ class VisualOdometryEngine {
             )
 
         val cloudPoints = mutableListOf<Point>()
+        val cloudDepths = mutableListOf<Double>()
         val cloudColors = mutableListOf<org.opencv.core.Scalar>()
+        val cloudConfidences = mutableListOf<Double>()
+        val cloudTimestamps = mutableListOf<Long>()
         val prevArr = prev.toArray()
         val nextArr = next.toArray()
+        val triPoints = Mat()
+        val projection1 = Mat.zeros(3, 4, CvType.CV_64F)
+        val projection2 = Mat.zeros(3, 4, CvType.CV_64F)
+        projection1.put(0, 0, 1.0)
+        projection1.put(1, 1, 1.0)
+        projection1.put(2, 2, 1.0)
+        val rt = Mat.zeros(3, 4, CvType.CV_64F)
+        for (row in 0..2) {
+            for (col in 0..2) {
+                rt.put(row, col, r.get(row, col)[0])
+            }
+            rt.put(row, 3, t.get(row, 0)[0])
+        }
+        Core.gemm(k, projection1, 1.0, Mat(), 0.0, projection1)
+        Core.gemm(k, rt, 1.0, Mat(), 0.0, projection2)
+        Calib3d.triangulatePoints(projection1, projection2, prev, next, triPoints)
+        val triangulated = mutableListOf<Point3Data>()
+        for (i in 0 until triPoints.cols()) {
+            val w = triPoints.get(3, i)[0]
+            if (abs(w) <= DEPTH_STABILITY_EPS) {
+                triangulated.add(Point3Data(0.0, 0.0, 0.0))
+                continue
+            }
+            triangulated.add(
+                Point3Data(
+                    triPoints.get(0, i)[0] / w,
+                    triPoints.get(1, i)[0] / w,
+                    triPoints.get(2, i)[0] / w,
+                ),
+            )
+        }
+        val depthsCam1 = triangulated.map { it.z }
+        val depthsCam2 = triangulated.map { p ->
+            val z2 = r.get(2, 0)[0] * p.x + r.get(2, 1)[0] * p.y + r.get(2, 2)[0] * p.z + t.get(2, 0)[0]
+            z2
+        }
+        val clipRange = robustDepthClipRange(depthsCam1.map { abs(it) })
+        val frameTimestampMs = System.currentTimeMillis()
         var parallaxSum = 0.0
 
         for (i in nextArr.indices) {
@@ -456,14 +505,42 @@ class VisualOdometryEngine {
             val dist = sqrt(dx * dx + dy * dy)
             parallaxSum += dist
 
+            val point3d = triangulated.getOrNull(i) ?: continue
+            val depth1 = depthsCam1.getOrNull(i) ?: continue
+            val depth2 = depthsCam2.getOrNull(i) ?: continue
+            val reprojErr = computeReprojectionError(point3d, prevPt, nextPt, k, r, t)
+            if (reprojErr > MAX_REPROJECTION_ERROR_PX) {
+                continue
+            }
+            val depthStable =
+                abs(depth1 - depth2) / max(abs(depth1), DEPTH_STABILITY_EPS) <= MAX_DEPTH_RELATIVE_DELTA
+            if (!depthStable) {
+                continue
+            }
+            val depthMagnitude = abs(depth1)
+            if (depthMagnitude < clipRange.first || depthMagnitude > clipRange.second) {
+                continue
+            }
+
             val zScale = if (dist < minParallax) 0.0 else (dist - minParallax) / 10.0
             cloudPoints.add(Point(nextPt.x, nextPt.y - zScale * PERSPECTIVE_FACTOR))
+            cloudDepths.add(depth1)
             
             // Sample color from RGBA src
             val ix = nextPt.x.toInt().coerceIn(0, srcRgba.cols() - 1)
             val iy = nextPt.y.toInt().coerceIn(0, srcRgba.rows() - 1)
             val rgba = srcRgba.get(iy, ix)
             cloudColors.add(org.opencv.core.Scalar(rgba[0], rgba[1], rgba[2]))
+
+            val reprojScore = 1.0 - (reprojErr / MAX_REPROJECTION_ERROR_PX).coerceIn(0.0, 1.0)
+            val stabilityRatio = abs(depth1 - depth2) / max(abs(depth1), DEPTH_STABILITY_EPS)
+            val depthScore = 1.0 - (stabilityRatio / MAX_DEPTH_RELATIVE_DELTA).coerceIn(0.0, 1.0)
+            val centerDepth = (clipRange.first + clipRange.second) * 0.5
+            val spread = max((clipRange.second - clipRange.first) * 0.5, DEPTH_STABILITY_EPS)
+            val clipScore = 1.0 - (abs(depthMagnitude - centerDepth) / spread).coerceIn(0.0, 1.0)
+            val confidence = (0.5 * reprojScore + 0.3 * depthScore + 0.2 * clipScore).coerceIn(0.0, 1.0)
+            cloudConfidences.add(confidence)
+            cloudTimestamps.add(frameTimestampMs)
         }
 
         val meanParallax = if (nextArr.isEmpty()) 0.0 else parallaxSum / nextArr.size
@@ -513,8 +590,60 @@ class VisualOdometryEngine {
         r.release()
         t.release()
         mask.release()
+        triPoints.release()
+        projection1.release()
+        projection2.release()
+        rt.release()
 
-        return state to PointCloudState(cloudPoints, cloudColors, meshEdges, meanParallax)
+        return state to PointCloudState(
+            cloudPoints,
+            cloudDepths,
+            cloudColors,
+            cloudConfidences,
+            cloudTimestamps,
+            meshEdges,
+            meanParallax,
+        )
+    }
+
+    private data class Point3Data(val x: Double, val y: Double, val z: Double)
+
+    private fun robustDepthClipRange(depths: List<Double>): Pair<Double, Double> {
+        if (depths.isEmpty()) return 0.0 to Double.MAX_VALUE
+        val sorted = depths.sorted()
+        val median = sorted[sorted.size / 2]
+        val absDev = sorted.map { abs(it - median) }.sorted()
+        val mad = max(absDev[absDev.size / 2], DEPTH_STABILITY_EPS)
+        val lower = max(0.0, median - DEPTH_CLIP_MAD_FACTOR * mad)
+        val upper = median + DEPTH_CLIP_MAD_FACTOR * mad
+        return lower to upper
+    }
+
+    private fun computeReprojectionError(
+        point3d: Point3Data,
+        prevObservation: Point,
+        nextObservation: Point,
+        k: Mat,
+        r: Mat,
+        t: Mat,
+    ): Double {
+        val fx = k.get(0, 0)[0]
+        val fy = k.get(1, 1)[0]
+        val cx = k.get(0, 2)[0]
+        val cy = k.get(1, 2)[0]
+        val z1 = if (abs(point3d.z) < DEPTH_STABILITY_EPS) DEPTH_STABILITY_EPS else point3d.z
+        val u1 = fx * point3d.x / z1 + cx
+        val v1 = fy * point3d.y / z1 + cy
+        val err1 = sqrt((u1 - prevObservation.x) * (u1 - prevObservation.x) + (v1 - prevObservation.y) * (v1 - prevObservation.y))
+
+        val x2 = r.get(0, 0)[0] * point3d.x + r.get(0, 1)[0] * point3d.y + r.get(0, 2)[0] * point3d.z + t.get(0, 0)[0]
+        val y2 = r.get(1, 0)[0] * point3d.x + r.get(1, 1)[0] * point3d.y + r.get(1, 2)[0] * point3d.z + t.get(1, 0)[0]
+        val z2raw = r.get(2, 0)[0] * point3d.x + r.get(2, 1)[0] * point3d.y + r.get(2, 2)[0] * point3d.z + t.get(2, 0)[0]
+        val z2 = if (abs(z2raw) < DEPTH_STABILITY_EPS) DEPTH_STABILITY_EPS else z2raw
+        val u2 = fx * x2 / z2 + cx
+        val v2 = fy * y2 / z2 + cy
+        val err2 = sqrt((u2 - nextObservation.x) * (u2 - nextObservation.x) + (v2 - nextObservation.y) * (v2 - nextObservation.y))
+        return (err1 + err2) * 0.5
     }
 
     private fun releaseTrackingMats(vararg mats: Mat) {

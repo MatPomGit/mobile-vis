@@ -922,26 +922,34 @@ class MainActivity : AppCompatActivity() {
                     appendLine("property uchar red")
                     appendLine("property uchar green")
                     appendLine("property uchar blue")
+                    appendLine("property float confidence")
+                    appendLine("property double timestamp_ms")
                     appendLine("end_header")
                     cloud.points.forEachIndexed { i, p ->
                         val color = cloud.colors[i]
                         val r = color.`val`[0].toInt().coerceIn(0, 255)
                         val g = color.`val`[1].toInt().coerceIn(0, 255)
                         val b = color.`val`[2].toInt().coerceIn(0, 255)
-                        appendLine("${p.x} ${p.y} ${"%.4f".format(pseudoZ(p.y, cloud.meanParallax))} $r $g $b")
+                        val z = cloud.depths.getOrNull(i) ?: pseudoZ(p.y, cloud.meanParallax)
+                        val confidence = cloud.confidences.getOrNull(i) ?: 0.0
+                        val timestampMs = cloud.timestampsMs.getOrNull(i) ?: timestamp
+                        appendLine("${p.x} ${p.y} ${"%.4f".format(z)} $r $g $b ${"%.4f".format(confidence)} $timestampMs")
                     }
                 }
                 writeToDownloads("pointcloud_$timestamp.ply", "application/octet-stream", content)
             } else {
                 val content = buildString {
-                    appendLine("x,y,z,r,g,b")
+                    appendLine("x,y,z,r,g,b,confidence,timestamp_ms")
                     appendLine("# Pseudo-3D point cloud with colors. mean_parallax=${cloud.meanParallax}")
                     cloud.points.forEachIndexed { i, p ->
                         val color = cloud.colors[i]
                         val r = color.`val`[0].toInt().coerceIn(0, 255)
                         val g = color.`val`[1].toInt().coerceIn(0, 255)
                         val b = color.`val`[2].toInt().coerceIn(0, 255)
-                        appendLine("${p.x},${p.y},${"%.4f".format(pseudoZ(p.y, cloud.meanParallax))},$r,$g,$b")
+                        val z = cloud.depths.getOrNull(i) ?: pseudoZ(p.y, cloud.meanParallax)
+                        val confidence = cloud.confidences.getOrNull(i) ?: 0.0
+                        val timestampMs = cloud.timestampsMs.getOrNull(i) ?: timestamp
+                        appendLine("${p.x},${p.y},${"%.4f".format(z)},$r,$g,$b,${"%.4f".format(confidence)},$timestampMs")
                     }
                 }
                 writeToDownloads("pointcloud_$timestamp.csv", "text/csv", content)

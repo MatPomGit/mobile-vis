@@ -49,6 +49,11 @@ class TestClassifyImage:
         with pytest.raises(ValueError):
             classify_image(image)
 
+    def test_raises_for_invalid_channel_count(self) -> None:
+        image = np.zeros((32, 32, 2), dtype=np.uint8)
+        with pytest.raises(ValueError):
+            classify_image(image)
+
 
 # ---------------------------------------------------------------------------
 # evaluate_classifier
@@ -96,3 +101,7 @@ class TestEvaluateClassifier:
     def test_raises_for_empty_label(self) -> None:
         with pytest.raises(ValueError):
             evaluate_classifier([("", 0.5)], ["cat"])
+
+    def test_raises_for_invalid_ground_truth_label(self) -> None:
+        with pytest.raises(ValueError):
+            evaluate_classifier([("cat", 0.9)], [""])

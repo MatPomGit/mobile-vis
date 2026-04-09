@@ -6,9 +6,17 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 from pytest import MonkeyPatch
 
 import image_analysis.robot_perception as robot_perception
+
+
+def _opencv_or_skip() -> object:
+    try:
+        return robot_perception._require_cv2()
+    except ImportError as exc:
+        pytest.skip(f"OpenCV unavailable in this environment: {exc}")
 
 
 class _FakeCapture:
@@ -112,3 +120,53 @@ def test_measure_tracking_exports_csv(monkeypatch: MonkeyPatch, tmp_path: Path) 
     assert output_csv.exists()
     header = output_csv.read_text(encoding="utf-8").splitlines()[0]
     assert "timestamp_s" in header
+
+
+def test_detect_light_spot_returns_ellipse_center() -> None:
+    image = np.zeros((120, 120, 3), dtype=np.uint8)
+    cv2 = _opencv_or_skip()
+    cv2.ellipse(
+        image,
+        center=(70, 50),
+        axes=(12, 7),
+        angle=0,
+        startAngle=0,
+        endAngle=360,
+        color=(255, 255, 255),
+        thickness=-1,
+    )
+
+    result = robot_perception.detect_light_spot(image, min_brightness=200, min_area_px2=30.0)
+
+    assert result is not None
+    assert result.center_xy[0] == pytest.approx(70.0, abs=2.0)
+    assert result.center_xy[1] == pytest.approx(50.0, abs=2.0)
+    assert result.area_px2 > 100.0
+
+
+def test_detect_light_spot_filters_by_requested_color() -> None:
+    image = np.zeros((160, 160, 3), dtype=np.uint8)
+    cv2 = _opencv_or_skip()
+    cv2.ellipse(image, (45, 80), (14, 8), 0, 0, 360, (255, 0, 0), -1)  # Blue in BGR
+    cv2.ellipse(image, (120, 80), (14, 8), 0, 0, 360, (0, 0, 255), -1)  # Red in BGR
+
+    blue_range = robot_perception.ColorRangeHSV(lower=(100, 120, 120), upper=(130, 255, 255))
+    red_range = robot_perception.ColorRangeHSV(lower=(0, 120, 120), upper=(10, 255, 255))
+
+    blue_result = robot_perception.detect_light_spot(
+        image,
+        min_brightness=20,
+        min_area_px2=30.0,
+        allowed_colors_hsv=[blue_range],
+    )
+    red_result = robot_perception.detect_light_spot(
+        image,
+        min_brightness=20,
+        min_area_px2=30.0,
+        allowed_colors_hsv=[red_range],
+    )
+
+    assert blue_result is not None
+    assert red_result is not None
+    assert blue_result.center_xy[0] == pytest.approx(45.0, abs=2.0)
+    assert red_result.center_xy[0] == pytest.approx(120.0, abs=2.0)

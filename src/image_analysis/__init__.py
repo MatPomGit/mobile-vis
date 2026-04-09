@@ -59,6 +59,8 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     # Robot perception
     "TrackedElement": (".robot_perception", "TrackedElement"),
     "FrameTrackingMetrics": (".robot_perception", "FrameTrackingMetrics"),
+    "ColorRangeHSV": (".robot_perception", "ColorRangeHSV"),
+    "LightSpotDetection": (".robot_perception", "LightSpotDetection"),
     "ScheduledStateMachine": (".robot_perception", "ScheduledStateMachine"),
     # RTMDet
     "RTMDET_CONFIDENCE_THRESHOLD": (".rtmdet", "RTMDET_CONFIDENCE_THRESHOLD"),
@@ -129,6 +131,7 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "list_images": (".utils", "list_images"),
     "load_classifier": (".classification", "load_classifier"),
     "measure_tracking_on_mp4": (".robot_perception", "measure_tracking_on_mp4"),
+    "detect_light_spot": (".robot_perception", "detect_light_spot"),
     "replay_mp4": (".robot_perception", "replay_mp4"),
     "load_image": (".preprocessing", "load_image"),
     "normalize_image": (".preprocessing", "normalize_image"),

@@ -518,6 +518,35 @@ class TestFitPlaneRansac:
         assert normal[2] > 0.8
         assert np.sum(inliers[:120]) > 80
 
+    def test_fallbacks_to_uniform_sampling_for_all_zero_confidence(self) -> None:
+        points = _make_flat_plane_point_cloud(n=200, noise_std=0.002)
+        confidence = np.zeros(points.shape[0], dtype=np.float64)
+
+        normal, inliers = fit_plane_ransac(
+            points,
+            threshold=0.05,
+            max_iter=400,
+            point_confidence=confidence,
+        )
+
+        assert abs(normal[2]) > 0.9
+        assert np.sum(inliers) > 140
+
+    def test_fallbacks_to_uniform_sampling_for_too_few_non_zero_weights(self) -> None:
+        points = _make_flat_plane_point_cloud(n=200, noise_std=0.002)
+        confidence = np.zeros(points.shape[0], dtype=np.float64)
+        confidence[:2] = np.array([1.0, 0.8], dtype=np.float64)
+
+        normal, inliers = fit_plane_ransac(
+            points,
+            threshold=0.05,
+            max_iter=400,
+            point_confidence=confidence,
+        )
+
+        assert abs(normal[2]) > 0.9
+        assert np.sum(inliers) > 140
+
 
 # ---------------------------------------------------------------------------
 # draw_planes - input validation

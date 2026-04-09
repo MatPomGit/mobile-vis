@@ -425,13 +425,18 @@ def fit_plane_ransac(
     best_normal: NDArray[np.float64] = np.array([0.0, 0.0, 1.0])
     best_inliers: NDArray[np.bool_] = np.zeros(n_pts, dtype=bool)
     best_count = 0
+    confidence_sum = float(np.sum(confidence))
+    non_zero_support = int(np.count_nonzero(confidence > 0.0))
+    sampling_probabilities: NDArray[np.float64] | None = None
+    if confidence_sum > 0.0 and non_zero_support >= 3:
+        sampling_probabilities = cast(NDArray[np.float64], confidence / confidence_sum)
 
     for _ in range(max_iter):
         sample_idx = rng.choice(
             n_pts,
             size=3,
             replace=False,
-            p=confidence / max(float(np.sum(confidence)), 1e-12),
+            p=sampling_probabilities,
         )
         sample = pts[sample_idx]
 

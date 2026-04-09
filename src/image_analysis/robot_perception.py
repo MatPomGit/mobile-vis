@@ -129,6 +129,121 @@ class ReplayFrame:
     frame_bgr: NDArray[np.uint8]
 
 
+@dataclass(frozen=True)
+class ColorRangeHSV:
+    """HSV colour filter range.
+
+    Attributes:
+        lower: Lower HSV bound ``(H, S, V)`` in OpenCV scale
+            where ``H`` is in ``[0, 179]`` and ``S``/``V`` in ``[0, 255]``.
+        upper: Upper HSV bound ``(H, S, V)`` in OpenCV scale.
+    """
+
+    lower: tuple[int, int, int]
+    upper: tuple[int, int, int]
+
+
+@dataclass(frozen=True)
+class LightSpotDetection:
+    """Detected bright ellipse describing robot destination marker.
+
+    Attributes:
+        center_xy: Ellipse center in pixels as ``(x, y)``.
+        axes_xy: Major/minor axis lengths in pixels as ``(width, height)``.
+        angle_deg: Ellipse rotation angle in degrees.
+        area_px2: Contour area in pixels squared.
+    """
+
+    center_xy: tuple[float, float]
+    axes_xy: tuple[float, float]
+    angle_deg: float
+    area_px2: float
+
+
+def detect_light_spot(
+    image_bgr: NDArray[np.uint8],
+    min_brightness: int = 220,
+    min_area_px2: float = 20.0,
+    allowed_colors_hsv: Sequence[ColorRangeHSV] | None = None,
+) -> LightSpotDetection | None:
+    """Find the brightest destination spot and return ellipse center coordinates.
+
+    The function detects bright blobs in a BGR image and fits an ellipse to the
+    largest valid contour. Optionally, detection can be restricted to selected
+    colour ranges in HSV space.
+
+    Args:
+        image_bgr: Input image with shape ``(H, W, C)``, dtype ``uint8``,
+            where ``C=3`` and channel order is BGR.
+        min_brightness: Grayscale threshold in ``[0, 255]`` used to isolate
+            bright pixels.
+        min_area_px2: Minimum contour area to accept as a destination marker.
+        allowed_colors_hsv: Optional list of accepted HSV ranges. If provided,
+            only bright pixels inside at least one range are considered.
+
+    Returns:
+        ``LightSpotDetection`` for the best matching blob, otherwise ``None``.
+
+    Raises:
+        ValueError: If arguments are outside accepted ranges.
+    """
+    _validate_bgr_image(image_bgr)
+    if not (0 <= min_brightness <= 255):
+        raise ValueError(f"min_brightness must be in [0, 255], got {min_brightness}")
+    if min_area_px2 <= 0.0:
+        raise ValueError(f"min_area_px2 must be > 0, got {min_area_px2}")
+
+    cv2 = _require_cv2()
+    gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
+    _, bright_mask = cv2.threshold(gray, min_brightness, 255, cv2.THRESH_BINARY)
+
+    if allowed_colors_hsv:
+        hsv = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2HSV)
+        color_mask = np.zeros(gray.shape, dtype=np.uint8)
+        for color_range in allowed_colors_hsv:
+            _validate_hsv_range(color_range)
+            partial_mask = cv2.inRange(
+                hsv,
+                np.array(color_range.lower, dtype=np.uint8),
+                np.array(color_range.upper, dtype=np.uint8),
+            )
+            color_mask = cv2.bitwise_or(color_mask, partial_mask)
+        bright_mask = cv2.bitwise_and(bright_mask, color_mask)
+
+    contours, _hierarchy = cv2.findContours(
+        bright_mask,
+        cv2.RETR_EXTERNAL,
+        cv2.CHAIN_APPROX_SIMPLE,
+    )
+    if not contours:
+        return None
+
+    valid_contours = [c for c in contours if cv2.contourArea(c) >= min_area_px2]
+    if not valid_contours:
+        return None
+    best_contour = max(valid_contours, key=cv2.contourArea)
+    area_px2 = float(cv2.contourArea(best_contour))
+
+    if len(best_contour) >= 5:
+        (center_x, center_y), (axis_w, axis_h), angle_deg = cv2.fitEllipse(best_contour)
+    else:
+        moments = cv2.moments(best_contour)
+        if moments["m00"] <= 0.0:
+            return None
+        center_x = moments["m10"] / moments["m00"]
+        center_y = moments["m01"] / moments["m00"]
+        _x, _y, w, h = cv2.boundingRect(best_contour)
+        axis_w, axis_h = float(w), float(h)
+        angle_deg = 0.0
+
+    return LightSpotDetection(
+        center_xy=(float(center_x), float(center_y)),
+        axes_xy=(float(axis_w), float(axis_h)),
+        angle_deg=float(angle_deg),
+        area_px2=area_px2,
+    )
+
+
 def replay_mp4(video_path: str | Path) -> list[ReplayFrame]:
     """Load MP4 and return frame list suitable for offline processing.
 
@@ -278,3 +393,30 @@ def measure_tracking_on_mp4(
 
     logger.info("Saved %d tracking rows to %s", len(rows), output)
     return rows
+
+
+def _validate_bgr_image(image: object) -> None:
+    """Validate that image is a uint8 BGR array with shape ``(H, W, 3)``."""
+    if not isinstance(image, np.ndarray):
+        raise ValueError("image_bgr must be a numpy array")
+    if image.ndim != 3 or image.shape[2] != 3:
+        raise ValueError(f"image_bgr must have shape (H, W, 3), got {image.shape}")
+    if image.dtype != np.uint8:
+        raise ValueError(f"image_bgr must use uint8 dtype, got {image.dtype}")
+
+
+def _validate_hsv_range(color_range: ColorRangeHSV) -> None:
+    """Validate OpenCV HSV range bounds."""
+    if len(color_range.lower) != 3 or len(color_range.upper) != 3:
+        raise ValueError("HSV range bounds must be 3-element tuples")
+
+    h_low, s_low, v_low = color_range.lower
+    h_high, s_high, v_high = color_range.upper
+    if not (0 <= h_low <= 179 and 0 <= h_high <= 179):
+        raise ValueError("HSV hue must be in [0, 179]")
+    if not (0 <= s_low <= 255 and 0 <= s_high <= 255):
+        raise ValueError("HSV saturation must be in [0, 255]")
+    if not (0 <= v_low <= 255 and 0 <= v_high <= 255):
+        raise ValueError("HSV value must be in [0, 255]")
+    if (h_low > h_high) or (s_low > s_high) or (v_low > v_high):
+        raise ValueError("HSV lower bound must not exceed upper bound")

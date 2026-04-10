@@ -39,6 +39,47 @@ import java.util.concurrent.atomic.AtomicInteger
  * Applies OpenCV image-processing filters to Android [Bitmap] frames.
  */
 class ImageProcessor {
+    /**
+     * Bazowy stan wejściowy przekazywany do modułów przetwarzania klatek.
+     */
+    sealed interface ModuleState
+
+    /**
+     * Stan modułu morfologii. Przechowuje rozmiar pół-jądra operacji.
+     */
+    data class MorphologyState(
+        val kernelHalfSize: Int = 4,
+    ) : ModuleState
+
+    /**
+     * Stan modułu odometrii wizualnej.
+     */
+    data class OdometryState(
+        val maxFeatures: Int = 300,
+        val minParallax: Double = 1.0,
+        val meshEnabled: Boolean = false,
+    ) : ModuleState
+
+    /**
+     * Stan modułu geometrii 3D.
+     */
+    data class GeometryState(
+        val maxPlanes: Int = 3,
+    ) : ModuleState
+
+    /**
+     * Domyślny stan dla filtrów, które nie wymagają dodatkowych parametrów.
+     */
+    data object EmptyState : ModuleState
+
+    /**
+     * Interfejs modułu przetwarzania pojedynczej klatki.
+     */
+    private interface FrameModule<S : ModuleState> {
+        fun process(frame: Mat, filter: OpenCvFilter, state: S): Mat
+        fun reset()
+    }
+
     data class RuntimeBenchmarkSnapshot(
         val filter: OpenCvFilter,
         val samples: Int,
@@ -127,37 +168,18 @@ class ImageProcessor {
         get() = fullOdometryEngine.currentMap
 
     @Volatile
-    var morphKernelSize: Int = 4
-
-    @Volatile
-    var voMaxFeatures: Int = 300
-        set(value) { field = value; visualOdometryEngine.maxFeatures = value }
-
-    @Volatile
-    var voMinParallax: Double = 1.0
-        set(value) { field = value; visualOdometryEngine.minParallax = value }
-
-    @Volatile
-    var isVoMeshEnabled: Boolean = false
-        set(value) { field = value; visualOdometryEngine.isMeshEnabled = value }
-
-    @Volatile
-    var geometryMaxPlanes: Int = 3
-        set(value) { field = value; geometryProcessor.maxPlanes = value }
-
-    @Volatile
     var debugUndistortBeforeGeometry: Boolean = false
 
     private val geometryProcessor = GeometryProcessor(::logExceptionTelemetry)
     private val activeVisionOptimizer = ActiveVisionOptimizer()
     private val visualOdometryEngine = VisualOdometryEngine().also {
-        it.maxFeatures = voMaxFeatures
-        it.minParallax = voMinParallax
-        it.isMeshEnabled = isVoMeshEnabled
+        it.maxFeatures = OdometryState().maxFeatures
+        it.minParallax = OdometryState().minParallax
+        it.isMeshEnabled = OdometryState().meshEnabled
     }
     val fullOdometryEngine = FullOdometryEngine().also {
-        it.maxFeatures = voMaxFeatures
-        it.minParallax = voMinParallax
+        it.maxFeatures = OdometryState().maxFeatures
+        it.minParallax = OdometryState().minParallax
     }
 
     /** Callback for automatic map export. */
@@ -236,6 +258,19 @@ class ImageProcessor {
         arucoDetector.apply { }
     }
 
+    /**
+     * Resetuje zasoby modułu powiązanego z danym trybem analizy.
+     */
+    fun resetModule(mode: AnalysisMode) {
+        when (mode) {
+            AnalysisMode.ODOMETRY -> odometryModule.reset()
+            AnalysisMode.FULL_ODOMETRY_3D -> fullOdometryEngine.reset()
+            else -> {
+                // Pozostałe moduły nie utrzymują trwałego stanu między klatkami.
+            }
+        }
+    }
+
     private data class RuntimeBenchmarkAccumulator(
         var samples: Int = 0,
         var beforeNs: Long = 0,
@@ -267,6 +302,44 @@ class ImageProcessor {
     private val exceptionTelemetry = ConcurrentHashMap<String, AtomicInteger>()
     @Volatile
     private var lastCalibrationDiagnosticsKey: String? = null
+    private val morphologyModule = object : FrameModule<MorphologyState> {
+        override fun process(frame: Mat, filter: OpenCvFilter, state: MorphologyState): Mat = when (filter) {
+            OpenCvFilter.DILATE -> LegacyFilters.applyMorphology(frame, -1, state.kernelHalfSize)
+            OpenCvFilter.ERODE -> LegacyFilters.applyMorphology(frame, -2, state.kernelHalfSize)
+            OpenCvFilter.OPEN ->
+                LegacyFilters.applyMorphology(frame, Imgproc.MORPH_OPEN, state.kernelHalfSize)
+            OpenCvFilter.CLOSE ->
+                LegacyFilters.applyMorphology(frame, Imgproc.MORPH_CLOSE, state.kernelHalfSize)
+            OpenCvFilter.GRADIENT ->
+                LegacyFilters.applyMorphology(frame, Imgproc.MORPH_GRADIENT, state.kernelHalfSize)
+            OpenCvFilter.TOP_HAT ->
+                LegacyFilters.applyMorphology(frame, Imgproc.MORPH_TOPHAT, state.kernelHalfSize)
+            OpenCvFilter.BLACK_HAT ->
+                LegacyFilters.applyMorphology(frame, Imgproc.MORPH_BLACKHAT, state.kernelHalfSize)
+            else -> frame.clone()
+        }
+
+        override fun reset() {
+            // Brak stanu wewnętrznego modułu morfologii do czyszczenia.
+        }
+    }
+
+    private val odometryModule = object : FrameModule<OdometryState> {
+        override fun process(frame: Mat, filter: OpenCvFilter, state: OdometryState): Mat {
+            visualOdometryEngine.maxFeatures = state.maxFeatures
+            visualOdometryEngine.minParallax = state.minParallax
+            visualOdometryEngine.isMeshEnabled = state.meshEnabled
+            return when (filter) {
+                OpenCvFilter.VISUAL_ODOMETRY -> applyVisualOdometry(frame)
+                OpenCvFilter.POINT_CLOUD -> applyPointCloud(frame, state)
+                else -> frame.clone()
+            }
+        }
+
+        override fun reset() {
+            visualOdometryEngine.reset()
+        }
+    }
 
     private fun logExceptionTelemetry(scope: String, category: String, error: Throwable) {
         val key = "$scope:$category"
@@ -274,7 +347,7 @@ class ImageProcessor {
         Log.i(TAG, "Exception telemetry key=$key count=$count type=${error::class.java.simpleName}")
     }
 
-    fun processFrame(bitmap: Bitmap, filter: OpenCvFilter): Bitmap {
+    fun processFrame(bitmap: Bitmap, filter: OpenCvFilter, moduleState: ModuleState): Bitmap {
         if (filter != OpenCvFilter.VISUAL_ODOMETRY && filter != OpenCvFilter.POINT_CLOUD) {
             visualOdometryEngine.reset()
         }
@@ -332,13 +405,23 @@ class ImageProcessor {
             OpenCvFilter.THRESHOLD -> Triple(LegacyFilters.applyThreshold(baseFrame), true, 0L)
             OpenCvFilter.SOBEL -> Triple(LegacyFilters.applySobel(baseFrame), true, 0L)
             OpenCvFilter.LAPLACIAN -> Triple(LegacyFilters.applyLaplacian(baseFrame), true, 0L)
-            OpenCvFilter.DILATE -> Triple(LegacyFilters.applyMorphology(baseFrame, -1, morphKernelSize), true, 0L)
-            OpenCvFilter.ERODE -> Triple(LegacyFilters.applyMorphology(baseFrame, -2, morphKernelSize), true, 0L)
-            OpenCvFilter.OPEN -> Triple(LegacyFilters.applyMorphology(baseFrame, Imgproc.MORPH_OPEN, morphKernelSize), true, 0L)
-            OpenCvFilter.CLOSE -> Triple(LegacyFilters.applyMorphology(baseFrame, Imgproc.MORPH_CLOSE, morphKernelSize), true, 0L)
-            OpenCvFilter.GRADIENT -> Triple(LegacyFilters.applyMorphology(baseFrame, Imgproc.MORPH_GRADIENT, morphKernelSize), true, 0L)
-            OpenCvFilter.TOP_HAT -> Triple(LegacyFilters.applyMorphology(baseFrame, Imgproc.MORPH_TOPHAT, morphKernelSize), true, 0L)
-            OpenCvFilter.BLACK_HAT -> Triple(LegacyFilters.applyMorphology(baseFrame, Imgproc.MORPH_BLACKHAT, morphKernelSize), true, 0L)
+            OpenCvFilter.DILATE,
+            OpenCvFilter.ERODE,
+            OpenCvFilter.OPEN,
+            OpenCvFilter.CLOSE,
+            OpenCvFilter.GRADIENT,
+            OpenCvFilter.TOP_HAT,
+            OpenCvFilter.BLACK_HAT -> Triple(
+                runModuleSafely(
+                    moduleName = "morphology",
+                    filter = filter,
+                    baseFrame = baseFrame,
+                    module = morphologyModule,
+                    state = moduleState as? MorphologyState ?: MorphologyState(),
+                ),
+                true,
+                0L,
+            )
             OpenCvFilter.APRIL_TAGS -> Triple(applyAprilTagDetection(baseFrame), true, 0L)
             OpenCvFilter.APRIL_TAG_3D -> Triple(applyAprilTag3D(baseFrame), true, 0L)
             OpenCvFilter.ARUCO -> Triple(applyArucoDetection(baseFrame), true, 0L)
@@ -349,9 +432,26 @@ class ImageProcessor {
             OpenCvFilter.CCTAG -> Triple(applyCCTagDetection(baseFrame), true, 0L)
             OpenCvFilter.CHESSBOARD_CALIBRATION -> Triple(applyChessboardCalibration(baseFrame), true, 0L)
             OpenCvFilter.UNDISTORT -> Triple(applyUndistort(baseFrame), true, 0L)
-            OpenCvFilter.VISUAL_ODOMETRY -> Triple(applyVisualOdometry(baseFrame), true, 0L)
-            OpenCvFilter.POINT_CLOUD -> Triple(applyPointCloud(baseFrame), true, 0L)
-            OpenCvFilter.PLANE_DETECTION -> Triple(applyPlaneDetection(baseFrame), true, 0L)
+            OpenCvFilter.VISUAL_ODOMETRY,
+            OpenCvFilter.POINT_CLOUD -> Triple(
+                runModuleSafely(
+                    moduleName = "odometry",
+                    filter = filter,
+                    baseFrame = baseFrame,
+                    module = odometryModule,
+                    state = moduleState as? OdometryState ?: OdometryState(),
+                ),
+                true,
+                0L,
+            )
+            OpenCvFilter.PLANE_DETECTION -> Triple(
+                applyPlaneDetection(
+                    baseFrame,
+                    moduleState as? GeometryState ?: GeometryState(),
+                ),
+                true,
+                0L,
+            )
             OpenCvFilter.VANISHING_POINTS -> Triple(applyVanishingPoints(baseFrame), true, 0L)
             OpenCvFilter.MEDIAN_BLUR -> Triple(LegacyFilters.applyMedianBlur(baseFrame), true, 0L)
             OpenCvFilter.BILATERAL_FILTER -> Triple(LegacyFilters.applyBilateralFilter(baseFrame), true, 0L)
@@ -410,6 +510,24 @@ class ImageProcessor {
             mat.create(rows, cols, type)
         }
         return mat
+    }
+
+    /**
+     * Izoluje błąd pojedynczego modułu, aby nie wpływał na inne moduły.
+     */
+    private fun <S : ModuleState> runModuleSafely(
+        moduleName: String,
+        filter: OpenCvFilter,
+        baseFrame: Mat,
+        module: FrameModule<S>,
+        state: S,
+    ): Mat = try {
+        module.process(baseFrame, filter, state)
+    } catch (error: Throwable) {
+        logExceptionTelemetry("frame_module", moduleName, error)
+        Log.e(TAG, "FrameModule=$moduleName failed for filter=${filter.name}. Local fallback applied.", error)
+        module.reset()
+        baseFrame.clone()
     }
 
     private fun processHotFilterBuffered(src: Mat, filter: OpenCvFilter): Triple<Mat, Boolean, Long> {
@@ -978,14 +1096,14 @@ class ImageProcessor {
         geometryInput.release(); return res
     }
 
-    private fun applyPointCloud(src: Mat): Mat {
+    private fun applyPointCloud(src: Mat, state: OdometryState): Mat {
         val geometryInput = prepareGeometryInput(src, "point_cloud")
         visualOdometryEngine.processFrameRgba(geometryInput, calibrator)
         val res = Mat.zeros(src.rows(), src.cols(), src.type())
         val cloud = visualOdometryEngine.lastPointCloud
         val pointRadius = computeAdaptivePointRadius(res.cols(), res.rows(), cloud?.points?.size ?: 0)
         if (cloud != null) {
-            if (isVoMeshEnabled) {
+            if (state.meshEnabled) {
                 for ((p1, p2) in cloud.edges) Imgproc.line(res, p1, p2, Scalar(0.0, 128.0, 255.0, 255.0), POINT_CLOUD_MESH_THICKNESS)
             }
             cloud.points.forEachIndexed { i, pt ->
@@ -1162,7 +1280,8 @@ class ImageProcessor {
         return boostedRadius.coerceIn(MAP_POINT_MIN_CIRCLE_RADIUS, MAP_POINT_MAX_CIRCLE_RADIUS)
     }
 
-    private fun applyPlaneDetection(src: Mat): Mat {
+    private fun applyPlaneDetection(src: Mat, state: GeometryState): Mat {
+        geometryProcessor.maxPlanes = state.maxPlanes
         val geometryInput = prepareGeometryInput(src, "plane_detection")
         val profile = calibrator?.getCalibrationProfile(geometryInput.size())
         if (profile != null && !profile.isCompatible) {

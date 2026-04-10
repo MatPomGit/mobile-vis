@@ -98,6 +98,23 @@ class MainActivity : AppCompatActivity() {
     @Volatile private var currentMode: AnalysisMode = AnalysisMode.entries.first()
     @Volatile private var isActiveVisionEnabled = false
     @Volatile private var isActiveVisionVisualizationEnabled = false
+    @Volatile
+    private var morphologyState = ImageProcessor.MorphologyState()
+    @Volatile
+    private var odometryState = ImageProcessor.OdometryState()
+    @Volatile
+    private var geometryState = ImageProcessor.GeometryState()
+
+    /**
+     * Zdarzenia UI zmieniające stan modułów.
+     */
+    private sealed interface UiAction {
+        data class SetMorphKernelHalfSize(val kernelHalfSize: Int) : UiAction
+        data class SetVoMaxFeatures(val maxFeatures: Int) : UiAction
+        data class SetVoMinParallax(val minParallax: Double) : UiAction
+        data class SetVoMeshEnabled(val enabled: Boolean) : UiAction
+        data class SetGeometryMaxPlanes(val maxPlanes: Int) : UiAction
+    }
 
     // Calibration
     val cameraCalibrator = CameraCalibrator()
@@ -141,6 +158,39 @@ class MainActivity : AppCompatActivity() {
             TAG,
             "Exception telemetry key=$key count=$count type=${error::class.java.simpleName} top=$ranking",
         )
+    }
+
+    /**
+     * Reduktor stanów modułów: pojedyncze miejsce mutacji konfiguracji analizy.
+     */
+    private fun dispatch(action: UiAction) {
+        when (action) {
+            is UiAction.SetMorphKernelHalfSize -> {
+                morphologyState = morphologyState.copy(kernelHalfSize = action.kernelHalfSize)
+            }
+            is UiAction.SetVoMaxFeatures -> {
+                odometryState = odometryState.copy(maxFeatures = action.maxFeatures)
+            }
+            is UiAction.SetVoMinParallax -> {
+                odometryState = odometryState.copy(minParallax = action.minParallax)
+            }
+            is UiAction.SetVoMeshEnabled -> {
+                odometryState = odometryState.copy(meshEnabled = action.enabled)
+            }
+            is UiAction.SetGeometryMaxPlanes -> {
+                geometryState = geometryState.copy(maxPlanes = action.maxPlanes)
+            }
+        }
+    }
+
+    /**
+     * Zwraca stan tylko dla aktywnego modułu analizy.
+     */
+    private fun currentModuleState(): ImageProcessor.ModuleState = when (currentMode) {
+        AnalysisMode.MORPHOLOGY -> morphologyState
+        AnalysisMode.ODOMETRY -> odometryState
+        AnalysisMode.GEOMETRY -> geometryState
+        else -> ImageProcessor.EmptyState
     }
 
     private val permissionsLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
@@ -318,28 +368,40 @@ class MainActivity : AppCompatActivity() {
     @SuppressLint("SetTextI18n")
     private fun setupSliders() {
         // Morphology
-        binding.seekBarKernelSize.progress = imageProcessor.morphKernelSize - 1
-        updateKernelSizeLabel(imageProcessor.morphKernelSize)
+        binding.seekBarKernelSize.progress = morphologyState.kernelHalfSize - 1
+        updateKernelSizeLabel(morphologyState.kernelHalfSize)
         binding.seekBarKernelSize.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(s: SeekBar, p: Int, f: Boolean) { val half = p + 1; imageProcessor.morphKernelSize = half; updateKernelSizeLabel(half) }
+            override fun onProgressChanged(s: SeekBar, p: Int, f: Boolean) {
+                val half = p + 1
+                dispatch(UiAction.SetMorphKernelHalfSize(half))
+                updateKernelSizeLabel(half)
+            }
             override fun onStartTrackingTouch(s: SeekBar) {}
             override fun onStopTrackingTouch(s: SeekBar) {}
         })
 
         // VO Max Features
-        binding.seekBarVoMaxFeatures.progress = imageProcessor.voMaxFeatures
-        binding.textViewVoMaxFeatures.text = imageProcessor.voMaxFeatures.toString()
+        binding.seekBarVoMaxFeatures.progress = odometryState.maxFeatures
+        binding.textViewVoMaxFeatures.text = odometryState.maxFeatures.toString()
         binding.seekBarVoMaxFeatures.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(s: SeekBar, p: Int, f: Boolean) { val v = maxOf(10, p); imageProcessor.voMaxFeatures = v; binding.textViewVoMaxFeatures.text = v.toString() }
+            override fun onProgressChanged(s: SeekBar, p: Int, f: Boolean) {
+                val v = maxOf(10, p)
+                dispatch(UiAction.SetVoMaxFeatures(v))
+                binding.textViewVoMaxFeatures.text = v.toString()
+            }
             override fun onStartTrackingTouch(s: SeekBar) {}
             override fun onStopTrackingTouch(s: SeekBar) {}
         })
 
         // VO Min Parallax
-        binding.seekBarVoMinParallax.progress = (imageProcessor.voMinParallax * 10).toInt()
-        binding.textViewVoMinParallax.text = "%.1f".format(imageProcessor.voMinParallax)
+        binding.seekBarVoMinParallax.progress = (odometryState.minParallax * 10).toInt()
+        binding.textViewVoMinParallax.text = "%.1f".format(odometryState.minParallax)
         binding.seekBarVoMinParallax.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(s: SeekBar, p: Int, f: Boolean) { val v = p / 10.0; imageProcessor.voMinParallax = v; binding.textViewVoMinParallax.text = "%.1f".format(v) }
+            override fun onProgressChanged(s: SeekBar, p: Int, f: Boolean) {
+                val v = p / 10.0
+                dispatch(UiAction.SetVoMinParallax(v))
+                binding.textViewVoMinParallax.text = "%.1f".format(v)
+            }
             override fun onStartTrackingTouch(s: SeekBar) {}
             override fun onStopTrackingTouch(s: SeekBar) {}
         })
@@ -381,12 +443,12 @@ class MainActivity : AppCompatActivity() {
         })
 
         // Geometry Max Planes
-        binding.seekBarGeometryMaxPlanes.progress = imageProcessor.geometryMaxPlanes - 1
-        binding.textViewGeometryMaxPlanes.text = imageProcessor.geometryMaxPlanes.toString()
+        binding.seekBarGeometryMaxPlanes.progress = geometryState.maxPlanes - 1
+        binding.textViewGeometryMaxPlanes.text = geometryState.maxPlanes.toString()
         binding.seekBarGeometryMaxPlanes.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(s: SeekBar, p: Int, f: Boolean) {
                 val v = p + 1
-                imageProcessor.geometryMaxPlanes = v
+                dispatch(UiAction.SetGeometryMaxPlanes(v))
                 binding.textViewGeometryMaxPlanes.text = v.toString()
             }
             override fun onStartTrackingTouch(s: SeekBar) {}
@@ -400,8 +462,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupMeshToggle() {
+        binding.switchVoMesh.isChecked = odometryState.meshEnabled
         binding.switchVoMesh.setOnCheckedChangeListener { _, isChecked ->
-            imageProcessor.isVoMeshEnabled = isChecked
+            dispatch(UiAction.SetVoMeshEnabled(isChecked))
         }
     }
 
@@ -442,6 +505,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateFilterChips(mode: AnalysisMode) {
+        if (mode != currentMode) {
+            resetModuleForMode(currentMode)
+        }
         currentMode = mode
         binding.chipGroupFilters.removeAllViews()
         val firstFilter = mode.filters.firstOrNull() ?: run { updateContextualControls(); return }
@@ -493,6 +559,13 @@ class MainActivity : AppCompatActivity() {
         if (mode == AnalysisMode.TFLITE && !ModelDownloadManager.areTfliteModelsReady(this)) startTfliteModelDownload()
 
         updateContextualControls()
+    }
+
+    /**
+     * Resetuje tylko moduł powiązany z poprzednim trybem.
+     */
+    private fun resetModuleForMode(mode: AnalysisMode) {
+        imageProcessor.resetModule(mode)
     }
 
     private fun updateContextualControls() {
@@ -1127,7 +1200,11 @@ class MainActivity : AppCompatActivity() {
             }
 
             val start = System.nanoTime()
-            val processed = imageProcessor.processFrame(oriented, currentFilter)
+            val processed = imageProcessor.processFrame(
+                oriented,
+                currentFilter,
+                currentModuleState(),
+            )
             val time = (System.nanoTime() - start) / 1_000_000L
             
             frameWidth = processed.width; frameHeight = processed.height; fpsCounter.onFrame()

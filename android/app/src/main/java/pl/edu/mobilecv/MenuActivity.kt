@@ -55,6 +55,14 @@ class MenuActivity : AppCompatActivity() {
     /** Groups of downloadable models shown in the Models tab. */
     private enum class ModelGroup { MEDIAPIPE, YOLO, RTMDET, MOBILINT, TFLITE }
 
+    /** Widok statusu modułu (sekcja logiczna niezależna od pojedynczych plików modelu). */
+    private data class ModuleStatusViews(
+        val textStatus: TextView,
+        val textError: TextView,
+        val btnRetry: MaterialButton,
+        val btnDisable: MaterialButton,
+    )
+
     private lateinit var binding: ActivityMenuBinding
 
     /** Single-thread executor used for background model downloads. Lazily created on first use. */
@@ -71,6 +79,7 @@ class MenuActivity : AppCompatActivity() {
 
     /** Keyed by model filename (e.g. [MediaPipeProcessor.MODEL_POSE]). */
     private val modelStatusViews = mutableMapOf<String, ModelStatusViews>()
+    private val moduleStatusViews = mutableMapOf<ModuleStatusStore.ModuleType, ModuleStatusViews>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -91,6 +100,11 @@ class MenuActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         downloadExecutor.shutdownNow()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        refreshModuleStatus()
     }
 
     // ------------------------------------------------------------------
@@ -251,6 +265,7 @@ class MenuActivity : AppCompatActivity() {
         val container = binding.modelsContainer
 
         addGroupDescription(container, getString(R.string.models_tab_description))
+        addModuleStatusDashboard(container)
 
         // MediaPipe section
         addSectionHeader(container, getString(R.string.models_mediapipe_title))
@@ -294,6 +309,107 @@ class MenuActivity : AppCompatActivity() {
 
         addModelRow(container, ModelDownloadManager.MODEL_TFLITE_DETECT, getString(R.string.model_name_tflite_detect), ModelGroup.TFLITE)
         addDownloadAllButton(container, ModelGroup.TFLITE)
+    }
+
+    /**
+     * Dodaje pulpit statusu modułów i akcje naprawcze niezależne od statusu pojedynczych plików.
+     */
+    private fun addModuleStatusDashboard(container: LinearLayout) {
+        addSectionHeader(container, getString(R.string.modules_dashboard_title))
+        addGroupDescription(container, getString(R.string.modules_dashboard_description))
+
+        addModuleStatusRow(container, ModuleStatusStore.ModuleType.MEDIAPIPE, getString(R.string.models_mediapipe_title))
+        addModuleStatusRow(container, ModuleStatusStore.ModuleType.YOLO, getString(R.string.models_yolo_title))
+        addModuleStatusRow(container, ModuleStatusStore.ModuleType.RTMDET, getString(R.string.models_rtmdet_title))
+        addModuleStatusRow(container, ModuleStatusStore.ModuleType.TFLITE, getString(R.string.models_tflite_title))
+
+        val diagnosticsButton = MaterialButton(this).apply {
+            text = getString(R.string.modules_open_diagnostics)
+            setOnClickListener {
+                startActivity(Intent(this@MenuActivity, ModuleStatusActivity::class.java))
+            }
+        }
+        container.addView(diagnosticsButton)
+        refreshModuleStatus()
+    }
+
+    /**
+     * Tworzy pojedynczy wiersz statusu modułu z akcjami „Pobierz ponownie” i „Wyłącz moduł”.
+     */
+    private fun addModuleStatusRow(
+        container: LinearLayout,
+        moduleType: ModuleStatusStore.ModuleType,
+        title: String,
+    ) {
+        addSectionHeader(container, title)
+        val textStatus = TextView(this)
+        val textError = TextView(this)
+        val btnRetry = MaterialButton(this).apply { text = getString(R.string.module_action_retry) }
+        val btnDisable = MaterialButton(this).apply { text = getString(R.string.module_action_disable) }
+
+        btnRetry.setOnClickListener {
+            runRepairAction(moduleType, ModuleLifecycleManager.RepairAction.RETRY_DOWNLOAD)
+        }
+        btnDisable.setOnClickListener {
+            runRepairAction(moduleType, ModuleLifecycleManager.RepairAction.DISABLE_MODULE)
+        }
+
+        container.addView(textStatus)
+        container.addView(textError)
+        container.addView(btnRetry)
+        container.addView(btnDisable)
+        moduleStatusViews[moduleType] = ModuleStatusViews(textStatus, textError, btnRetry, btnDisable)
+    }
+
+    /** Odświeża statusy modułów z centralnego store. */
+    private fun refreshModuleStatus() {
+        moduleStatusViews.forEach { (moduleType, views) ->
+            val snapshot = ModuleStatusStore.get(moduleType)
+            views.textStatus.text = getString(
+                R.string.module_status_template,
+                moduleType.name,
+                snapshot.status.name,
+            )
+            val errorText = snapshot.errorMessageResId?.let(::getString).orEmpty()
+            views.textError.text = errorText
+            views.textError.visibility = if (errorText.isBlank()) View.GONE else View.VISIBLE
+            val isError = snapshot.status == ModuleStatusStore.ModuleStatus.ERROR
+            val isDisabled = snapshot.status == ModuleStatusStore.ModuleStatus.DISABLED
+            views.btnRetry.visibility = if (isError) View.VISIBLE else View.GONE
+            views.btnDisable.visibility = if (isDisabled) View.GONE else View.VISIBLE
+        }
+    }
+
+    /**
+     * Uruchamia akcję naprawczą przez menedżer cyklu życia dostępny tylko na czas operacji.
+     */
+    private fun runRepairAction(
+        moduleType: ModuleStatusStore.ModuleType,
+        action: ModuleLifecycleManager.RepairAction,
+    ) {
+        val manager = ModuleLifecycleManager(
+            context = this,
+            imageProcessor = ImageProcessor(),
+            mediaPipeProcessor = MediaPipeProcessor(this),
+            yoloProcessor = YoloProcessor(this),
+            rtmDetProcessor = RtmDetProcessor(this),
+            tfliteProcessor = TfliteProcessor(this),
+            backgroundExecutor = downloadExecutor,
+            callbacks = object : ModuleLifecycleManager.Callbacks {
+                override fun onTelemetry(scope: String, category: String, error: Throwable) = Unit
+                override fun showToast(messageRes: Int, longDuration: Boolean) {
+                    runOnUiThread {
+                        Toast.makeText(
+                            this@MenuActivity,
+                            getString(messageRes),
+                            if (longDuration) Toast.LENGTH_LONG else Toast.LENGTH_SHORT,
+                        ).show()
+                    }
+                }
+            },
+        )
+        manager.applyRepairAction(moduleType, action)
+        refreshModuleStatus()
     }
 
     /**
@@ -371,6 +487,7 @@ class MenuActivity : AppCompatActivity() {
 
     /** Refreshes all model status rows; called whenever the Models tab is selected. */
     private fun refreshModelStatus() {
+        refreshModuleStatus()
         modelStatusViews.entries.forEach { (filename, views) ->
             updateModelRowUi(filename, views.group)
         }

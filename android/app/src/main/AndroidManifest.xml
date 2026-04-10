@@ -60,6 +60,12 @@
             android:exported="false"
             android:screenOrientation="fullSensor" />
 
+        <activity
+            android:name=".ModuleStatusActivity"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:exported="false"
+            android:screenOrientation="fullSensor" />
+
     </application>
 
 </manifest>

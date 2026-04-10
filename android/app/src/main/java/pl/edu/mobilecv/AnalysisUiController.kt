@@ -97,6 +97,7 @@ class AnalysisUiController(
         height: Int,
         processingTimeMs: Long,
         lensFacingFront: Boolean,
+        moduleStatusLine: String,
         stringProvider: (Int, Array<out Any>) -> String,
     ) {
         val cameraLabel = stringProvider(
@@ -115,6 +116,7 @@ class AnalysisUiController(
                     arrayOf(isActiveVisionVisualizationEnabled),
                 ),
             )
+            appendLine(moduleStatusLine)
             append(cameraLabel)
         }
     }

@@ -537,6 +537,7 @@ class MainActivity : AppCompatActivity() {
                         height = frameHeight,
                         processingTimeMs = processingTimeMs,
                         lensFacingFront = cameraController.lensFacing == CameraSelector.LENS_FACING_FRONT,
+                        moduleStatusLine = resolveCurrentModuleStatusLine(),
                     ) { resId, args -> getString(resId, *args) }
                 }
             } else {
@@ -549,6 +550,23 @@ class MainActivity : AppCompatActivity() {
         } finally {
             imageProxy.close()
         }
+    }
+
+    /**
+     * Buduje linię diagnostyczną aktualnego modułu na podstawie centralnego store.
+     */
+    private fun resolveCurrentModuleStatusLine(): String {
+        val moduleType = when (analysisUiController.currentMode) {
+            AnalysisMode.POSE -> ModuleStatusStore.ModuleType.MEDIAPIPE
+            AnalysisMode.YOLO,
+            AnalysisMode.TRACKING,
+            -> ModuleStatusStore.ModuleType.YOLO
+            AnalysisMode.RTMDET -> ModuleStatusStore.ModuleType.RTMDET
+            AnalysisMode.TFLITE -> ModuleStatusStore.ModuleType.TFLITE
+            else -> return getString(R.string.module_status_not_applicable)
+        }
+        val snapshot = ModuleStatusStore.get(moduleType)
+        return getString(R.string.module_status_template, moduleType.name, snapshot.status.name)
     }
 
     private fun configureImageProcessorLabels() {

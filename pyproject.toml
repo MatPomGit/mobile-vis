@@ -32,6 +32,9 @@ rtmdet = [
     "mmdet>=3.0",
 ]
 
+[project.scripts]
+mobilecv-version = "image_analysis.cli:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 

@@ -1,0 +1,36 @@
+name: Bump Android app version on main
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  bump-version:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Bump patch version
+        run: |
+          chmod +x ./bump_version.sh
+          ./bump_version.sh patch
+
+      - name: Commit bumped version
+        run: |
+          if git diff --quiet -- android/build.gradle.kts; then
+            echo "No version change detected."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add android/build.gradle.kts
+          git commit -m "chore(version): bump android app version [skip ci]"
+          git push

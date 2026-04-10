@@ -72,6 +72,7 @@
     <string name="diagnostics_fps">FPS: %1$.1f</string>
     <string name="diagnostics_resolution">Rozdzielczość: %1$d×%2$d</string>
     <string name="diagnostics_processing_time">Czas: %1$d ms</string>
+    <string name="diagnostics_version">Wersja: %1$s</string>
     <string name="diagnostics_filter">Filtr: %1$s</string>
     <string name="diagnostics_camera_back">Kamera: tylna</string>
     <string name="diagnostics_camera_front">Kamera: przednia</string>

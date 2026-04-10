@@ -155,6 +155,13 @@ MainActivity ──► CameraX (ImageAnalysis)
   stosuje wybrany filtr OpenCV i zwraca przetworzone `Bitmap`.
 - **MainActivity** wyświetla wynik w `ImageView` wypełniającym cały ekran.
 
+### Automatyczne wersjonowanie na głównej gałęzi
+
+Dla commitów pushowanych do gałęzi `main` działa workflow GitHub Actions, który:
+1. uruchamia `./bump_version.sh patch`,
+2. aktualizuje `android/build.gradle.kts` (`app_version_name` i `app_version_code`),
+3. wykonuje commit techniczny z podbitym numerem wersji.
+
 ---
 
 ## Wymagania systemowe
@@ -222,6 +229,19 @@ print(f"Etykieta: {label}, pewność: {confidence:.2%}, april tags: {len(april_t
 ```
 
 Więcej przykładów: [`notebooks/example_analysis.ipynb`](notebooks/example_analysis.ipynb).
+
+### Wersja aplikacji w CLI
+
+Aktualną wersję aplikacji MobileCV (Android `versionName` + `versionCode`) oraz wersję pakietu
+Python można wypisać z linii poleceń:
+
+```bash
+mobilecv-version version
+```
+
+Wynik zawiera dwie linie:
+- `MobileCV Android version: ...`
+- `image-analysis package version: ...`
 
 ---
 

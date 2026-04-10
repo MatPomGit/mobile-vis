@@ -6,6 +6,8 @@
     <string name="app_name">MobileCV</string>
     <string name="app_version_format">Wersja %s</string>
     <string name="camera_permission_denied">Uprawnienie do kamery jest wymagane. Aplikacja zostanie zamknięta.</string>
+    <string name="audio_permission_denied_warning">Brak uprawnienia do mikrofonu: nagrywanie będzie bez dźwięku.</string>
+    <string name="storage_permission_denied_warning">Brak uprawnienia do zapisu: część eksportów może być niedostępna.</string>
     <string name="opencv_init_error">Błąd inicjalizacji OpenCV. Niektóre filtry mogą nie działać.</string>
     <string name="camera_preview_description">Podgląd kamery z nałożonym filtrem OpenCV</string>
     <string name="switch_camera_description">Przełącz kamerę przednią / tylną</string>

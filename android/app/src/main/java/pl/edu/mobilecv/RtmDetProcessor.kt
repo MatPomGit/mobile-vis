@@ -27,6 +27,7 @@ import org.pytorch.IValue
 import org.pytorch.LiteModuleLoader
 import org.pytorch.Module
 import org.pytorch.Tensor
+import java.io.File
 import kotlin.math.cos
 import kotlin.math.sin
 
@@ -209,6 +210,11 @@ class RtmDetProcessor(private val context: Context) {
 
         val output = net.forward(IValue.from(inputTensor))
         val (detsTensor, labelsTensor) = parseOutput(output)
+        validateOutputWithManifest(
+            modelName = MODEL_DETECT,
+            detsTensor = detsTensor,
+            labelsTensor = labelsTensor,
+        )
 
         val result = ensureArgb8888(bitmap)
         val canvas = Canvas(result)
@@ -280,6 +286,11 @@ class RtmDetProcessor(private val context: Context) {
 
         val output = net.forward(IValue.from(inputTensor))
         val (detsTensor, labelsTensor) = parseOutput(output)
+        validateOutputWithManifest(
+            modelName = MODEL_ROTATED,
+            detsTensor = detsTensor,
+            labelsTensor = labelsTensor,
+        )
 
         val result = ensureArgb8888(bitmap)
         val canvas = Canvas(result)
@@ -450,6 +461,49 @@ class RtmDetProcessor(private val context: Context) {
         } catch (e: Exception) {
             Log.e(TAG, "Failed to parse model output", e)
             Pair(null, null)
+        }
+    }
+
+    private fun validateOutputWithManifest(
+        modelName: String,
+        detsTensor: Tensor?,
+        labelsTensor: Tensor?,
+    ) {
+        val manifestFile = File(context.filesDir, "rtmdet/manifest.json")
+        if (!manifestFile.exists()) {
+            return
+        }
+        val entry = MobileModelManifest.findByModelName(
+            MobileModelManifest.loadFromFile(manifestFile),
+            modelName,
+        ) ?: return
+        val outputTensors = entry.postprocess.optJSONArray("output_tensors") ?: return
+
+        for (idx in 0 until outputTensors.length()) {
+            val outputSpec = outputTensors.optJSONObject(idx) ?: continue
+            val name = outputSpec.optString("name")
+            val rank = outputSpec.optInt("rank", -1)
+            val lastDim = outputSpec.optInt("last_dim", -1)
+
+            val tensor = when (name) {
+                "dets" -> detsTensor
+                "labels" -> labelsTensor
+                else -> null
+            }
+            if (tensor == null) {
+                throw IllegalStateException("Missing output tensor '$name' for $modelName")
+            }
+            val shape = tensor.shape()
+            if (rank > 0 && shape.size != rank) {
+                throw IllegalStateException(
+                    "Invalid rank for tensor '$name' in $modelName: expected=$rank actual=${shape.size}",
+                )
+            }
+            if (lastDim > 0 && shape.last().toInt() != lastDim) {
+                throw IllegalStateException(
+                    "Invalid last dim for tensor '$name' in $modelName: expected=$lastDim actual=${shape.last()}",
+                )
+            }
         }
     }
 

@@ -129,6 +129,9 @@ object ModelDownloadManager {
     const val MODEL_TFLITE_DETECT = TfliteProcessor.MODEL_SSD_MOBILENET
 
     private const val TFLITE_DIR = "tflite"
+    private const val MANIFEST_FILENAME = "manifest.json"
+    private const val RELEASE_MANIFEST_URL =
+        "https://github.com/MatPomGit/mobile-vis/releases/download/models/manifest.json"
 
     private val httpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
@@ -213,7 +216,13 @@ object ModelDownloadManager {
      * @return ``true`` on success.
      */
     fun downloadYoloModel(context: Context, filename: String, url: String): Boolean =
-        downloadModel(context, filename, url, yoloModelFile(context, filename))
+        downloadModel(
+            context = context,
+            filename = filename,
+            url = url,
+            dest = yoloModelFile(context, filename),
+            manifestFile = yoloManifestFile(context),
+        )
 
     /**
      * Download a single RTMDet model file from [url] to the RTMDet directory.
@@ -224,10 +233,22 @@ object ModelDownloadManager {
      * @return ``true`` on success.
      */
     fun downloadRtmDetModel(context: Context, filename: String, url: String): Boolean =
-        downloadModel(context, filename, url, rtmdetModelFile(context, filename))
+        downloadModel(
+            context = context,
+            filename = filename,
+            url = url,
+            dest = rtmdetModelFile(context, filename),
+            manifestFile = rtmdetManifestFile(context),
+        )
 
     fun downloadTfliteModel(context: Context, filename: String, url: String): Boolean =
-        downloadModel(context, filename, url, tfliteModelFile(context, filename))
+        downloadModel(
+            context = context,
+            filename = filename,
+            url = url,
+            dest = tfliteModelFile(context, filename),
+            manifestFile = tfliteManifestFile(context),
+        )
 
     /**
      * Download a single model file from [url] to [dest].
@@ -246,7 +267,13 @@ object ModelDownloadManager {
         return downloadModel(context, modelName, url, mobilintModelFile(context, modelName))
     }
 
-    private fun downloadModel(context: Context, filename: String, url: String, dest: File): Boolean {
+    private fun downloadModel(
+        context: Context,
+        filename: String,
+        url: String,
+        dest: File,
+        manifestFile: File? = null,
+    ): Boolean {
         dest.parentFile?.mkdirs()
 
         Log.i(TAG, "Downloading $filename from $url")
@@ -282,7 +309,17 @@ object ModelDownloadManager {
                 }
             }
 
-            if (attemptSucceeded) return true
+            if (attemptSucceeded) {
+                if (manifestFile != null) {
+                    val manifestValid = validateArtifactAgainstManifest(filename, dest, manifestFile)
+                    if (!manifestValid) {
+                        dest.delete()
+                        Log.e(TAG, "Manifest validation failed for $filename")
+                        return false
+                    }
+                }
+                return true
+            }
 
             if (attempt < MAX_DOWNLOAD_RETRIES) {
                 Log.i(TAG, "Retrying $filename in ${delay}ms")
@@ -352,6 +389,10 @@ object ModelDownloadManager {
         context: Context,
         onProgress: ((downloaded: Int, total: Int) -> Unit)? = null,
     ): Boolean {
+        if (!ensureManifestDownloaded(context, yoloManifestFile(context))) {
+            Log.e(TAG, "Failed to download YOLO manifest")
+            return false
+        }
         val missing = YOLO_MODEL_URLS.filter { (filename, _) ->
             getYoloModelPath(context, filename) == null
         }
@@ -362,7 +403,13 @@ object ModelDownloadManager {
 
         for ((filename, url) in missing) {
             val dest = yoloModelFile(context, filename)
-            val success = downloadModel(context, filename, url, dest)
+            val success = downloadModel(
+                context = context,
+                filename = filename,
+                url = url,
+                dest = dest,
+                manifestFile = yoloManifestFile(context),
+            )
 
             if (success) {
                 downloaded++
@@ -423,6 +470,10 @@ object ModelDownloadManager {
         context: Context,
         onProgress: ((downloaded: Int, total: Int) -> Unit)? = null,
     ): Boolean {
+        if (!ensureManifestDownloaded(context, rtmdetManifestFile(context))) {
+            Log.e(TAG, "Failed to download RTMDet manifest")
+            return false
+        }
         val missing = RTMDET_MODEL_URLS.filter { (filename, _) ->
             getRtmDetModelPath(context, filename) == null
         }
@@ -433,7 +484,13 @@ object ModelDownloadManager {
 
         for ((filename, url) in missing) {
             val dest = rtmdetModelFile(context, filename)
-            val success = downloadModel(context, filename, url, dest)
+            val success = downloadModel(
+                context = context,
+                filename = filename,
+                url = url,
+                dest = dest,
+                manifestFile = rtmdetManifestFile(context),
+            )
             if (success) {
                 downloaded++
                 onProgress?.invoke(downloaded, total)
@@ -507,6 +564,10 @@ object ModelDownloadManager {
         context: Context,
         onProgress: ((downloaded: Int, total: Int) -> Unit)? = null
     ): Boolean {
+        if (!ensureManifestDownloaded(context, tfliteManifestFile(context))) {
+            Log.e(TAG, "Failed to download TFLite manifest")
+            return false
+        }
         val missing = TFLITE_MODEL_URLS.filter { (filename, _) ->
             getTfliteModelPath(context, filename) == null
         }
@@ -517,7 +578,13 @@ object ModelDownloadManager {
 
         for ((filename, url) in missing) {
             val dest = tfliteModelFile(context, filename)
-            val success = downloadModel(context, filename, url, dest)
+            val success = downloadModel(
+                context = context,
+                filename = filename,
+                url = url,
+                dest = dest,
+                manifestFile = tfliteManifestFile(context),
+            )
             if (success) {
                 downloaded++
                 onProgress?.invoke(downloaded, total)
@@ -568,4 +635,48 @@ object ModelDownloadManager {
 
     private fun tfliteModelFile(context: Context, filename: String): File =
         File(tfliteDir(context), filename)
+
+    private fun yoloManifestFile(context: Context): File =
+        File(yoloDir(context), MANIFEST_FILENAME)
+
+    private fun rtmdetManifestFile(context: Context): File =
+        File(rtmdetDir(context), MANIFEST_FILENAME)
+
+    private fun tfliteManifestFile(context: Context): File =
+        File(tfliteDir(context), MANIFEST_FILENAME)
+
+    private fun ensureManifestDownloaded(context: Context, manifestFile: File): Boolean {
+        if (manifestFile.exists() && manifestFile.length() > 0) {
+            return true
+        }
+        return downloadModel(
+            context = context,
+            filename = MANIFEST_FILENAME,
+            url = RELEASE_MANIFEST_URL,
+            dest = manifestFile,
+            manifestFile = null,
+        )
+    }
+
+    private fun validateArtifactAgainstManifest(
+        filename: String,
+        artifactFile: File,
+        manifestFile: File,
+    ): Boolean {
+        val manifest = MobileModelManifest.loadFromFile(manifestFile)
+        val entry = MobileModelManifest.findByModelName(manifest, filename)
+        if (entry == null) {
+            Log.e(TAG, "Manifest entry missing for $filename")
+            return false
+        }
+        if (!MobileModelManifest.isEntryCompatible(entry, artifactFile)) {
+            return false
+        }
+        val actualSha = MobileModelManifest.computeSha256(artifactFile)
+        if (actualSha != entry.sha256) {
+            Log.e(TAG, "SHA256 mismatch for $filename: expected=${entry.sha256} actual=$actualSha")
+            return false
+        }
+        return true
+    }
 }

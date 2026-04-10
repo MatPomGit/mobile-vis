@@ -99,12 +99,41 @@ class MainActivity : AppCompatActivity() {
     private val permissionsLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) { results ->
-        if (results[Manifest.permission.CAMERA] == true) {
-            cameraController.startCamera()
-        } else {
+        val cameraGranted = results[Manifest.permission.CAMERA] == true ||
+            ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
+            PackageManager.PERMISSION_GRANTED
+        if (!cameraGranted) {
             Toast.makeText(this, getString(R.string.camera_permission_denied), Toast.LENGTH_LONG).show()
             finish()
+            return@registerForActivityResult
         }
+
+        // Audio permission is optional for analysis itself, but needed for video recording with sound.
+        val audioGranted = results[Manifest.permission.RECORD_AUDIO] == true ||
+            ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
+            PackageManager.PERMISSION_GRANTED
+        if (!audioGranted) {
+            Toast.makeText(
+                this,
+                getString(R.string.audio_permission_denied_warning),
+                Toast.LENGTH_LONG,
+            ).show()
+        }
+
+        val storagePermission = Manifest.permission.WRITE_EXTERNAL_STORAGE
+        val storageRequired = Build.VERSION.SDK_INT <= Build.VERSION_CODES.P
+        val storageGranted = !storageRequired || results[storagePermission] == true ||
+            ContextCompat.checkSelfPermission(this, storagePermission) ==
+            PackageManager.PERMISSION_GRANTED
+        if (!storageGranted) {
+            Toast.makeText(
+                this,
+                getString(R.string.storage_permission_denied_warning),
+                Toast.LENGTH_LONG,
+            ).show()
+        }
+
+        cameraController.startCamera()
     }
 
     private val filePickerSlam = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -139,7 +168,7 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         enableImmersiveFullscreen()
-        if (requiredPermissions().all {
+        if (requestedPermissions().all {
                 ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
             }
         ) {
@@ -421,17 +450,18 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun requestPermissionsOrStart() {
-        if (requiredPermissions().all {
+        if (requestedPermissions().all {
                 ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
             }
         ) {
             cameraController.startCamera()
         } else {
-            permissionsLauncher.launch(requiredPermissions())
+            permissionsLauncher.launch(requestedPermissions())
         }
     }
 
-    private fun requiredPermissions(): Array<String> = arrayOf(
+    // Lista uprawnień, o które aplikacja aktywnie prosi użytkownika podczas startu.
+    private fun requestedPermissions(): Array<String> = arrayOf(
         Manifest.permission.CAMERA,
         Manifest.permission.RECORD_AUDIO,
     ) + if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {

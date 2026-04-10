@@ -46,62 +46,40 @@ Warstwa Python pokrywa typowy przepływ pracy obejmujący:
 - klasyfikację (classification),
 - narzędzia pomocnicze (utils).
 
-Projekty oparte na tym szablonie używają polskojęzycznych opisów (README, dokumentacja, komentarze
-do zadań), natomiast cały kod źródłowy, nazwy funkcji, zmiennych i docstringi pisane są **po
-angielsku**, co ułatwia współpracę z narzędziami AI i społecznością open-source.
+Repozytorium zawiera też rozszerzone moduły do hologramów, iris/holistic, QR, AprilTagów,
+benchmarkingu, robot perception, RTMDet i YOLO oraz odpowiadające im testy. Artefakty budowania,
+lokalne dane i pliki tymczasowe nie powinny być commitowane.
 
 ---
 
 ## Struktura repozytorium
 
+```text
+mobile-vis/
+├── .github/                  # Workflow CI, szablony issue/PR, instrukcje Copilota
+├── android/                  # Aplikacja Android MobileCV
+├── benchmarks/               # Baseline i wyniki benchmarków
+├── data/                     # Katalogi na dane wejściowe i przetworzone (ignorowane)
+├── docs/                     # Dokumentacja projektu
+├── models/                   # Modele lokalne i przykładowe wagi
+├── notebooks/                # Notatniki Jupyter
+├── scripts/                  # Skrypty smoke/perf i narzędzia pomocnicze
+├── src/image_analysis/       # Biblioteka Python z modułami CV
+├── tests/                    # Testy jednostkowe i integracyjne modułów Python
+├── AGENTS.md                 # Instrukcje dla agentów Codex / OpenAI
+├── CLAUDE.md                 # Instrukcje dla agenta Claude
+├── pyproject.toml            # Konfiguracja pakietu i narzędzi jakości
+└── README.md
 ```
-repo-template/
-├── .github/
-│   ├── copilot-instructions.md   # Instrukcje dla GitHub Copilot
-│   ├── PULL_REQUEST_TEMPLATE.md  # Szablon opisu Pull Request
-│   └── ISSUE_TEMPLATE/
-│       ├── bug_report.md         # Szablon zgłoszenia błędu
-│       └── feature_request.md    # Szablon prośby o funkcjonalność
-├── src/
-│   └── image_analysis/
-│       ├── __init__.py           # Eksporty publicznego API modułu
-│       ├── preprocessing.py      # Wstępne przetwarzanie obrazów
-│       ├── detection.py          # Wykrywanie obiektów
-│       ├── classification.py     # Klasyfikacja obrazów
-│       └── utils.py              # Funkcje pomocnicze
-├── tests/
-│   ├── __init__.py
-│   ├── test_preprocessing.py
-│   ├── test_detection.py
-│   └── test_classification.py
-├── notebooks/
-│   └── example_analysis.ipynb   # Przykładowy notatnik Jupyter
-├── data/
-│   ├── raw/                      # Surowe dane wejściowe (ignorowane przez git)
-│   └── processed/                # Przetworzone dane (ignorowane przez git)
-├── models/                       # Wytrenowane modele (ignorowane przez git)
-├── docs/
-│   └── index.md                  # Dokumentacja projektu
-├── AGENTS.md                     # Instrukcje dla agentów Codex / OpenAI
-├── CLAUDE.md                     # Instrukcje dla agenta Claude
-├── pyproject.toml                # Konfiguracja projektu i narzędzi
-├── requirements.txt              # Zależności projektu
-├── android/                      # Aplikacja mobilna Android (MobileCV)
-│   ├── app/
-│   │   └── src/main/
-│   │       ├── AndroidManifest.xml
-│   │       ├── java/pl/edu/mobilecv/
-│   │       │   ├── MainActivity.kt      # Główna aktywność (kamera + filtry)
-│   │       │   ├── OpenCvFilter.kt      # Enum dostępnych filtrów OpenCV
-│   │       │   └── ImageProcessor.kt   # Logika przetwarzania klatek
-│   │       └── res/
-│   │           ├── layout/activity_main.xml
-│   │           └── values/ (strings, colors, themes)
-│   ├── build.gradle.kts
-│   ├── settings.gradle.kts
-│   └── gradle/libs.versions.toml
-└── .gitignore
-```
+
+Najważniejsze moduły w `src/image_analysis/`:
+
+- `preprocessing.py` – wczytywanie, zmiana rozmiaru i normalizacja obrazów,
+- `detection.py`, `yolo.py`, `rtmdet.py` – detekcja obiektów i eksport modeli,
+- `april_tags.py`, `qr_detection.py`, `cctag.py` – detekcja markerów i kodów,
+- `holistic.py`, `hologram.py`, `iris.py` – moduły MediaPipe i efekty wizualne,
+- `benchmarking.py`, `robot_perception.py`, `planes.py`, `calibration.py` – pomiary, VO i geometria,
+- `utils.py` – walidacja, logowanie i operacje pomocnicze.
 
 ---
 

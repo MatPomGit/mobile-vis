@@ -393,4 +393,20 @@
     <string name="tutorial_stage8_emoji">🤖</string>
     <string name="tutorial_stage8_title">Sterowanie robotem na podstawie odometrii</string>
     <string name="tutorial_stage8_desc">Zgromadzona trajektoria kamery T[n] dostarcza robotowi szacunkowej pozycji i orientacji w czasie rzeczywistym – bez konieczności stosowania GPS ani enkoderów kół.\n\nTyp danych wysyłanych do robota:\n• Pozycja: wektor translacji t_world = [X, Y, Z] – aktualne współrzędne w układzie świata.\n• Orientacja: macierz rotacji R lub kąty Eulera (roll, pitch, yaw).\n• Prędkość liniowa i kątowa: obliczona jako różnica między kolejnymi pozami T[n] i T[n-1] podzielona przez czas klatki Δt.\n\nAplikacja MobileCV przesyła te dane do zewnętrznych systemów sterowania (np. przez sieć). Robot, znając aktualną pozę kamery, może:\n1. Planować trasę w zbudowanej mapie 3D.\n2. Unikać przeszkód widocznych w chmurze punktów.\n3. Powracać do punktu startowego (wykrywając pętle zamknięte).\n4. Utrzymywać zadany dystans od śledzonych obiektów.\n\nUwaga: odometria monokularna dostarcza pozycji tylko do skali – robot musi znać skalę bezwzględną (np. z rozmiaru znacznika ArUco) lub korzystać z dodatkowych sensorów (IMU, głębokościowy) do kalibracji skali.</string>
+
+    <!-- Module status store / diagnostics -->
+    <string name="module_error_mediapipe">MediaPipe: błąd inicjalizacji modułu.</string>
+    <string name="module_error_yolo">YOLO: błąd inicjalizacji modułu.</string>
+    <string name="module_error_rtmdet">RTMDET: błąd inicjalizacji modułu.</string>
+    <string name="module_error_tflite">TFLITE: błąd inicjalizacji modułu.</string>
+    <string name="module_action_retry">Pobierz ponownie</string>
+    <string name="module_action_disable">Wyłącz moduł</string>
+    <string name="module_status_template">%1$s • status: %2$s</string>
+    <string name="module_status_not_applicable">Moduł: n/d dla bieżącego trybu</string>
+    <string name="modules_dashboard_title">Status modułów</string>
+    <string name="modules_dashboard_description">Centralny status modułów uruchamianych niezależnie.</string>
+    <string name="modules_open_diagnostics">Otwórz ekran „Stan modułów”</string>
+    <string name="modules_diagnostics_title">Stan modułów</string>
+    <string name="modules_diagnostics_row">%1$s • %2$s • ostatnia próba: %3$s</string>
+    <string name="modules_diagnostics_no_attempt">brak</string>
 </resources>

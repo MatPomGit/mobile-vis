@@ -18,6 +18,11 @@ class ModuleLifecycleManager(
     private val backgroundExecutor: ExecutorService,
     private val callbacks: Callbacks,
 ) {
+    enum class RepairAction {
+        RETRY_DOWNLOAD,
+        DISABLE_MODULE,
+    }
+
     interface Callbacks {
         /** Logowanie błędu telemetrycznego po stronie hosta. */
         fun onTelemetry(scope: String, category: String, error: Throwable)
@@ -38,23 +43,31 @@ class ModuleLifecycleManager(
     private val tfliteDownloadInProgress = AtomicBoolean(false)
 
     fun initializeModules() {
-        backgroundExecutor.execute {
+        initializeModuleAsync(ModuleStatusStore.ModuleType.MEDIAPIPE) {
             initialize("startup_module_init", "mediapipe") {
                 mediaPipeProcessor.initialize()
                 imageProcessor.mediaPipeProcessor = mediaPipeProcessor
             }
+        }
+        initializeModuleAsync(ModuleStatusStore.ModuleType.YOLO) {
             initialize("startup_module_init", "yolo") {
                 yoloProcessor.initialize()
                 imageProcessor.yoloProcessor = yoloProcessor
             }
+        }
+        initializeModuleAsync(ModuleStatusStore.ModuleType.RTMDET) {
             initialize("startup_module_init", "rtmdet") {
                 rtmDetProcessor.initialize()
                 imageProcessor.rtmDetProcessor = rtmDetProcessor
             }
+        }
+        initializeModuleAsync(ModuleStatusStore.ModuleType.TFLITE) {
             initialize("startup_module_init", "tflite") {
                 tfliteProcessor.initialize()
                 imageProcessor.tfliteProcessor = tfliteProcessor
             }
+        }
+        backgroundExecutor.execute {
             ensureStartupDownloads()
         }
     }
@@ -90,6 +103,22 @@ class ModuleLifecycleManager(
         }
     }
 
+    /** Obsługuje akcję naprawczą z UI dla wskazanego modułu. */
+    fun applyRepairAction(moduleType: ModuleStatusStore.ModuleType, action: RepairAction) {
+        when (action) {
+            RepairAction.RETRY_DOWNLOAD -> when (moduleType) {
+                ModuleStatusStore.ModuleType.MEDIAPIPE -> startMediaPipeModelDownload()
+                ModuleStatusStore.ModuleType.YOLO -> startYoloModelDownload()
+                ModuleStatusStore.ModuleType.RTMDET -> startRtmDetModelDownload()
+                ModuleStatusStore.ModuleType.TFLITE -> startTfliteModelDownload()
+            }
+            RepairAction.DISABLE_MODULE -> {
+                disableModule(moduleType)
+                ModuleStatusStore.setStatus(moduleType, ModuleStatusStore.ModuleStatus.DISABLED)
+            }
+        }
+    }
+
     private fun ensureStartupDownloads() {
         if (!ModelDownloadManager.areYoloModelsReady(context)) {
             startYoloModelDownload()
@@ -102,6 +131,7 @@ class ModuleLifecycleManager(
     private fun startMediaPipeModelDownload() {
         if (mediaPipeDownloadInProgress) return
         mediaPipeDownloadInProgress = true
+        ModuleStatusStore.setStatus(ModuleStatusStore.ModuleType.MEDIAPIPE, ModuleStatusStore.ModuleStatus.DOWNLOADING)
         callbacks.showToast(R.string.mediapipe_models_downloading, longDuration = true)
         backgroundExecutor.execute {
             try {
@@ -109,8 +139,22 @@ class ModuleLifecycleManager(
                     mediaPipeProcessor.close()
                     mediaPipeProcessor.initialize()
                     imageProcessor.mediaPipeProcessor = mediaPipeProcessor
+                    ModuleStatusStore.setStatus(ModuleStatusStore.ModuleType.MEDIAPIPE, ModuleStatusStore.ModuleStatus.READY)
                     callbacks.showToast(R.string.mediapipe_models_ready)
+                } else {
+                    ModuleStatusStore.setStatus(
+                        ModuleStatusStore.ModuleType.MEDIAPIPE,
+                        ModuleStatusStore.ModuleStatus.ERROR,
+                        R.string.module_error_mediapipe,
+                    )
                 }
+            } catch (error: Exception) {
+                callbacks.onTelemetry("mediapipe_download", "unexpected", error)
+                ModuleStatusStore.setStatus(
+                    ModuleStatusStore.ModuleType.MEDIAPIPE,
+                    ModuleStatusStore.ModuleStatus.ERROR,
+                    R.string.module_error_mediapipe,
+                )
             } finally {
                 mediaPipeDownloadInProgress = false
             }
@@ -119,6 +163,7 @@ class ModuleLifecycleManager(
 
     private fun startYoloModelDownload() {
         if (!yoloDownloadInProgress.compareAndSet(false, true)) return
+        ModuleStatusStore.setStatus(ModuleStatusStore.ModuleType.YOLO, ModuleStatusStore.ModuleStatus.DOWNLOADING)
         callbacks.showToast(R.string.yolo_models_downloading, longDuration = true)
         backgroundExecutor.execute {
             try {
@@ -127,13 +172,24 @@ class ModuleLifecycleManager(
                     yoloProcessor.close()
                     yoloProcessor.initialize()
                     imageProcessor.yoloProcessor = yoloProcessor
+                    ModuleStatusStore.setStatus(ModuleStatusStore.ModuleType.YOLO, ModuleStatusStore.ModuleStatus.READY)
                     callbacks.showToast(R.string.yolo_models_ready)
                 } else {
+                    ModuleStatusStore.setStatus(
+                        ModuleStatusStore.ModuleType.YOLO,
+                        ModuleStatusStore.ModuleStatus.ERROR,
+                        R.string.module_error_yolo,
+                    )
                     callbacks.showToast(R.string.yolo_models_download_failed, longDuration = true)
                 }
             } catch (error: Exception) {
                 callbacks.onTelemetry("yolo_download", "unexpected", error)
                 Log.e(TAG, "YOLO model download failed", error)
+                ModuleStatusStore.setStatus(
+                    ModuleStatusStore.ModuleType.YOLO,
+                    ModuleStatusStore.ModuleStatus.ERROR,
+                    R.string.module_error_yolo,
+                )
                 callbacks.showToast(R.string.yolo_models_download_failed, longDuration = true)
             } finally {
                 yoloDownloadInProgress.set(false)
@@ -143,6 +199,7 @@ class ModuleLifecycleManager(
 
     private fun startRtmDetModelDownload() {
         if (!rtmDetDownloadInProgress.compareAndSet(false, true)) return
+        ModuleStatusStore.setStatus(ModuleStatusStore.ModuleType.RTMDET, ModuleStatusStore.ModuleStatus.DOWNLOADING)
         callbacks.showToast(R.string.rtmdet_models_downloading, longDuration = true)
         backgroundExecutor.execute {
             try {
@@ -151,13 +208,24 @@ class ModuleLifecycleManager(
                     rtmDetProcessor.close()
                     rtmDetProcessor.initialize()
                     imageProcessor.rtmDetProcessor = rtmDetProcessor
+                    ModuleStatusStore.setStatus(ModuleStatusStore.ModuleType.RTMDET, ModuleStatusStore.ModuleStatus.READY)
                     callbacks.showToast(R.string.rtmdet_models_ready)
                 } else {
+                    ModuleStatusStore.setStatus(
+                        ModuleStatusStore.ModuleType.RTMDET,
+                        ModuleStatusStore.ModuleStatus.ERROR,
+                        R.string.module_error_rtmdet,
+                    )
                     callbacks.showToast(R.string.rtmdet_models_download_failed, longDuration = true)
                 }
             } catch (error: Exception) {
                 callbacks.onTelemetry("rtmdet_download", "unexpected", error)
                 Log.e(TAG, "RTMDet model download failed", error)
+                ModuleStatusStore.setStatus(
+                    ModuleStatusStore.ModuleType.RTMDET,
+                    ModuleStatusStore.ModuleStatus.ERROR,
+                    R.string.module_error_rtmdet,
+                )
                 callbacks.showToast(R.string.rtmdet_models_download_failed, longDuration = true)
             } finally {
                 rtmDetDownloadInProgress.set(false)
@@ -187,6 +255,7 @@ class ModuleLifecycleManager(
 
     private fun startTfliteModelDownload() {
         if (!tfliteDownloadInProgress.compareAndSet(false, true)) return
+        ModuleStatusStore.setStatus(ModuleStatusStore.ModuleType.TFLITE, ModuleStatusStore.ModuleStatus.DOWNLOADING)
         callbacks.showToast(R.string.tflite_models_downloading, longDuration = true)
         backgroundExecutor.execute {
             try {
@@ -194,16 +263,71 @@ class ModuleLifecycleManager(
                     tfliteProcessor.close()
                     tfliteProcessor.initialize()
                     imageProcessor.tfliteProcessor = tfliteProcessor
+                    ModuleStatusStore.setStatus(ModuleStatusStore.ModuleType.TFLITE, ModuleStatusStore.ModuleStatus.READY)
                     callbacks.showToast(R.string.tflite_models_ready)
                 } else {
+                    ModuleStatusStore.setStatus(
+                        ModuleStatusStore.ModuleType.TFLITE,
+                        ModuleStatusStore.ModuleStatus.ERROR,
+                        R.string.module_error_tflite,
+                    )
                     callbacks.showToast(R.string.tflite_models_download_failed, longDuration = true)
                 }
             } catch (error: Exception) {
                 callbacks.onTelemetry("tflite_download", "unexpected", error)
                 Log.e(TAG, "TFLite model download failed", error)
+                ModuleStatusStore.setStatus(
+                    ModuleStatusStore.ModuleType.TFLITE,
+                    ModuleStatusStore.ModuleStatus.ERROR,
+                    R.string.module_error_tflite,
+                )
                 callbacks.showToast(R.string.tflite_models_download_failed, longDuration = true)
             } finally {
                 tfliteDownloadInProgress.set(false)
+            }
+        }
+    }
+
+    private fun initializeModuleAsync(moduleType: ModuleStatusStore.ModuleType, block: () -> Unit) {
+        backgroundExecutor.execute {
+            ModuleStatusStore.setStatus(moduleType, ModuleStatusStore.ModuleStatus.DOWNLOADING)
+            try {
+                block()
+                ModuleStatusStore.setStatus(moduleType, ModuleStatusStore.ModuleStatus.READY)
+            } catch (error: Throwable) {
+                val errorMessageResId = when (moduleType) {
+                    ModuleStatusStore.ModuleType.MEDIAPIPE -> R.string.module_error_mediapipe
+                    ModuleStatusStore.ModuleType.YOLO -> R.string.module_error_yolo
+                    ModuleStatusStore.ModuleType.RTMDET -> R.string.module_error_rtmdet
+                    ModuleStatusStore.ModuleType.TFLITE -> R.string.module_error_tflite
+                }
+                ModuleStatusStore.setStatus(
+                    moduleType = moduleType,
+                    status = ModuleStatusStore.ModuleStatus.ERROR,
+                    errorMessageResId = errorMessageResId,
+                )
+                throw error
+            }
+        }
+    }
+
+    private fun disableModule(moduleType: ModuleStatusStore.ModuleType) {
+        when (moduleType) {
+            ModuleStatusStore.ModuleType.MEDIAPIPE -> {
+                mediaPipeProcessor.close()
+                imageProcessor.mediaPipeProcessor = null
+            }
+            ModuleStatusStore.ModuleType.YOLO -> {
+                yoloProcessor.close()
+                imageProcessor.yoloProcessor = null
+            }
+            ModuleStatusStore.ModuleType.RTMDET -> {
+                rtmDetProcessor.close()
+                imageProcessor.rtmDetProcessor = null
+            }
+            ModuleStatusStore.ModuleType.TFLITE -> {
+                tfliteProcessor.close()
+                imageProcessor.tfliteProcessor = null
             }
         }
     }

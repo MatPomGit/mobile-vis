@@ -19,6 +19,7 @@ import org.pytorch.LiteModuleLoader
 import org.pytorch.Module
 import org.pytorch.Tensor
 import pl.edu.mobilecv.util.BBoxKalmanFilter
+import java.io.File
 import java.util.Locale
 import kotlin.math.exp
 import androidx.core.graphics.withRotation
@@ -175,6 +176,7 @@ class YoloProcessor(private val context: Context) {
         val outputTensor = runForward(net, inputTensor)
         val outputData = outputTensor.dataAsFloatArray
         val shape = outputTensor.shape()
+        validateOutputWithManifest(MODEL_DETECT, shape)
         val numBoxes = shape[2].toInt()
         val numAttribs = shape[1].toInt()
 
@@ -297,6 +299,7 @@ class YoloProcessor(private val context: Context) {
         val outputTensor = runForward(net, inputTensor)
         val outputData = outputTensor.dataAsFloatArray
         val shape = outputTensor.shape()
+        validateOutputWithManifest(MODEL_SEGMENT, shape)
         val numBoxes = shape[2].toInt()
         val numAttribs = shape[1].toInt()
 
@@ -328,6 +331,7 @@ class YoloProcessor(private val context: Context) {
         val outputTensor = runForward(net, inputTensor)
         val outputData = outputTensor.dataAsFloatArray
         val shape = outputTensor.shape()
+        validateOutputWithManifest(MODEL_POSE, shape)
         val numBoxes = shape[2].toInt()
 
         val result = ensureArgb8888(bitmap)
@@ -378,6 +382,7 @@ class YoloProcessor(private val context: Context) {
         val net = netClassify ?: return drawModelMissing(bitmap, MODEL_CLASSIFY)
         val (inputTensor, _, _) = bitmapToInputTensor(bitmap, CLS_INPUT_SIZE)
         val outputTensor = runForward(net, inputTensor)
+        validateOutputWithManifest(MODEL_CLASSIFY, outputTensor.shape())
         val outputData = outputTensor.dataAsFloatArray
         val scores = outputData.map { exp(it) }
         val sum = scores.sum()
@@ -399,6 +404,7 @@ class YoloProcessor(private val context: Context) {
         val outputTensor = runForward(net, inputTensor)
         val outputData = outputTensor.dataAsFloatArray
         val shape = outputTensor.shape()
+        validateOutputWithManifest(MODEL_OBB, shape)
         val numBoxes = shape[2].toInt()
         shape[1].toInt()
 
@@ -448,6 +454,38 @@ class YoloProcessor(private val context: Context) {
     }
 
     private fun runForward(net: Module, input: Tensor): Tensor = net.forward(IValue.from(input)).toTensor()
+
+    private fun validateOutputWithManifest(modelName: String, outputShape: LongArray) {
+        val manifestFile = File(context.filesDir, "yolo/manifest.json")
+        if (!manifestFile.exists()) {
+            return
+        }
+        val entry = MobileModelManifest.findByModelName(
+            MobileModelManifest.loadFromFile(manifestFile),
+            modelName,
+        ) ?: return
+        val postprocess = entry.postprocess
+        val expectedRank = postprocess.optInt("output_rank", -1)
+        if (expectedRank > 0 && outputShape.size != expectedRank) {
+            throw IllegalStateException(
+                "Invalid output rank for $modelName: expected=$expectedRank actual=${outputShape.size}",
+            )
+        }
+
+        val exactLastDim = postprocess.optInt("exact_last_dim", -1)
+        if (exactLastDim > 0 && outputShape.last().toInt() != exactLastDim) {
+            throw IllegalStateException(
+                "Invalid output last dim for $modelName: expected=$exactLastDim actual=${outputShape.last()}",
+            )
+        }
+
+        val minLastDim = postprocess.optInt("min_last_dim", -1)
+        if (minLastDim > 0 && outputShape.last().toInt() < minLastDim) {
+            throw IllegalStateException(
+                "Output last dim too small for $modelName: min=$minLastDim actual=${outputShape.last()}",
+            )
+        }
+    }
 
     private fun bitmapToInputTensor(bitmap: Bitmap, size: Int): Triple<Tensor, Double, Double> {
         val argb = if (bitmap.config == Bitmap.Config.ARGB_8888) bitmap else bitmap.copy(Bitmap.Config.ARGB_8888, false)

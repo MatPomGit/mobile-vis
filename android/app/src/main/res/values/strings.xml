@@ -229,6 +229,7 @@
     <string name="mode_desc_rtmdet">Detekcja obiektów z ramkami prostopadłymi i zorientowanymi z użyciem RTMDet-nano (OpenMMLab)</string>
     <string name="mode_desc_mobilint">Akceleracja sprzętowa NPU przy użyciu układów Mobilint Ares do detekcji obiektów w czasie rzeczywistym</string>
     <string name="mode_desc_tflite">Standardowa detekcja obiektów przy użyciu silnika TensorFlow Lite i modelu SSD MobileNet V2</string>
+    <string name="mode_desc_tracking">Stabilizowane śledzenie obiektów z użyciem filtru Kalmana dla detekcji YOLO</string>
 
     <!-- About tab – filter descriptions (FULL_ODOMETRY_3D mode) -->
     <string name="filter_desc_full_odometry">Pełna odometria 3D: estymuje pozę kamery metodą macierzy zasadniczej, akumuluje trajektorię i wyświetla HUD ze statystykami ruchu.</string>
@@ -304,6 +305,7 @@
     <!-- Point cloud viewer -->
     <string name="mode_point_cloud_viewer">Przeglądarka chmury punktów</string>
     <string name="mode_desc_point_cloud_viewer">Wczytaj i wizualizuj zapisaną chmurę punktów (CSV lub PLY)</string>
+    <string name="filter_desc_missing_fallback">Brak opisu filtra: %1$s</string>
     <string name="point_cloud_viewer_load">Wczytaj plik chmury punktów</string>
     <string name="point_cloud_viewer_empty">Wczytaj plik, aby zobaczyć chmurę punktów</string>
     <string name="point_cloud_viewer_loaded">Wczytano %1$d punktów</string>

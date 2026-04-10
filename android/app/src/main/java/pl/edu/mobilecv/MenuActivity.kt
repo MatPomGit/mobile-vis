@@ -15,6 +15,7 @@ import androidx.core.view.ViewCompat
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.tabs.TabLayout
 import pl.edu.mobilecv.databinding.ActivityMenuBinding
+import pl.edu.mobilecv.ui.ModeRegistry
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import kotlin.jvm.java
@@ -71,88 +72,11 @@ class MenuActivity : AppCompatActivity() {
     /** Keyed by model filename (e.g. [MediaPipeProcessor.MODEL_POSE]). */
     private val modelStatusViews = mutableMapOf<String, ModelStatusViews>()
 
-    /** Lazily built map of [AnalysisMode] to its Polish description string. */
-    private val modeDescriptions: Map<AnalysisMode, String> by lazy {
-        mapOf(
-            AnalysisMode.FILTERS         to getString(R.string.mode_desc_filters),
-            AnalysisMode.EDGES           to getString(R.string.mode_desc_edges),
-            AnalysisMode.MORPHOLOGY      to getString(R.string.mode_desc_morphology),
-            AnalysisMode.MARKERS         to getString(R.string.mode_desc_markers),
-            AnalysisMode.POSE            to getString(R.string.mode_desc_pose),
-            AnalysisMode.ODOMETRY        to getString(R.string.mode_desc_odometry),
-            AnalysisMode.FULL_ODOMETRY_3D to getString(R.string.mode_desc_full_odometry_3d),
-            AnalysisMode.GEOMETRY        to getString(R.string.mode_desc_geometry),
-            AnalysisMode.CALIBRATION     to getString(R.string.mode_desc_calibration),
-            AnalysisMode.YOLO            to getString(R.string.mode_desc_yolo),
-            AnalysisMode.RTMDET          to getString(R.string.mode_desc_rtmdet),
-            AnalysisMode.MOBILINT        to getString(R.string.mode_desc_mobilint),
-            AnalysisMode.TFLITE          to getString(R.string.mode_desc_tflite),
-            AnalysisMode.EFFECTS         to getString(R.string.mode_desc_effects),
-        )
-    }
-
-    /** Lazily built map of [OpenCvFilter] to its Polish description string. */
-    private val filterDescriptions: Map<OpenCvFilter, String> by lazy {
-        mapOf(
-            OpenCvFilter.ORIGINAL              to getString(R.string.filter_desc_original),
-            OpenCvFilter.GRAYSCALE             to getString(R.string.filter_desc_grayscale),
-            OpenCvFilter.GAUSSIAN_BLUR         to getString(R.string.filter_desc_gaussian_blur),
-            OpenCvFilter.MEDIAN_BLUR           to getString(R.string.filter_desc_median_blur),
-            OpenCvFilter.BILATERAL_FILTER      to getString(R.string.filter_desc_bilateral),
-            OpenCvFilter.BOX_FILTER            to getString(R.string.filter_desc_box_filter),
-            OpenCvFilter.THRESHOLD             to getString(R.string.filter_desc_threshold),
-            OpenCvFilter.ADAPTIVE_THRESHOLD    to getString(R.string.filter_desc_adaptive_threshold),
-            OpenCvFilter.HISTOGRAM_EQUALIZATION to getString(R.string.filter_desc_hist_eq),
-            OpenCvFilter.CANNY_EDGES           to getString(R.string.filter_desc_canny),
-            OpenCvFilter.SOBEL                 to getString(R.string.filter_desc_sobel),
-            OpenCvFilter.SCHARR                to getString(R.string.filter_desc_scharr),
-            OpenCvFilter.LAPLACIAN             to getString(R.string.filter_desc_laplacian),
-            OpenCvFilter.PREWITT               to getString(R.string.filter_desc_prewitt),
-            OpenCvFilter.ROBERTS               to getString(R.string.filter_desc_roberts),
-            OpenCvFilter.DILATE                to getString(R.string.filter_desc_dilate),
-            OpenCvFilter.ERODE                 to getString(R.string.filter_desc_erode),
-            OpenCvFilter.OPEN                  to getString(R.string.filter_desc_open),
-            OpenCvFilter.CLOSE                 to getString(R.string.filter_desc_close),
-            OpenCvFilter.GRADIENT              to getString(R.string.filter_desc_gradient),
-            OpenCvFilter.TOP_HAT               to getString(R.string.filter_desc_top_hat),
-            OpenCvFilter.BLACK_HAT             to getString(R.string.filter_desc_black_hat),
-            OpenCvFilter.APRIL_TAGS            to getString(R.string.filter_desc_apriltag),
-            OpenCvFilter.ARUCO                 to getString(R.string.filter_desc_aruco),
-            OpenCvFilter.QR_CODE               to getString(R.string.filter_desc_qr),
-            OpenCvFilter.CCTAG                 to getString(R.string.filter_desc_cctag),
-            OpenCvFilter.HOLISTIC_BODY         to getString(R.string.filter_desc_body),
-            OpenCvFilter.HOLISTIC_HANDS        to getString(R.string.filter_desc_hands),
-            OpenCvFilter.HOLISTIC_FACE         to getString(R.string.filter_desc_face),
-            OpenCvFilter.IRIS                  to getString(R.string.filter_desc_iris),
-            OpenCvFilter.VISUAL_ODOMETRY       to getString(R.string.filter_desc_visual_odometry),
-            OpenCvFilter.POINT_CLOUD           to getString(R.string.filter_desc_point_cloud),
-            OpenCvFilter.PLANE_DETECTION       to getString(R.string.filter_desc_plane_detection),
-            OpenCvFilter.VANISHING_POINTS      to getString(R.string.filter_desc_vanishing_points),
-            OpenCvFilter.CHESSBOARD_CALIBRATION to getString(R.string.filter_desc_chessboard),
-            OpenCvFilter.UNDISTORT             to getString(R.string.filter_desc_undistort),
-            OpenCvFilter.YOLO_DETECT           to getString(R.string.filter_desc_yolo_detect),
-            OpenCvFilter.YOLO_SEGMENT          to getString(R.string.filter_desc_yolo_segment),
-            OpenCvFilter.YOLO_POSE             to getString(R.string.filter_desc_yolo_pose),
-            OpenCvFilter.YOLO_CLASSIFY         to getString(R.string.filter_desc_yolo_classify),
-            OpenCvFilter.YOLO_OBB              to getString(R.string.filter_desc_yolo_obb),
-            OpenCvFilter.RTMDET_DETECT         to getString(R.string.filter_desc_rtmdet_detect),
-            OpenCvFilter.RTMDET_ROTATED        to getString(R.string.filter_desc_rtmdet_rotated),
-            OpenCvFilter.TFLITE_DETECT         to getString(R.string.filter_desc_tflite_detect),
-            OpenCvFilter.FULL_ODOMETRY         to getString(R.string.filter_desc_full_odometry),
-            OpenCvFilter.ODOMETRY_TRAJECTORY   to getString(R.string.filter_desc_odometry_trajectory),
-            OpenCvFilter.ODOMETRY_MAP          to getString(R.string.filter_desc_odometry_map),
-            OpenCvFilter.INVERT                to getString(R.string.filter_desc_invert),
-            OpenCvFilter.SEPIA                 to getString(R.string.filter_desc_sepia),
-            OpenCvFilter.EMBOSS                to getString(R.string.filter_desc_emboss),
-            OpenCvFilter.PIXELATE              to getString(R.string.filter_desc_pixelate),
-            OpenCvFilter.CARTOON               to getString(R.string.filter_desc_cartoon),
-        )
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMenuBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        validateModeRegistryConsistency()
         showAppVersion()
         buildInstructionsCard()
         buildProcessingCards()
@@ -276,11 +200,7 @@ class MenuActivity : AppCompatActivity() {
      * Cards are stroked with [R.color.group_processing] (teal).
      */
     private fun buildProcessingCards() {
-        addGroupDescription(binding.modeListContainer, getString(R.string.group_desc_processing))
-        val modes = listOf(AnalysisMode.FILTERS, AnalysisMode.EDGES, AnalysisMode.MORPHOLOGY, AnalysisMode.EFFECTS)
-        modes.forEach { mode ->
-            addModeCard(binding.modeListContainer, mode, R.color.group_processing)
-        }
+        buildCardsForGroup(binding.modeListContainer, ModeRegistry.FunctionalGroup.PROCESSING)
     }
 
     // ------------------------------------------------------------------
@@ -292,18 +212,7 @@ class MenuActivity : AppCompatActivity() {
      * Cards are stroked with [R.color.group_detection] (deep orange).
      */
     private fun buildDetectionCards() {
-        addGroupDescription(binding.detectionContainer, getString(R.string.group_desc_detection))
-        val modes = listOf(
-            AnalysisMode.MARKERS,
-            AnalysisMode.YOLO,
-            AnalysisMode.RTMDET,
-            AnalysisMode.MOBILINT,
-            AnalysisMode.TFLITE,
-            AnalysisMode.POSE
-        )
-        modes.forEach { mode ->
-            addModeCard(binding.detectionContainer, mode, R.color.group_detection)
-        }
+        buildCardsForGroup(binding.detectionContainer, ModeRegistry.FunctionalGroup.DETECTION)
     }
 
     // ------------------------------------------------------------------
@@ -316,11 +225,7 @@ class MenuActivity : AppCompatActivity() {
      * Cards are stroked with [R.color.group_analysis] (purple).
      */
     private fun buildAnalysisCards() {
-        addGroupDescription(binding.analysisContainer, getString(R.string.group_desc_analysis))
-        val modes = listOf(AnalysisMode.ODOMETRY, AnalysisMode.FULL_ODOMETRY_3D, AnalysisMode.GEOMETRY, AnalysisMode.CALIBRATION)
-        modes.forEach { mode ->
-            addModeCard(binding.analysisContainer, mode, R.color.group_analysis)
-        }
+        buildCardsForGroup(binding.analysisContainer, ModeRegistry.FunctionalGroup.ANALYSIS)
         buildOdometryTutorialCard()
         buildPointCloudViewerCard()
     }
@@ -601,8 +506,8 @@ class MenuActivity : AppCompatActivity() {
 
         AnalysisMode.entries.forEach { mode ->
             addModeSectionCard(mode)
-            mode.filters.forEach { filter ->
-                addFilterDescriptionRow(filter.displayName, filterDescriptions[filter] ?: "")
+            ModeRegistry.requireEntry(mode).controls.forEach { filter ->
+                addFilterDescriptionRow(filter.displayName, resolveFilterDescription(filter))
             }
         }
     }
@@ -627,10 +532,11 @@ class MenuActivity : AppCompatActivity() {
      * The card shows the mode name and its high-level description.
      */
     private fun addModeSectionCard(mode: AnalysisMode) {
+        val modeEntry = ModeRegistry.requireEntry(mode)
         addCustomCard(
             container = binding.aboutContainer,
-            title = mode.displayName,
-            description = modeDescriptions[mode] ?: "",
+            title = modeEntry.label,
+            description = getString(modeEntry.descriptionResId),
             strokeColorRes = 0
         ) {
             // No action
@@ -693,14 +599,46 @@ class MenuActivity : AppCompatActivity() {
      * @param strokeColorRes Colour resource ID for the card stroke.
      */
     private fun addModeCard(container: LinearLayout, mode: AnalysisMode, strokeColorRes: Int) {
+        val modeEntry = ModeRegistry.requireEntry(mode)
         addCustomCard(
             container = container,
-            title = mode.displayName,
-            description = modeDescriptions[mode] ?: "",
+            title = modeEntry.label,
+            description = getString(modeEntry.descriptionResId),
             strokeColorRes = strokeColorRes
         ) {
             launchMainActivity(mode)
         }
+    }
+
+    /**
+     * Buduje sekcję kart dla wskazanej grupy funkcjonalnej na podstawie [ModeRegistry].
+     * Dzięki temu lista trybów nie jest utrzymywana lokalnie w aktywności.
+     */
+    private fun buildCardsForGroup(
+        container: LinearLayout,
+        group: ModeRegistry.FunctionalGroup,
+    ) {
+        addGroupDescription(container, getString(group.descriptionResId))
+        ModeRegistry.entriesForGroup(group).forEach { modeEntry ->
+            addModeCard(container, modeEntry.mode, group.strokeColorResId)
+        }
+    }
+
+    /**
+     * Zwraca opis filtra z rejestru, a gdy brak wpisu – czytelny komunikat fallbackowy.
+     */
+    private fun resolveFilterDescription(filter: OpenCvFilter): String {
+        val descriptionResId = ModeRegistry.filterDescriptionResId(filter)
+        return descriptionResId?.let(::getString)
+            ?: getString(R.string.filter_desc_missing_fallback, filter.displayName)
+    }
+
+    /**
+     * Twarda walidacja kompletności wpisów przed zbudowaniem UI.
+     * W razie braku wpisu aplikacja kończy start z jednoznacznym błędem developerskim.
+     */
+    private fun validateModeRegistryConsistency() {
+        ModeRegistry.validateConsistency()
     }
 
     /**

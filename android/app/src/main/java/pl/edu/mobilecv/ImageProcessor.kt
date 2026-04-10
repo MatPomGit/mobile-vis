@@ -170,6 +170,12 @@ class ImageProcessor {
     @Volatile
     var debugUndistortBeforeGeometry: Boolean = false
 
+    var morphKernelSize: Int = 4
+    var voMaxFeatures: Int = 300
+    var voMinParallax: Double = 1.0
+    var isVoMeshEnabled: Boolean = false
+    var geometryMaxPlanes: Int = 3
+
     private val geometryProcessor = GeometryProcessor(::logExceptionTelemetry)
     private val activeVisionOptimizer = ActiveVisionOptimizer()
     private val visualOdometryEngine = VisualOdometryEngine().also {
@@ -304,18 +310,18 @@ class ImageProcessor {
     private var lastCalibrationDiagnosticsKey: String? = null
     private val morphologyModule = object : FrameModule<MorphologyState> {
         override fun process(frame: Mat, filter: OpenCvFilter, state: MorphologyState): Mat = when (filter) {
-            OpenCvFilter.DILATE -> LegacyFilters.applyMorphology(frame, -1, state.kernelHalfSize)
-            OpenCvFilter.ERODE -> LegacyFilters.applyMorphology(frame, -2, state.kernelHalfSize)
+            OpenCvFilter.DILATE -> LegacyFilters.applyMorphology(frame, -1, morphKernelSize)
+            OpenCvFilter.ERODE -> LegacyFilters.applyMorphology(frame, -2, morphKernelSize)
             OpenCvFilter.OPEN ->
-                LegacyFilters.applyMorphology(frame, Imgproc.MORPH_OPEN, state.kernelHalfSize)
+                LegacyFilters.applyMorphology(frame, Imgproc.MORPH_OPEN, morphKernelSize)
             OpenCvFilter.CLOSE ->
-                LegacyFilters.applyMorphology(frame, Imgproc.MORPH_CLOSE, state.kernelHalfSize)
+                LegacyFilters.applyMorphology(frame, Imgproc.MORPH_CLOSE, morphKernelSize)
             OpenCvFilter.GRADIENT ->
-                LegacyFilters.applyMorphology(frame, Imgproc.MORPH_GRADIENT, state.kernelHalfSize)
+                LegacyFilters.applyMorphology(frame, Imgproc.MORPH_GRADIENT, morphKernelSize)
             OpenCvFilter.TOP_HAT ->
-                LegacyFilters.applyMorphology(frame, Imgproc.MORPH_TOPHAT, state.kernelHalfSize)
+                LegacyFilters.applyMorphology(frame, Imgproc.MORPH_TOPHAT, morphKernelSize)
             OpenCvFilter.BLACK_HAT ->
-                LegacyFilters.applyMorphology(frame, Imgproc.MORPH_BLACKHAT, state.kernelHalfSize)
+                LegacyFilters.applyMorphology(frame, Imgproc.MORPH_BLACKHAT, morphKernelSize)
             else -> frame.clone()
         }
 
@@ -326,9 +332,9 @@ class ImageProcessor {
 
     private val odometryModule = object : FrameModule<OdometryState> {
         override fun process(frame: Mat, filter: OpenCvFilter, state: OdometryState): Mat {
-            visualOdometryEngine.maxFeatures = state.maxFeatures
-            visualOdometryEngine.minParallax = state.minParallax
-            visualOdometryEngine.isMeshEnabled = state.meshEnabled
+            visualOdometryEngine.maxFeatures = voMaxFeatures
+            visualOdometryEngine.minParallax = voMinParallax
+            visualOdometryEngine.isMeshEnabled = isVoMeshEnabled
             return when (filter) {
                 OpenCvFilter.VISUAL_ODOMETRY -> applyVisualOdometry(frame)
                 OpenCvFilter.POINT_CLOUD -> applyPointCloud(frame, state)
@@ -1103,7 +1109,7 @@ class ImageProcessor {
         val cloud = visualOdometryEngine.lastPointCloud
         val pointRadius = computeAdaptivePointRadius(res.cols(), res.rows(), cloud?.points?.size ?: 0)
         if (cloud != null) {
-            if (state.meshEnabled) {
+            if (isVoMeshEnabled) {
                 for ((p1, p2) in cloud.edges) Imgproc.line(res, p1, p2, Scalar(0.0, 128.0, 255.0, 255.0), POINT_CLOUD_MESH_THICKNESS)
             }
             cloud.points.forEachIndexed { i, pt ->
@@ -1281,7 +1287,7 @@ class ImageProcessor {
     }
 
     private fun applyPlaneDetection(src: Mat, state: GeometryState): Mat {
-        geometryProcessor.maxPlanes = state.maxPlanes
+        geometryProcessor.maxPlanes = geometryMaxPlanes
         val geometryInput = prepareGeometryInput(src, "plane_detection")
         val profile = calibrator?.getCalibrationProfile(geometryInput.size())
         if (profile != null && !profile.isCompatible) {

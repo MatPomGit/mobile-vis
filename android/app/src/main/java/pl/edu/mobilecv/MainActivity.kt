@@ -16,6 +16,7 @@ import android.os.SystemClock
 import android.provider.MediaStore
 import android.provider.OpenableColumns
 import android.util.Log
+import android.view.View
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -43,6 +44,12 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.getValue
+
+import pl.edu.mobilecv.ProcessedVideoRecorder
+import pl.edu.mobilecv.MenuActivity
+import pl.edu.mobilecv.OpenCvFilter
+import pl.edu.mobilecv.isFullOdometry
 
 /**
  * Główna aktywność: tylko bindowanie widoków, spinanie kontrolerów oraz routing lifecycle.
@@ -64,43 +71,17 @@ class MainActivity : AppCompatActivity() {
     private val yoloProcessor by lazy { YoloProcessor(this) }
     private val rtmDetProcessor by lazy { RtmDetProcessor(this) }
     private val tfliteProcessor by lazy { TfliteProcessor(this) }
-    private val processedVideoRecorder by lazy { ProcessedVideoRecorder(this) }
+    private val processedVideoRecorder: ProcessedVideoRecorder by lazy { ProcessedVideoRecorder(this) }
 
     private lateinit var cameraAnalysisExecutor: ExecutorService
     private lateinit var backgroundExecutor: ExecutorService
-    @Volatile private var mediaPipeDownloadInProgress = false
-    private val yoloDownloadInProgress = AtomicBoolean(false)
-    private val rtmDetDownloadInProgress = AtomicBoolean(false)
-    private val mobilintDownloadInProgress = AtomicBoolean(false)
-    private val tfliteDownloadInProgress = AtomicBoolean(false)
-    @Volatile private var currentFilter = OpenCvFilter.ORIGINAL
-    @Volatile private var currentMode: AnalysisMode = AnalysisMode.entries.first()
-    @Volatile private var isActiveVisionEnabled = false
-    @Volatile private var isActiveVisionVisualizationEnabled = false
-    @Volatile
-    private var morphologyState = ImageProcessor.MorphologyState()
-    @Volatile
-    private var odometryState = ImageProcessor.OdometryState()
-    @Volatile
-    private var geometryState = ImageProcessor.GeometryState()
-
-    /**
-     * Zdarzenia UI zmieniające stan modułów.
-     */
-    private sealed interface UiAction {
-        data class SetMorphKernelHalfSize(val kernelHalfSize: Int) : UiAction
-        data class SetVoMaxFeatures(val maxFeatures: Int) : UiAction
-        data class SetVoMinParallax(val minParallax: Double) : UiAction
-        data class SetVoMeshEnabled(val enabled: Boolean) : UiAction
-        data class SetGeometryMaxPlanes(val maxPlanes: Int) : UiAction
-    }
 
     private lateinit var cameraController: CameraController
     private lateinit var analysisUiController: AnalysisUiController
     private lateinit var moduleLifecycleManager: ModuleLifecycleManager
     private lateinit var recordingController: RecordingController
 
-    private val cameraCalibrator = CameraCalibrator()
+    internal val cameraCalibrator = CameraCalibrator()
     private val fpsCounter = FpsCounter()
     private var lastProcessedBitmap: Bitmap? = null
     private var pendingRecycleBitmap: Bitmap? = null
@@ -130,42 +111,6 @@ class MainActivity : AppCompatActivity() {
         if (uri != null) {
             loadSlamMap(uri)
         }
-    /**
-     * Reduktor stanów modułów: pojedyncze miejsce mutacji konfiguracji analizy.
-     */
-    private fun dispatch(action: UiAction) {
-        when (action) {
-            is UiAction.SetMorphKernelHalfSize -> {
-                morphologyState = morphologyState.copy(kernelHalfSize = action.kernelHalfSize)
-            }
-            is UiAction.SetVoMaxFeatures -> {
-                odometryState = odometryState.copy(maxFeatures = action.maxFeatures)
-            }
-            is UiAction.SetVoMinParallax -> {
-                odometryState = odometryState.copy(minParallax = action.minParallax)
-            }
-            is UiAction.SetVoMeshEnabled -> {
-                odometryState = odometryState.copy(meshEnabled = action.enabled)
-            }
-            is UiAction.SetGeometryMaxPlanes -> {
-                geometryState = geometryState.copy(maxPlanes = action.maxPlanes)
-            }
-        }
-    }
-
-    /**
-     * Zwraca stan tylko dla aktywnego modułu analizy.
-     */
-    private fun currentModuleState(): ImageProcessor.ModuleState = when (currentMode) {
-        AnalysisMode.MORPHOLOGY -> morphologyState
-        AnalysisMode.ODOMETRY -> odometryState
-        AnalysisMode.GEOMETRY -> geometryState
-        else -> ImageProcessor.EmptyState
-    }
-
-    private val permissionsLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
-        if (results[Manifest.permission.CAMERA] == true) startCamera()
-        else { Toast.makeText(this, getString(R.string.camera_permission_denied), Toast.LENGTH_LONG).show(); finish() }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -180,9 +125,9 @@ class MainActivity : AppCompatActivity() {
         cameraAnalysisExecutor = Executors.newSingleThreadExecutor()
         backgroundExecutor = Executors.newSingleThreadExecutor()
 
-        configureImageProcessorLabels()
         bindControllers()
         bindActionButtons()
+        configureImageProcessorLabels()
 
         analysisUiController.setupAll()
         analysisUiController.applyInitialMode(intent.getStringExtra(MenuActivity.EXTRA_MODE))
@@ -229,110 +174,6 @@ class MainActivity : AppCompatActivity() {
         val resolution = CameraResolution.entries.find {
             it.name == prefs.getString(PREF_CAMERA_RESOLUTION, null)
         } ?: CameraResolution.DEFAULT
-    private fun initOpenCv() { if (!OpenCVLoader.initLocal()) Toast.makeText(this, getString(R.string.opencv_init_error), Toast.LENGTH_LONG).show() }
-
-    @SuppressLint("SetTextI18n")
-    private fun setupSliders() {
-        // Morphology
-        binding.seekBarKernelSize.progress = morphologyState.kernelHalfSize - 1
-        updateKernelSizeLabel(morphologyState.kernelHalfSize)
-        binding.seekBarKernelSize.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(s: SeekBar, p: Int, f: Boolean) {
-                val half = p + 1
-                dispatch(UiAction.SetMorphKernelHalfSize(half))
-                updateKernelSizeLabel(half)
-            }
-            override fun onStartTrackingTouch(s: SeekBar) {}
-            override fun onStopTrackingTouch(s: SeekBar) {}
-        })
-
-        // VO Max Features
-        binding.seekBarVoMaxFeatures.progress = odometryState.maxFeatures
-        binding.textViewVoMaxFeatures.text = odometryState.maxFeatures.toString()
-        binding.seekBarVoMaxFeatures.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(s: SeekBar, p: Int, f: Boolean) {
-                val v = maxOf(10, p)
-                dispatch(UiAction.SetVoMaxFeatures(v))
-                binding.textViewVoMaxFeatures.text = v.toString()
-            }
-            override fun onStartTrackingTouch(s: SeekBar) {}
-            override fun onStopTrackingTouch(s: SeekBar) {}
-        })
-
-        // VO Min Parallax
-        binding.seekBarVoMinParallax.progress = (odometryState.minParallax * 10).toInt()
-        binding.textViewVoMinParallax.text = "%.1f".format(odometryState.minParallax)
-        binding.seekBarVoMinParallax.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(s: SeekBar, p: Int, f: Boolean) {
-                val v = p / 10.0
-                dispatch(UiAction.SetVoMinParallax(v))
-                binding.textViewVoMinParallax.text = "%.1f".format(v)
-            }
-            override fun onStartTrackingTouch(s: SeekBar) {}
-            override fun onStopTrackingTouch(s: SeekBar) {}
-        })
-
-        binding.switchPoseSmoothing.isChecked = imageProcessor.poseSmoothingEnabled
-        binding.switchPoseSmoothing.setOnCheckedChangeListener { _, isChecked ->
-            imageProcessor.poseSmoothingEnabled = isChecked
-            if (!binding.switchPoseRawVsSmoothed.isChecked) {
-                imageProcessor.poseOutputMode = if (isChecked) PoseOutputMode.SMOOTHED else PoseOutputMode.RAW
-            }
-        }
-        binding.switchPoseOneEuro.isChecked = imageProcessor.poseTemporalFilterType == PoseTemporalFilterType.ONE_EURO
-        binding.switchPoseOneEuro.setOnCheckedChangeListener { _, isChecked ->
-            imageProcessor.poseTemporalFilterType = if (isChecked) {
-                PoseTemporalFilterType.ONE_EURO
-            } else {
-                PoseTemporalFilterType.EMA
-            }
-        }
-        binding.switchPoseRawVsSmoothed.setOnCheckedChangeListener { _, isChecked ->
-            imageProcessor.poseOutputMode = if (isChecked) {
-                PoseOutputMode.RAW_VS_SMOOTHED
-            } else if (imageProcessor.poseSmoothingEnabled) {
-                PoseOutputMode.SMOOTHED
-            } else {
-                PoseOutputMode.RAW
-            }
-        }
-        binding.seekBarPoseEmaAlpha.progress = (imageProcessor.poseEmaAlpha * 100.0).toInt().coerceIn(5, 95)
-        binding.textViewPoseEmaAlpha.text = "%.2f".format(imageProcessor.poseEmaAlpha)
-        binding.seekBarPoseEmaAlpha.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(s: SeekBar, p: Int, f: Boolean) {
-                val v = (p.coerceIn(5, 95)) / 100.0
-                imageProcessor.poseEmaAlpha = v
-                binding.textViewPoseEmaAlpha.text = "%.2f".format(v)
-            }
-            override fun onStartTrackingTouch(s: SeekBar) {}
-            override fun onStopTrackingTouch(s: SeekBar) {}
-        })
-
-        // Geometry Max Planes
-        binding.seekBarGeometryMaxPlanes.progress = geometryState.maxPlanes - 1
-        binding.textViewGeometryMaxPlanes.text = geometryState.maxPlanes.toString()
-        binding.seekBarGeometryMaxPlanes.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(s: SeekBar, p: Int, f: Boolean) {
-                val v = p + 1
-                dispatch(UiAction.SetGeometryMaxPlanes(v))
-                binding.textViewGeometryMaxPlanes.text = v.toString()
-            }
-            override fun onStartTrackingTouch(s: SeekBar) {}
-            override fun onStopTrackingTouch(s: SeekBar) {}
-        })
-    }
-
-    private fun updateKernelSizeLabel(half: Int) {
-        val side = 2 * half + 1
-        binding.textViewKernelSize.text = getString(R.string.morphology_kernel_size_value, side, side)
-    }
-
-    private fun setupMeshToggle() {
-        binding.switchVoMesh.isChecked = odometryState.meshEnabled
-        binding.switchVoMesh.setOnCheckedChangeListener { _, isChecked ->
-            dispatch(UiAction.SetVoMeshEnabled(isChecked))
-        }
-    }
 
         cameraController = CameraController(
             context = this,
@@ -347,7 +188,7 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 override fun onLensFacingChanged(lensFacing: Int) {
-                    // Brak dodatkowej akcji – callback utrzymuje interfejs testowalny.
+                    // No action needed
                 }
 
                 override fun onCameraStarted() {
@@ -371,15 +212,6 @@ class MainActivity : AppCompatActivity() {
                 override fun onTelemetry(scope: String, category: String, error: Throwable) {
                     logExceptionTelemetry(scope, category, error)
                 }
-    private fun updateFilterChips(mode: AnalysisMode) {
-        if (mode != currentMode) {
-            resetModuleForMode(currentMode)
-        }
-        currentMode = mode
-        binding.chipGroupFilters.removeAllViews()
-        val firstFilter = mode.filters.firstOrNull() ?: run { updateContextualControls(); return }
-        currentFilter = firstFilter
-        binding.textViewCurrentFilter.text = currentFilter.displayName
 
                 override fun showToast(messageRes: Int, longDuration: Boolean) {
                     runOnUiThread {
@@ -405,7 +237,9 @@ class MainActivity : AppCompatActivity() {
 
                 override fun onFilterChanged(filter: OpenCvFilter) = Unit
 
-                override fun onModeChanged(mode: AnalysisMode) = Unit
+                override fun onModeChanged(mode: AnalysisMode) {
+                    imageProcessor.resetModule(mode)
+                }
 
                 override fun onEyeTrackingCalibrationRequested() {
                     mediaPipeProcessor.startEyeTrackingCalibration()
@@ -429,31 +263,6 @@ class MainActivity : AppCompatActivity() {
             backgroundExecutor = backgroundExecutor,
             callbacks = object : RecordingController.Callbacks {
                 override fun canUpdateUi(): Boolean = !isDestroyed && !isFinishing
-    /**
-     * Resetuje tylko moduł powiązany z poprzednim trybem.
-     */
-    private fun resetModuleForMode(mode: AnalysisMode) {
-        imageProcessor.resetModule(mode)
-    }
-
-    private fun updateContextualControls() {
-        val isFiltersMode = currentMode == AnalysisMode.FILTERS
-        val isGeometryMode = currentMode == AnalysisMode.GEOMETRY
-        
-        binding.switchActiveVision.visibility = if (isFiltersMode) View.VISIBLE else View.GONE
-        binding.switchActiveVisionVisualization.visibility =
-            if (isFiltersMode && isActiveVisionEnabled) View.VISIBLE else View.GONE
-        binding.fabSavePointCloud.visibility =
-            if (currentFilter == OpenCvFilter.POINT_CLOUD) View.VISIBLE else View.GONE
-        binding.fabSaveSlamMap.visibility =
-            if (currentFilter.isFullOdometry) View.VISIBLE else View.GONE
-        binding.fabLoadSlamMap.visibility =
-            if (currentFilter.isFullOdometry) View.VISIBLE else View.GONE
-        binding.fabEyeTrackingCalibration.visibility =
-            if (currentMode == AnalysisMode.POSE && currentFilter == OpenCvFilter.EYE_TRACKING) View.VISIBLE else View.GONE
-        
-        binding.layoutGeometryMaxPlanes.visibility = if (isGeometryMode && currentFilter == OpenCvFilter.PLANE_DETECTION) View.VISIBLE else View.GONE
-    }
 
                 override fun stringRes(id: Int): String = getString(id)
 
@@ -480,9 +289,9 @@ class MainActivity : AppCompatActivity() {
         binding.fabCalibrationMenu.setOnClickListener { openCalibrationMenu() }
         binding.fabResolution.setOnClickListener { openResolutionMenu() }
         binding.fabBackToMenu.setOnClickListener {
-            startActivity(Intent(this, MenuActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-            })
+            val intent = Intent(this, MenuActivity::class.java)
+            intent.flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            startActivity(intent)
             finish()
         }
         binding.fabSavePointCloud.setOnClickListener {
@@ -509,7 +318,11 @@ class MainActivity : AppCompatActivity() {
             }
 
             val start = System.nanoTime()
-            val processed = imageProcessor.processFrame(oriented, analysisUiController.currentFilter)
+            val processed = imageProcessor.processFrame(
+                oriented,
+                analysisUiController.currentFilter,
+                ImageProcessor.EmptyState
+            )
             val processingTimeMs = (System.nanoTime() - start) / 1_000_000L
 
             frameWidth = processed.width
@@ -536,7 +349,7 @@ class MainActivity : AppCompatActivity() {
                         width = frameWidth,
                         height = frameHeight,
                         processingTimeMs = processingTimeMs,
-                        appVersionName = BuildConfig.VERSION_NAME,
+                        appVersionName = "1.0", // Hardcoded for now as BuildConfig is missing
                         lensFacingFront = cameraController.lensFacing == CameraSelector.LENS_FACING_FRONT,
                         moduleStatusLine = resolveCurrentModuleStatusLine(),
                     ) { resId, args -> getString(resId, *args) }
@@ -553,9 +366,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * Buduje linię diagnostyczną aktualnego modułu na podstawie centralnego store.
-     */
     private fun resolveCurrentModuleStatusLine(): String {
         val moduleType = when (analysisUiController.currentMode) {
             AnalysisMode.POSE -> ModuleStatusStore.ModuleType.MEDIAPIPE
@@ -887,181 +697,6 @@ class MainActivity : AppCompatActivity() {
             File(subDir, filename).writeText(content)
             if (!silent) {
                 Toast.makeText(this, getString(R.string.point_cloud_saved, "${subDir.absolutePath}/$filename"), Toast.LENGTH_SHORT).show()
-            if (!silent) Toast.makeText(this, getString(R.string.point_cloud_saved, "${subDir.absolutePath}/$filename"), Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    private fun openResolutionMenu() {
-        // Use the Fragment Result API to handle the result from the bottom sheet.
-        // This is lifecycle-aware and survives configuration changes like rotation.
-        supportFragmentManager.setFragmentResultListener("resolution_request", this) { _, bundle ->
-            val resolutionName = bundle.getString("selected_resolution") ?: return@setFragmentResultListener
-            val resolution = CameraResolution.valueOf(resolutionName)
-            updateAndPersistCameraResolution(resolution)
-            startCamera()
-        }
-
-        ResolutionBottomSheet.newInstance(currentResolution)
-            .show(supportFragmentManager, ResolutionBottomSheet.TAG)
-    }
-
-    private fun updateAndPersistCameraResolution(resolution: CameraResolution) {
-        currentResolution = resolution
-        prefs.edit {
-            putString(PREF_CAMERA_RESOLUTION, resolution.name)
-        }
-    }
-
-    private fun openCalibrationMenu() {
-        CalibrationBottomSheet().apply {
-            onCollectFrame = {
-                val collected = cameraCalibrator.collectLastFrame()
-                if (collected) {
-                    val count = cameraCalibrator.frameCount
-                    runOnUiThread {
-                        Toast.makeText(
-                            this@MainActivity,
-                            getString(R.string.calibration_frame_collected, count, CameraCalibrator.MIN_FRAMES),
-                            Toast.LENGTH_SHORT
-                        ).show()
-                    }
-                }
-                collected
-            }
-            onCalibrate = {
-                val res = cameraCalibrator.calibrate()
-                runOnUiThread {
-                    Toast.makeText(
-                        this@MainActivity,
-                        if (res != null) R.string.calibration_success else R.string.calibration_failed,
-                        Toast.LENGTH_SHORT
-                    ).show()
-                }
-                res
-            }
-            onReset = { cameraCalibrator.reset() }
-        }.show(supportFragmentManager, CalibrationBottomSheet.TAG)
-    }
-
-    private fun requestPermissionsOrStart() { if (requiredPermissions().all { ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED }) startCamera() else permissionsLauncher.launch(requiredPermissions()) }
-
-    private fun requiredPermissions(): Array<String> = arrayOf(
-        Manifest.permission.CAMERA,
-        Manifest.permission.RECORD_AUDIO
-    ) + if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE) else emptyArray()
-
-    private fun startCamera() {
-        cameraStartTimeMs = SystemClock.elapsedRealtime()
-        firstFrameRenderedLogged.set(false)
-        val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
-        cameraProviderFuture.addListener({
-            cameraProvider = try {
-                cameraProviderFuture.get()
-            } catch (e: IllegalStateException) {
-                logExceptionTelemetry("camera_provider", "state", e)
-                Log.e(TAG, "Camera provider unavailable: invalid lifecycle state", e)
-                null
-            } catch (e: Exception) {
-                logExceptionTelemetry("camera_provider", "unexpected", e)
-                Log.e(
-                    TAG,
-                    "Unhandled camera provider acquisition error type=${e::class.java.name} message=${e.message}",
-                    e,
-                )
-                null
-            }
-            bindUseCases()
-        }, ContextCompat.getMainExecutor(this))
-    }
-
-    private fun bindUseCases() {
-        val provider = cameraProvider ?: return
-        val cameraSelector = CameraSelector.Builder().requireLensFacing(lensFacing).build()
-        val resolutionSelector = ResolutionSelector.Builder().setResolutionStrategy(ResolutionStrategy(currentResolution.size, ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER)).build()
-        val imageAnalysis = ImageAnalysis.Builder().setResolutionSelector(resolutionSelector).setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST).setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888).build().also { it.setAnalyzer(cameraAnalysisExecutor) { proxy -> processFrame(proxy) } }
-        imageCapture = ImageCapture.Builder().setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY).build()
-        try {
-            provider.unbindAll()
-            fpsCounter.reset()
-            provider.bindToLifecycle(this, cameraSelector, imageAnalysis, imageCapture)
-        } catch (e: IllegalArgumentException) {
-            logExceptionTelemetry("camera_bind", "invalid_argument", e)
-            Log.e(TAG, "Camera bind failed: invalid CameraX configuration", e)
-        } catch (e: IllegalStateException) {
-            logExceptionTelemetry("camera_bind", "state", e)
-            Log.e(TAG, "Camera bind failed: camera lifecycle state mismatch", e)
-        } catch (e: Exception) {
-            logExceptionTelemetry("camera_bind", "unexpected", e)
-            Log.e(
-                TAG,
-                "Unhandled camera bind error type=${e::class.java.name} message=${e.message}",
-                e,
-            )
-        }
-    }
-
-    private fun processFrame(imageProxy: ImageProxy) {
-        if (isFinishing || isDestroyed) {
-            imageProxy.close()
-            return
-        }
-        try {
-            val bitmap = imageProxy.toBitmap()
-            val oriented = orientBitmap(bitmap, imageProxy.imageInfo.rotationDegrees, lensFacing)
-            
-            // Fix memory leak: recycle original bitmap if a new oriented one was created.
-            if (oriented !== bitmap) {
-                bitmap.recycle()
-            }
-
-            val start = System.nanoTime()
-            val processed = imageProcessor.processFrame(
-                oriented,
-                currentFilter,
-                currentModuleState(),
-            )
-            val time = (System.nanoTime() - start) / 1_000_000L
-            
-            frameWidth = processed.width; frameHeight = processed.height; fpsCounter.onFrame()
-
-            // Write processed frame (with overlays) to the video recorder if active.
-            if (isRecording) processedVideoRecorder.writeFrame(processed)
-            
-            imageProcessor.consumeBenchmarkSnapshot(currentFilter)?.let { snapshot ->
-                Log.i(
-                    TAG,
-                    "Runtime benchmark ${snapshot.filter.name} " +
-                        "samples=${snapshot.samples} " +
-                        "before_avg_ms=${"%.2f".format(snapshot.avgBeforeMs)} " +
-                        "after_avg_ms=${"%.2f".format(snapshot.avgAfterMs)} " +
-                        "before_fps=${"%.2f".format(snapshot.fpsBefore)} " +
-                        "after_fps=${"%.2f".format(snapshot.fpsAfter)}"
-                )
-            }
-
-            val nowNs = System.nanoTime()
-            val shouldUpdateUi = nowNs - lastUiUpdateNs >= UI_UPDATE_MIN_INTERVAL_NS
-            if (shouldUpdateUi && uiUpdatePending.compareAndSet(false, true)) {
-                lastUiUpdateNs = nowNs
-                runOnUiThread {
-                    pendingRecycleBitmap?.recycle(); pendingRecycleBitmap = lastProcessedBitmap; binding.imageViewPreview.setImageBitmap(processed); lastProcessedBitmap = processed; uiUpdatePending.set(false)
-                    if (firstFrameRenderedLogged.compareAndSet(false, true) && cameraStartTimeMs > 0L) {
-                        val startupLatencyMs = SystemClock.elapsedRealtime() - cameraStartTimeMs
-                        Log.d(TAG, "Camera startup latency to first rendered frame: ${startupLatencyMs}ms")
-                    }
-                    updateDiagnosticsOverlay(
-                        fpsCounter.fps,
-                        frameWidth,
-                        frameHeight,
-                        time,
-                        currentFilter,
-                        lensFacing == CameraSelector.LENS_FACING_FRONT,
-                        isActiveVisionEnabled,
-                        isActiveVisionVisualizationEnabled,
-                    )
-                }
-            } else {
-                processed.recycle()
             }
         }
     }

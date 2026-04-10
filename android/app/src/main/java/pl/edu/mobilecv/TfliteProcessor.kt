@@ -6,10 +6,12 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
+import android.os.SystemClock
 import android.util.Log
 import org.tensorflow.lite.Interpreter
 import org.tensorflow.lite.gpu.CompatibilityList
 import org.tensorflow.lite.gpu.GpuDelegate
+import org.tensorflow.lite.DataType
 import org.tensorflow.lite.support.image.ImageProcessor
 import org.tensorflow.lite.support.image.TensorImage
 import org.tensorflow.lite.support.image.ops.ResizeOp
@@ -33,11 +35,30 @@ class TfliteProcessor(private val context: Context) {
     private var gpuDelegate: GpuDelegate? = null
     private var inputImageSize = 300 // Default for SSD MobileNet V2
 
+    // Bufory współdzielone między klatkami ograniczają alokacje i GC podczas inferencji.
+    private val inputTensorImage = TensorImage(DataType.UINT8)
+    private var resizeProcessor: ImageProcessor = buildResizeProcessor(inputImageSize)
+    private val inferenceOutputs: MutableMap<Int, Any> = mutableMapOf()
+    private val inferenceInputs: Array<Any> = arrayOf(ByteArray(0))
+
     // Output buffers for SSD MobileNet
     private lateinit var outputLocations: Array<Array<FloatArray>>
     private lateinit var outputClasses: Array<FloatArray>
     private lateinit var outputScores: Array<FloatArray>
     private lateinit var numDetections: FloatArray
+
+    // Reużywane obiekty rysujące minimalizują narzut CPU poza samą inferencją.
+    private val boxPaint = Paint().apply {
+        color = Color.GREEN
+        style = Paint.Style.STROKE
+        strokeWidth = 4f
+        textSize = 40f
+    }
+    private val textPaint = Paint().apply {
+        color = Color.GREEN
+        style = Paint.Style.FILL
+        textSize = 36f
+    }
 
     fun initialize() {
         val modelPath = ModelDownloadManager.getTfliteModelPath(context, MODEL_SSD_MOBILENET)
@@ -70,6 +91,7 @@ class TfliteProcessor(private val context: Context) {
             val inputShape = interpreter?.getInputTensor(0)?.shape()
             if (inputShape != null && inputShape.size >= 3) {
                 inputImageSize = inputShape[1]
+                resizeProcessor = buildResizeProcessor(inputImageSize)
                 Log.d(TAG, "Model input size: $inputImageSize")
             }
 
@@ -78,6 +100,10 @@ class TfliteProcessor(private val context: Context) {
             outputClasses = arrayOf(FloatArray(NUM_DETECTIONS))
             outputScores = arrayOf(FloatArray(NUM_DETECTIONS))
             numDetections = FloatArray(1)
+            inferenceOutputs[0] = outputLocations
+            inferenceOutputs[1] = outputClasses
+            inferenceOutputs[2] = outputScores
+            inferenceOutputs[3] = numDetections
 
         } catch (e: Exception) {
             Log.e(TAG, "Error loading TFLite model", e)
@@ -95,41 +121,19 @@ class TfliteProcessor(private val context: Context) {
         val interp = interpreter ?: return drawModelMissing(bitmap, MODEL_SSD_MOBILENET)
 
         try {
-            val startTime = System.currentTimeMillis()
+            val startTime = SystemClock.elapsedRealtimeNanos()
             
-            // Pre-process image
-            val tensorImage = TensorImage(org.tensorflow.lite.DataType.UINT8)
-            tensorImage.load(bitmap)
-            
-            val imageProcessor = ImageProcessor.Builder()
-                .add(ResizeOp(inputImageSize, inputImageSize, ResizeOp.ResizeMethod.BILINEAR))
-                .build()
-            
-            val processedImage = imageProcessor.process(tensorImage)
+            // Reużycie obiektów preprocessingu poprawia stabilność FPS przy delegacie GPU.
+            inputTensorImage.load(bitmap)
+            val processedImage = resizeProcessor.process(inputTensorImage)
+            inferenceInputs[0] = processedImage.buffer
 
             // Run inference
-            val outputs = mutableMapOf<Int, Any>()
-            outputs[0] = outputLocations
-            outputs[1] = outputClasses
-            outputs[2] = outputScores
-            outputs[3] = numDetections
-            
-            interp.runForMultipleInputsOutputs(arrayOf(processedImage.buffer), outputs)
+            interp.runForMultipleInputsOutputs(inferenceInputs, inferenceOutputs)
 
             // Visualize results
             val result = bitmap.copy(Bitmap.Config.ARGB_8888, true)
             val canvas = Canvas(result)
-            val paint = Paint().apply {
-                color = Color.GREEN
-                style = Paint.Style.STROKE
-                strokeWidth = 4f
-                textSize = 40f
-            }
-            val textPaint = Paint().apply {
-                color = Color.GREEN
-                style = Paint.Style.FILL
-                textSize = 36f
-            }
 
             val count = numDetections[0].toInt().coerceAtMost(NUM_DETECTIONS)
             for (i in 0 until count) {
@@ -146,12 +150,12 @@ class TfliteProcessor(private val context: Context) {
                     box[2] * bitmap.height
                 )
 
-                canvas.drawRect(rect, paint)
+                canvas.drawRect(rect, boxPaint)
                 canvas.drawText("Class $classId: ${"%.2f".format(score)}", rect.left, rect.top - 10f, textPaint)
             }
 
-            val processTime = System.currentTimeMillis() - startTime
-            Log.v(TAG, "Inference time: ${processTime}ms")
+            val processTimeMs = (SystemClock.elapsedRealtimeNanos() - startTime) / 1_000_000.0
+            Log.v(TAG, "Inference time: %.2fms".format(processTimeMs))
             
             return result
 
@@ -175,5 +179,12 @@ class TfliteProcessor(private val context: Context) {
         val paint = Paint().apply { color = Color.RED; textSize = 40f; isFakeBoldText = true }
         canvas.drawText(message, 50f, 100f, paint)
         return result
+    }
+
+    // Oddzielna funkcja ułatwia utrzymanie preprocessingu spójnego z wejściem modelu.
+    private fun buildResizeProcessor(targetSize: Int): ImageProcessor {
+        return ImageProcessor.Builder()
+            .add(ResizeOp(targetSize, targetSize, ResizeOp.ResizeMethod.BILINEAR))
+            .build()
     }
 }

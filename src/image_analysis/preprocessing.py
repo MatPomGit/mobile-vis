@@ -97,3 +97,88 @@ def normalize_image(image: NDArray[np.uint8]) -> NDArray[np.float32]:
         raise ValueError(f"Expected uint8 image, got {image.dtype}")
 
     return (image / 255.0).astype(np.float32)
+
+
+def resize_with_aspect_ratio(
+    image: NDArray[np.uint8] | NDArray[np.float32],
+    max_width: int,
+    max_height: int,
+) -> NDArray[np.uint8] | NDArray[np.float32]:
+    """Resize an image while preserving aspect ratio.
+
+    The resulting image fits inside ``(max_height, max_width)`` and never exceeds
+    these dimensions. If the original image already fits, the original size is kept.
+
+    Args:
+        image: Input image array with shape ``(H, W)`` or ``(H, W, C)``.
+        max_width: Maximum output width in pixels. Must be positive.
+        max_height: Maximum output height in pixels. Must be positive.
+
+    Returns:
+        Resized image with preserved aspect ratio.
+
+    Raises:
+        TypeError: If *image* is not a ``np.ndarray``.
+        ValueError: If target dimensions are not positive.
+    """
+    validate_image(image)
+    if max_width <= 0 or max_height <= 0:
+        raise ValueError(
+            "max_width and max_height must be positive, "
+            f"got max_width={max_width}, max_height={max_height}"
+        )
+
+    original_h, original_w = image.shape[:2]
+    width_scale = max_width / original_w
+    height_scale = max_height / original_h
+    scale = min(width_scale, height_scale, 1.0)
+
+    # Komentarz: Zaokrąglamy rozmiar i pilnujemy minimum 1 piksela.
+    target_w = max(1, round(original_w * scale))
+    target_h = max(1, round(original_h * scale))
+
+    # TODO: Rozważyć opcję "letterbox" z paddingiem, aby zachować stały canvas modelu.
+    return resize_image(image, width=target_w, height=target_h)
+
+
+def center_crop(
+    image: NDArray[np.uint8] | NDArray[np.float32],
+    crop_width: int,
+    crop_height: int,
+) -> NDArray[np.uint8] | NDArray[np.float32]:
+    """Crop the image around its center.
+
+    Args:
+        image: Input image array with shape ``(H, W)`` or ``(H, W, C)``.
+        crop_width: Output crop width in pixels. Must be positive and <= input width.
+        crop_height: Output crop height in pixels. Must be positive and <= input height.
+
+    Returns:
+        Cropped image with shape ``(crop_height, crop_width[, C])``.
+
+    Raises:
+        TypeError: If *image* is not a ``np.ndarray``.
+        ValueError: If crop dimensions are invalid.
+    """
+    validate_image(image)
+    if crop_width <= 0 or crop_height <= 0:
+        raise ValueError(
+            "crop_width and crop_height must be positive, "
+            f"got crop_width={crop_width}, crop_height={crop_height}"
+        )
+
+    input_h, input_w = image.shape[:2]
+    if crop_width > input_w or crop_height > input_h:
+        raise ValueError(
+            "Crop size must not exceed input size, "
+            f"got crop=({crop_width}, {crop_height}), image=({input_w}, {input_h})"
+        )
+
+    # Komentarz: Wyznaczamy okno wycinka symetrycznie względem środka obrazu.
+    left = (input_w - crop_width) // 2
+    top = (input_h - crop_height) // 2
+    right = left + crop_width
+    bottom = top + crop_height
+
+    # TODO: Dodać tryb cropowania oparty o ROI z detekcji obiektu.
+    return image[top:bottom, left:right].copy()

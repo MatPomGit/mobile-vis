@@ -123,3 +123,60 @@ class TestNormalizeImage:
         float_img = bgr_image.astype(np.float32)
         with pytest.raises(ValueError):
             normalize_image(float_img)
+
+
+class TestResizeWithAspectRatio:
+    def test_respects_max_size_and_keeps_aspect_ratio(self, bgr_image: np.ndarray) -> None:
+        from image_analysis.preprocessing import resize_with_aspect_ratio
+
+        resized = resize_with_aspect_ratio(bgr_image, max_width=80, max_height=80)
+        assert resized.shape == (40, 80, 3)
+
+    def test_does_not_upscale_smaller_image(self) -> None:
+        from image_analysis.preprocessing import resize_with_aspect_ratio
+
+        image = np.zeros((20, 30, 3), dtype=np.uint8)
+        resized = resize_with_aspect_ratio(image, max_width=200, max_height=200)
+        assert resized.shape == image.shape
+
+    @pytest.mark.parametrize("max_width,max_height", [(0, 10), (10, 0), (-1, 10)])
+    def test_raises_for_invalid_target_size(
+        self,
+        bgr_image: np.ndarray,
+        max_width: int,
+        max_height: int,
+    ) -> None:
+        from image_analysis.preprocessing import resize_with_aspect_ratio
+
+        with pytest.raises(ValueError):
+            resize_with_aspect_ratio(bgr_image, max_width=max_width, max_height=max_height)
+
+
+class TestCenterCrop:
+    def test_returns_center_crop_with_expected_size(self, bgr_image: np.ndarray) -> None:
+        from image_analysis.preprocessing import center_crop
+
+        cropped = center_crop(bgr_image, crop_width=120, crop_height=60)
+        assert cropped.shape == (60, 120, 3)
+
+    def test_returns_copy_not_view(self, bgr_image: np.ndarray) -> None:
+        from image_analysis.preprocessing import center_crop
+
+        cropped = center_crop(bgr_image, crop_width=50, crop_height=50)
+        cropped[:, :, :] = 0
+        assert not np.array_equal(cropped, bgr_image[25:75, 75:125, :])
+
+    @pytest.mark.parametrize("crop_width,crop_height", [(0, 10), (10, 0), (-1, 10)])
+    def test_raises_for_non_positive_crop_dimensions(
+        self, bgr_image: np.ndarray, crop_width: int, crop_height: int
+    ) -> None:
+        from image_analysis.preprocessing import center_crop
+
+        with pytest.raises(ValueError):
+            center_crop(bgr_image, crop_width=crop_width, crop_height=crop_height)
+
+    def test_raises_when_crop_larger_than_input(self, bgr_image: np.ndarray) -> None:
+        from image_analysis.preprocessing import center_crop
+
+        with pytest.raises(ValueError):
+            center_crop(bgr_image, crop_width=500, crop_height=500)

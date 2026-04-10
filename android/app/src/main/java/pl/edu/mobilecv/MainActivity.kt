@@ -217,8 +217,6 @@ class MainActivity : AppCompatActivity() {
                         }
                     }
                 }
-
-                override fun canUpdateUi(): Boolean = !isDestroyed && !isFinishing
             },
         )
 
@@ -241,6 +239,10 @@ class MainActivity : AppCompatActivity() {
                         getString(R.string.eye_tracking_calibration_started),
                         Toast.LENGTH_SHORT,
                     ).show()
+                }
+
+                override fun onUnknownInitialMode(modeName: String) {
+                    Log.w(TAG, "Unknown analysis mode received from intent: $modeName")
                 }
             },
         )

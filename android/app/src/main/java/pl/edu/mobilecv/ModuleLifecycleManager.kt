@@ -24,9 +24,6 @@ class ModuleLifecycleManager(
 
         /** Wyświetla informację dla użytkownika na wątku UI. */
         fun showToast(messageRes: Int, longDuration: Boolean = false)
-
-        /** Informuje, czy host wciąż może aktualizować UI. */
-        fun canUpdateUi(): Boolean
     }
 
     companion object {

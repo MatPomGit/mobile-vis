@@ -27,6 +27,9 @@ class AnalysisUiController(
 
         /** Wykonuje akcję kalibracji eye-trackingu. */
         fun onEyeTrackingCalibrationRequested()
+
+        /** Loguje lub obsługuje niepoprawny tryb przekazany z Intent. */
+        fun onUnknownInitialMode(modeName: String)
     }
 
     @Volatile
@@ -59,6 +62,8 @@ class AnalysisUiController(
         val index = AnalysisMode.entries.indexOfFirst { it.name == modeName }
         if (index >= 0) {
             binding.tabLayoutModes.getTabAt(index)?.select()
+        } else {
+            callbacks.onUnknownInitialMode(modeName)
         }
     }
 

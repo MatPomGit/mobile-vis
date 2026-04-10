@@ -3,10 +3,10 @@
 > **Język opisów:** Polski  
 > **Język kodu:** Angielski
 
-Szablon repozytorium dla projektów dotyczących **analizy obrazu** zrealizowanych w Pythonie oraz
-aplikacja mobilna na Androida umożliwiająca analizę obrazu z kamery telefonu przy użyciu OpenCV.
-Zawiera gotową strukturę katalogów, konfigurację narzędzi jakości kodu oraz instrukcje dla agentów AI
-(GitHub Copilot, Codex, Claude), które gwarantują spójność i najwyższą jakość kodu.
+Repozytorium łączy bibliotekę **analizy obrazu w Pythonie** z aplikacją **Android MobileCV**.
+Zawiera moduły computer vision, testy, benchmarki, dokumentację oraz mobilny klient do pracy na
+obrazie z kamery telefonu przy użyciu OpenCV. Projekt zachowuje prostą zasadę: dokumentacja po
+polsku, kod źródłowy po angielsku.
 
 ---
 
@@ -33,8 +33,12 @@ Zawiera gotową strukturę katalogów, konfigurację narzędzi jakości kodu ora
 
 ## Opis projektu
 
-Niniejszy szablon przeznaczony jest do szybkiego uruchomienia nowych projektów analizy obrazu
-w Pythonie. Pokrywa typowy przepływ pracy obejmujący:
+Projekt obejmuje dwa uzupełniające się obszary:
+
+- bibliotekę `image_analysis` w Pythonie,
+- aplikację Android do demonstracji i uruchamiania wybranych funkcji CV na żywo.
+
+Warstwa Python pokrywa typowy przepływ pracy obejmujący:
 
 - wstępne przetwarzanie obrazów (preprocessing),
 - wykrywanie obiektów (detection),

@@ -96,6 +96,7 @@ class AnalysisUiController(
         width: Int,
         height: Int,
         processingTimeMs: Long,
+        appVersionName: String,
         lensFacingFront: Boolean,
         moduleStatusLine: String,
         stringProvider: (Int, Array<out Any>) -> String,
@@ -108,6 +109,7 @@ class AnalysisUiController(
             appendLine(stringProvider(R.string.diagnostics_fps, arrayOf(fps)))
             appendLine(stringProvider(R.string.diagnostics_resolution, arrayOf(width, height)))
             appendLine(stringProvider(R.string.diagnostics_processing_time, arrayOf(processingTimeMs)))
+            appendLine(stringProvider(R.string.diagnostics_version, arrayOf(appVersionName)))
             appendLine(stringProvider(R.string.diagnostics_filter, arrayOf(currentFilter.displayName)))
             appendLine(stringProvider(R.string.diagnostics_active_vision, arrayOf(isActiveVisionEnabled)))
             appendLine(

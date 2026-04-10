@@ -536,6 +536,7 @@ class MainActivity : AppCompatActivity() {
                         width = frameWidth,
                         height = frameHeight,
                         processingTimeMs = processingTimeMs,
+                        appVersionName = BuildConfig.VERSION_NAME,
                         lensFacingFront = cameraController.lensFacing == CameraSelector.LENS_FACING_FRONT,
                         moduleStatusLine = resolveCurrentModuleStatusLine(),
                     ) { resId, args -> getString(resId, *args) }

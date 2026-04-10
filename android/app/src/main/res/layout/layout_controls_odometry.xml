@@ -1,0 +1,175 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:paddingStart="16dp"
+    android:paddingTop="4dp"
+    android:paddingEnd="16dp">
+
+    <LinearLayout
+        android:id="@+id/layoutVoMaxFeatures"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_vertical"
+                android:minWidth="100dp"
+                android:text="@string/vo_max_features_label"
+                android:textColor="@android:color/white"
+                android:textSize="12sp" />
+
+            <SeekBar
+                android:id="@+id/seekBarVoMaxFeatures"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_vertical"
+                android:layout_weight="1"
+                android:max="5000"
+                android:progress="300"
+                android:progressTint="@android:color/white"
+                android:thumbTint="@android:color/white" />
+
+            <TextView
+                android:id="@+id/textViewVoMaxFeatures"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_vertical"
+                android:layout_marginStart="8dp"
+                android:textColor="@android:color/white"
+                android:textSize="12sp"
+                tools:text="300" />
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingTop="2dp"
+            android:text="@string/vo_max_features_hint"
+            android:textColor="#AAFFFFFF"
+            android:textSize="10sp" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/layoutVoMinParallax"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingTop="4dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_vertical"
+                android:minWidth="100dp"
+                android:text="@string/vo_min_parallax_label"
+                android:textColor="@android:color/white"
+                android:textSize="12sp" />
+
+            <SeekBar
+                android:id="@+id/seekBarVoMinParallax"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_vertical"
+                android:layout_weight="1"
+                android:max="500"
+                android:progress="10"
+                android:progressTint="@android:color/white"
+                android:thumbTint="@android:color/white" />
+
+            <TextView
+                android:id="@+id/textViewVoMinParallax"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_vertical"
+                android:layout_marginStart="8dp"
+                android:textColor="@android:color/white"
+                android:textSize="12sp"
+                tools:text="1.0" />
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingTop="2dp"
+            android:text="@string/vo_min_parallax_hint"
+            android:textColor="#AAFFFFFF"
+            android:textSize="10sp" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/layoutGeometryMaxPlanes"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingTop="4dp"
+        android:visibility="gone">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_vertical"
+            android:minWidth="120dp"
+            android:text="@string/geometry_max_planes_label"
+            android:textColor="@android:color/white"
+            android:textSize="12sp" />
+
+        <SeekBar
+            android:id="@+id/seekBarGeometryMaxPlanes"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_vertical"
+            android:layout_weight="1"
+            android:max="8"
+            android:progress="2"
+            android:progressTint="@android:color/white"
+            android:thumbTint="@android:color/white" />
+
+        <TextView
+            android:id="@+id/textViewGeometryMaxPlanes"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_vertical"
+            android:layout_marginStart="8dp"
+            android:textColor="@android:color/white"
+            android:textSize="12sp"
+            tools:text="3" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/layoutVoMesh"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingTop="4dp">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_vertical"
+            android:layout_weight="1"
+            android:text="@string/vo_mesh_toggle"
+            android:textColor="@android:color/white"
+            android:textSize="12sp" />
+
+        <com.google.android.material.switchmaterial.SwitchMaterial
+            android:id="@+id/switchVoMesh"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_vertical" />
+    </LinearLayout>
+</LinearLayout>

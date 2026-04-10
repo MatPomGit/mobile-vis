@@ -59,6 +59,12 @@
     <string name="diagnostics_active_vision">Active Vision: %1$b</string>
     <string name="diagnostics_active_vision_visualization">Wizualizacja AV: %1$b</string>
 
+    <string name="advanced_section_title">Zaawansowane</string>
+    <string name="advanced_section_toggle">Pokaż lub ukryj ustawienia zaawansowane</string>
+    <string name="context_module_title">Moduł: %1$s</string>
+    <string name="context_hint_morphology">Dopasuj parametry morfologii do bieżących krawędzi i szumu.</string>
+    <string name="context_hint_odometry">Ustaw parametry rekonstrukcji i śledzenia ruchu kamery.</string>
+    <string name="context_hint_detection">Wybierz filtr detekcji i w razie potrzeby rozwiń ustawienia szczegółowe.</string>
     <string name="morphology_kernel_size_label">Jądro:</string>
     <string name="morphology_kernel_size_value">%1$d×%2$d</string>
 

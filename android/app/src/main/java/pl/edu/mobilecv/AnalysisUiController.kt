@@ -54,6 +54,11 @@ class AnalysisUiController(
         val switchPoseRawVsSmoothed: SwitchMaterial? = null,
         val seekBarPoseEmaAlpha: SeekBar? = null,
         val textViewPoseEmaAlpha: TextView? = null,
+        val layoutActiveTrackingControls: View? = null,
+        val switchActiveTrackingAutoRoi: SwitchMaterial? = null,
+        val switchActiveTrackingTargetLock: SwitchMaterial? = null,
+        val seekBarActiveTrackingAggressiveness: SeekBar? = null,
+        val textViewActiveTrackingAggressiveness: TextView? = null,
     )
 
     @Volatile
@@ -240,6 +245,11 @@ class AnalysisUiController(
             switchPoseRawVsSmoothed = v(R.id.switchPoseRawVsSmoothed),
             seekBarPoseEmaAlpha = v(R.id.seekBarPoseEmaAlpha),
             textViewPoseEmaAlpha = v(R.id.textViewPoseEmaAlpha),
+            layoutActiveTrackingControls = v(R.id.layoutActiveTrackingControls),
+            switchActiveTrackingAutoRoi = v(R.id.switchActiveTrackingAutoRoi),
+            switchActiveTrackingTargetLock = v(R.id.switchActiveTrackingTargetLock),
+            seekBarActiveTrackingAggressiveness = v(R.id.seekBarActiveTrackingAggressiveness),
+            textViewActiveTrackingAggressiveness = v(R.id.textViewActiveTrackingAggressiveness),
         )
     }
 
@@ -338,6 +348,31 @@ class AnalysisUiController(
                 controls.textViewPoseEmaAlpha?.text = "%.2f".format(value)
             })
         }
+
+        controls.switchActiveTrackingAutoRoi?.apply {
+            isChecked = imageProcessor.activeTrackingAutoRoi
+            setOnCheckedChangeListener { _, isChecked ->
+                imageProcessor.activeTrackingAutoRoi = isChecked
+            }
+        }
+
+        controls.switchActiveTrackingTargetLock?.apply {
+            isChecked = imageProcessor.activeTrackingTargetLocked
+            setOnCheckedChangeListener { _, isChecked ->
+                imageProcessor.activeTrackingTargetLocked = isChecked
+            }
+        }
+
+        controls.seekBarActiveTrackingAggressiveness?.apply {
+            progress = (imageProcessor.activeTrackingAggressiveness * 100.0).toInt().coerceIn(10, 100)
+            controls.textViewActiveTrackingAggressiveness?.text =
+                "%.2f".format(imageProcessor.activeTrackingAggressiveness)
+            setOnSeekBarChangeListener(simpleSeekbarListener { progressValue ->
+                val value = (progressValue.coerceIn(10, 100)) / 100.0
+                imageProcessor.activeTrackingAggressiveness = value
+                controls.textViewActiveTrackingAggressiveness?.text = "%.2f".format(value)
+            })
+        }
     }
 
     private fun onFilterChipClicked(filter: OpenCvFilter, mode: AnalysisMode, selectedChip: Chip) {
@@ -367,6 +402,7 @@ class AnalysisUiController(
             AnalysisMode.MORPHOLOGY -> R.string.context_hint_morphology
             AnalysisMode.ODOMETRY_UNIFIED -> R.string.context_hint_odometry
             AnalysisMode.SLAM -> R.string.context_hint_slam
+            AnalysisMode.ACTIVE_TRACKING -> R.string.context_hint_active_tracking
             else -> R.string.context_hint_detection
         }
         binding.textViewContextHint.text = binding.root.context.getString(hintRes)
@@ -386,6 +422,8 @@ class AnalysisUiController(
 
         controls?.layoutPoseTemporalControls?.visibility =
             if (currentMode == AnalysisMode.MARKERS) View.VISIBLE else View.GONE
+        controls?.layoutActiveTrackingControls?.visibility =
+            if (currentMode == AnalysisMode.ACTIVE_TRACKING) View.VISIBLE else View.GONE
 
         binding.fabCalibrationMenu.visibility =
             if (currentMode == AnalysisMode.CALIBRATION) View.VISIBLE else View.GONE

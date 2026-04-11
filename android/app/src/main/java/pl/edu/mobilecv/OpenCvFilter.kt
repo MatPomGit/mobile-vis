@@ -70,6 +70,12 @@ enum class OpenCvFilter(val displayName: String) {
     CCTAG("CCTag"),
 
     /**
+     * End-to-end active tracking with dynamic ROI lifecycle:
+     * target detection, ROI update, ROI tracking, and re-acquisition.
+     */
+    ACTIVE_TRACKING("Active Tracking"),
+
+    /**
      * Stabilized marker pose estimation using Unscented Kalman Filter (UKF).
      * Works with ArUco and AprilTag markers to provide smooth 6DOF tracking.
      */

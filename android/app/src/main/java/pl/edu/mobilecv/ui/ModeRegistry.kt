@@ -54,6 +54,12 @@ object ModeRegistry {
         ModeEntry(AnalysisMode.POSE, FunctionalGroup.DETECTION, R.string.mode_desc_pose, AnalysisMode.POSE.filters),
         ModeEntry(AnalysisMode.YOLO, FunctionalGroup.DETECTION, R.string.mode_desc_yolo, AnalysisMode.YOLO.filters),
         ModeEntry(
+            AnalysisMode.ACTIVE_TRACKING,
+            FunctionalGroup.DETECTION,
+            R.string.mode_desc_active_tracking,
+            AnalysisMode.ACTIVE_TRACKING.filters
+        ),
+        ModeEntry(
             AnalysisMode.ODOMETRY_UNIFIED,
             FunctionalGroup.ANALYSIS,
             R.string.mode_desc_odometry,
@@ -90,6 +96,7 @@ object ModeRegistry {
         OpenCvFilter.ARUCO to R.string.filter_desc_aruco,
         OpenCvFilter.QR_CODE to R.string.filter_desc_qr,
         OpenCvFilter.CCTAG to R.string.filter_desc_cctag,
+        OpenCvFilter.ACTIVE_TRACKING to R.string.filter_desc_active_tracking,
         OpenCvFilter.HOLISTIC_BODY to R.string.filter_desc_body,
         OpenCvFilter.HOLISTIC_HANDS to R.string.filter_desc_hands,
         OpenCvFilter.HOLISTIC_FACE to R.string.filter_desc_face,

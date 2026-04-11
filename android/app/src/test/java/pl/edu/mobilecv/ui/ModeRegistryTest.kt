@@ -12,29 +12,31 @@ import pl.edu.mobilecv.AnalysisMode
 class ModeRegistryTest {
 
     /**
-     * Weryfikuje, że zakładka detekcji zawiera dokładnie trzy tryby.
+     * Weryfikuje, że zakładka detekcji zawiera komplet czterech trybów.
      */
     @Test
-    fun `detection group should expose exactly three modes`() {
+    fun `detection group should expose exactly four modes`() {
         val detectionModes = ModeRegistry.entriesForGroup(ModeRegistry.FunctionalGroup.DETECTION)
             .map { it.mode }
 
-        assertEquals(3, detectionModes.size)
+        assertEquals(4, detectionModes.size)
         assertEquals(
-            listOf(AnalysisMode.MARKERS, AnalysisMode.POSE, AnalysisMode.YOLO),
+            listOf(AnalysisMode.MARKERS, AnalysisMode.POSE, AnalysisMode.YOLO, AnalysisMode.ACTIVE_TRACKING),
             detectionModes,
         )
     }
 
     /**
-     * Weryfikuje, że usunięty tryb ACTIVE_TRACKING nie jest już dostępny.
+     * Weryfikuje, że tryb ACTIVE_TRACKING jest dostępny i poprawnie zarejestrowany.
      */
     @Test
-    fun `analysis mode entries should not include active tracking`() {
-        assertFalse(AnalysisMode.entries.any { it.name == "ACTIVE_TRACKING" })
+    fun `analysis mode entries should include active tracking`() {
+        assertTrue(AnalysisMode.entries.any { it.name == "ACTIVE_TRACKING" })
+        assertFalse(AnalysisMode.entries.isEmpty())
         assertTrue(AnalysisMode.entries.contains(AnalysisMode.MARKERS))
         assertTrue(AnalysisMode.entries.contains(AnalysisMode.POSE))
         assertTrue(AnalysisMode.entries.contains(AnalysisMode.YOLO))
+        assertTrue(AnalysisMode.entries.contains(AnalysisMode.ACTIVE_TRACKING))
     }
 
     /**

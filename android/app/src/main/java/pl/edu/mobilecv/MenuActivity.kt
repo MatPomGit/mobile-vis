@@ -53,7 +53,7 @@ class MenuActivity : AppCompatActivity() {
     }
 
     /** Groups of downloadable models shown in the Models tab. */
-    private enum class ModelGroup { MEDIAPIPE, YOLO, RTMDET, MOBILINT, TFLITE }
+    private enum class ModelGroup { MEDIAPIPE, YOLO, TFLITE }
 
     /** Widok statusu modułu (sekcja logiczna niezależna od pojedynczych plików modelu). */
     private data class ModuleStatusViews(
@@ -258,21 +258,6 @@ class MenuActivity : AppCompatActivity() {
         addModelRow(container, "yolov8n-obb.pt",   getString(R.string.model_name_yolo_obb),      ModelGroup.YOLO)
         addDownloadAllButton(container, ModelGroup.YOLO)
 
-        // RTMDet section
-        addSectionHeader(container, getString(R.string.models_rtmdet_title))
-        addGroupDescription(container, getString(R.string.models_rtmdet_description))
-
-        addModelRow(container, RtmDetProcessor.MODEL_DETECT,   getString(R.string.model_name_rtmdet_detect),   ModelGroup.RTMDET)
-        addModelRow(container, RtmDetProcessor.MODEL_ROTATED,  getString(R.string.model_name_rtmdet_rotated),  ModelGroup.RTMDET)
-        addDownloadAllButton(container, ModelGroup.RTMDET)
-
-        // Mobilint section
-        addSectionHeader(container, getString(R.string.models_mobilint_title))
-        addGroupDescription(container, getString(R.string.models_mobilint_description))
-
-        addModelRow(container, "mobilint_detect.mbl", getString(R.string.model_name_mobilint_detect), ModelGroup.MOBILINT)
-        addDownloadAllButton(container, ModelGroup.MOBILINT)
-
         // TFLite section
         addSectionHeader(container, getString(R.string.models_tflite_title))
         addGroupDescription(container, getString(R.string.models_tflite_description))
@@ -290,7 +275,6 @@ class MenuActivity : AppCompatActivity() {
 
         addModuleStatusRow(container, ModuleStatusStore.ModuleType.MEDIAPIPE, getString(R.string.models_mediapipe_title))
         addModuleStatusRow(container, ModuleStatusStore.ModuleType.YOLO, getString(R.string.models_yolo_title))
-        addModuleStatusRow(container, ModuleStatusStore.ModuleType.RTMDET, getString(R.string.models_rtmdet_title))
         addModuleStatusRow(container, ModuleStatusStore.ModuleType.TFLITE, getString(R.string.models_tflite_title))
 
         val diagnosticsButton = MaterialButton(this).apply {
@@ -362,7 +346,6 @@ class MenuActivity : AppCompatActivity() {
             imageProcessor = ImageProcessor(),
             mediaPipeProcessor = MediaPipeProcessor(this),
             yoloProcessor = YoloProcessor(this),
-            rtmDetProcessor = RtmDetProcessor(this),
             tfliteProcessor = TfliteProcessor(this),
             backgroundExecutor = downloadExecutor,
             callbacks = object : ModuleLifecycleManager.Callbacks {
@@ -428,9 +411,7 @@ class MenuActivity : AppCompatActivity() {
     private fun updateModelRowUi(filename: String, group: ModelGroup) {
         val path = when (group) {
             ModelGroup.YOLO    -> ModelDownloadManager.getYoloModelPath(this, filename)
-            ModelGroup.RTMDET  -> ModelDownloadManager.getRtmDetModelPath(this, filename)
             ModelGroup.MEDIAPIPE -> ModelDownloadManager.getModelPath(this, filename)
-            ModelGroup.MOBILINT  -> ModelDownloadManager.getMobilintModelPath(this, filename)
             ModelGroup.TFLITE    -> ModelDownloadManager.getTfliteModelPath(this, filename)
         }
         val views = modelStatusViews[filename] ?: return
@@ -474,9 +455,7 @@ class MenuActivity : AppCompatActivity() {
         val views = modelStatusViews[filename] ?: return
         val url = when (group) {
             ModelGroup.YOLO    -> ModelDownloadManager.YOLO_MODEL_URLS[filename]
-            ModelGroup.RTMDET  -> ModelDownloadManager.RTMDET_MODEL_URLS[filename]
             ModelGroup.MEDIAPIPE -> ModelDownloadManager.MODEL_URLS[filename]
-            ModelGroup.MOBILINT  -> ModelDownloadManager.MOBILINT_MODEL_URLS[filename]
             ModelGroup.TFLITE    -> ModelDownloadManager.TFLITE_MODEL_URLS[filename]
         }
         if (url == null) return
@@ -488,9 +467,7 @@ class MenuActivity : AppCompatActivity() {
         downloadExecutor.execute {
             val success = when (group) {
                 ModelGroup.YOLO    -> ModelDownloadManager.downloadYoloModel(this, filename, url)
-                ModelGroup.RTMDET  -> ModelDownloadManager.downloadRtmDetModel(this, filename, url)
                 ModelGroup.MEDIAPIPE -> ModelDownloadManager.downloadModel(this, filename, url)
-                ModelGroup.MOBILINT  -> ModelDownloadManager.downloadMobilintModel(this, filename, url)
                 ModelGroup.TFLITE    -> ModelDownloadManager.downloadTfliteModel(this, filename, url)
             }
             runOnUiThread {
@@ -521,9 +498,7 @@ class MenuActivity : AppCompatActivity() {
             val views = modelStatusViews[filename] ?: return@forEach
             val alreadyPresent = when (group) {
                 ModelGroup.YOLO    -> ModelDownloadManager.getYoloModelPath(this, filename) != null
-                ModelGroup.RTMDET  -> ModelDownloadManager.getRtmDetModelPath(this, filename) != null
                 ModelGroup.MEDIAPIPE -> ModelDownloadManager.getModelPath(this, filename) != null
-                ModelGroup.MOBILINT  -> ModelDownloadManager.getMobilintModelPath(this, filename) != null
                 ModelGroup.TFLITE    -> ModelDownloadManager.getTfliteModelPath(this, filename) != null
             }
             if (!alreadyPresent) {
@@ -536,9 +511,7 @@ class MenuActivity : AppCompatActivity() {
         downloadExecutor.execute {
             val success = when (group) {
                 ModelGroup.YOLO    -> ModelDownloadManager.downloadMissingYoloModels(this)
-                ModelGroup.RTMDET  -> ModelDownloadManager.downloadMissingRtmDetModels(this)
                 ModelGroup.MEDIAPIPE -> ModelDownloadManager.downloadMissingModels(this)
-                ModelGroup.MOBILINT  -> ModelDownloadManager.downloadMissingMobilintModels(this)
                 ModelGroup.TFLITE    -> ModelDownloadManager.downloadMissingTfliteModels(this)
             }
             runOnUiThread {
@@ -566,10 +539,9 @@ class MenuActivity : AppCompatActivity() {
         val yoloMissing = ModelDownloadManager.YOLO_MODEL_URLS.keys.any {
             ModelDownloadManager.getYoloModelPath(this, it) == null
         }
-        val rtmdetMissing = !ModelDownloadManager.areRtmDetModelsReady(this)
         val tfliteMissing = !ModelDownloadManager.areTfliteModelsReady(this)
 
-        if (!mediapipeMissing && !yoloMissing && !rtmdetMissing && !tfliteMissing) return
+        if (!mediapipeMissing && !yoloMissing && !tfliteMissing) return
 
         AlertDialog.Builder(this)
             .setTitle(R.string.models_missing_title)

@@ -104,15 +104,6 @@ enum class AnalysisMode(val displayName: String, val filters: List<OpenCvFilter>
         )
     ),
 
-    /** Dynamic ROI / active tracking controls collected under one tab. */
-    ACTIVE_TRACKING(
-        "Active Tracking",
-        listOf(
-            OpenCvFilter.YOLO_KALMAN,
-            OpenCvFilter.MARKER_UKF,
-        )
-    ),
-
     /** Camera calibration using chessboard patterns. */
     CALIBRATION(
         "Kalibracja",

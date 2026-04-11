@@ -15,7 +15,7 @@ class MobileModelManifestTest {
             {
               "models": [
                 {
-                  "model_name": "rtmdet_nano_det.pt",
+                  "model_name": "yolov8n.pt",
                   "format": "pt",
                   "input_shape": [1, 3, 640, 640],
                   "dtype": "float32",
@@ -37,7 +37,7 @@ class MobileModelManifestTest {
         val entries = MobileModelManifest.parse(manifestJson)
         assertEquals(1, entries.size)
 
-        val entry = MobileModelManifest.findByModelName(entries, "rtmdet_nano_det.pt")
+        val entry = MobileModelManifest.findByModelName(entries, "yolov8n.pt")
         assertNotNull(entry)
         assertEquals("pt", entry?.format)
         assertEquals(listOf(1, 3, 640, 640), entry?.inputShape)

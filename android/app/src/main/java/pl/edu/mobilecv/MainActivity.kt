@@ -69,7 +69,6 @@ class MainActivity : AppCompatActivity() {
     private val imageProcessor by lazy { ImageProcessor() }
     private val mediaPipeProcessor by lazy { MediaPipeProcessor(this) }
     private val yoloProcessor by lazy { YoloProcessor(this) }
-    private val rtmDetProcessor by lazy { RtmDetProcessor(this) }
     private val tfliteProcessor by lazy { TfliteProcessor(this) }
     private val processedVideoRecorder: ProcessedVideoRecorder by lazy { ProcessedVideoRecorder(this) }
 

@@ -128,7 +128,6 @@ class ImageProcessor {
     var calibrator: CameraCalibrator? = null
     var mediaPipeProcessor: MediaPipeProcessor? = null
     var yoloProcessor: YoloProcessor? = null
-    var rtmDetProcessor: RtmDetProcessor? = null
     var tfliteProcessor: TfliteProcessor? = null
 
     var labelFrameCountSuffix: String = "klatek"
@@ -370,12 +369,6 @@ class ImageProcessor {
         }
         if (filter.isYolo) {
             val result = yoloProcessor?.processFrame(bitmap, filter)
-                ?: bitmap.copy(Bitmap.Config.ARGB_8888, false)
-            if (showFpsOverlay) drawFpsOnBitmap(result)
-            return result
-        }
-        if (filter.isRtmDet) {
-            val result = rtmDetProcessor?.processFrame(bitmap, filter)
                 ?: bitmap.copy(Bitmap.Config.ARGB_8888, false)
             if (showFpsOverlay) drawFpsOnBitmap(result)
             return result

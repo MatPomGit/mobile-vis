@@ -87,7 +87,6 @@ object ModelDownloadManager {
     )
 
     private const val YOLO_DIR = "yolo"
-    private const val RTMDET_DIR = "rtmdet"
 
     /**
      * Remote download URLs for TFLite (SSD MobileNet) models.
@@ -203,6 +202,20 @@ object ModelDownloadManager {
             dest = tfliteModelFile(context, filename),
             manifestFile = tfliteManifestFile(context),
         )
+
+    /**
+     * Download a single model file from [url] to [dest].
+     *
+     * Each attempt writes to a temporary file alongside [dest] and atomically renames
+     * it on success.  Failed attempts are retried up to [MAX_DOWNLOAD_RETRIES] times
+     * with exponential back-off (starting at [RETRY_DELAY_MS] ms, doubling each time).
+     *
+     * @param context Application or activity context.
+     * @param filename Logical filename used for logging.
+     * @param url Source URL.
+     * @param dest Destination [File] on internal storage.
+     * @return ``true`` on success.
+     */
 
     private fun downloadModel(
         context: Context,
@@ -369,20 +382,6 @@ object ModelDownloadManager {
         dir.listFiles()?.forEach { it.delete() }
         Log.i(TAG, "All YOLO models deleted")
     }
-
-    // ------------------------------------------------------------------
-    // RTMDet model lookup (without download management)
-    // ------------------------------------------------------------------
-
-    /**
-     * Return the absolute path to an RTMDet model file if it exists in internal
-     * storage, or ``null`` if the file is missing.
-     */
-    fun getRtmDetModelPath(context: Context, modelFilename: String): String? {
-        val file = rtmdetModelFile(context, modelFilename)
-        return if (file.exists() && file.length() > 0) file.absolutePath else null
-    }
-
     // ------------------------------------------------------------------
     // TFLite Model Management
     // ------------------------------------------------------------------
@@ -452,12 +451,6 @@ object ModelDownloadManager {
 
     private fun yoloModelFile(context: Context, filename: String): File =
         File(yoloDir(context), filename)
-
-    private fun rtmdetDir(context: Context): File =
-        File(context.filesDir, RTMDET_DIR).also { it.mkdirs() }
-
-    private fun rtmdetModelFile(context: Context, filename: String): File =
-        File(rtmdetDir(context), filename)
 
     private fun tfliteDir(context: Context): File =
         File(context.filesDir, TFLITE_DIR).also { it.mkdirs() }

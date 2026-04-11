@@ -230,7 +230,7 @@ class MenuActivity : AppCompatActivity() {
     // "Modele" tab
     // ------------------------------------------------------------------
 
-    /** Builds the Models tab with MediaPipe, YOLO and RTMDet model status rows. */
+    /** Builds the Models tab with MediaPipe, YOLO and TFLite model status rows. */
     private fun buildModelsTab() {
         val container = binding.modelsContainer
 
@@ -484,7 +484,7 @@ class MenuActivity : AppCompatActivity() {
     }
 
     /**
-     * Downloads all missing models for a group (MediaPipe, YOLO or RTMDet) in the background.
+     * Downloads all missing models for a group (MediaPipe, YOLO or TFLite) in the background.
      * Shows indeterminate progress bars for all missing rows while the download runs.
      *
      * @param group Model group to download.

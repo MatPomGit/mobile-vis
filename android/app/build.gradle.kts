@@ -98,7 +98,6 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.mediapipe.tasks.vision)
     implementation(libs.pytorch.android)
-    implementation(libs.pytorch.android.torchvision)
     implementation(libs.tflite.main)
     implementation(libs.tflite.gpu)
     implementation(libs.tflite.gpuapi)

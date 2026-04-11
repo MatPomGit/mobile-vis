@@ -150,6 +150,13 @@ Do utworzenia w repozytorium GitHub:
 
 ---
 
+## QA checklist (Android modele AI)
+
+- [ ] Zweryfikowano inicjalizację i pobieranie modeli tylko dla: **MediaPipe**, **YOLO**, **TFLite**.
+- [ ] Potwierdzono brak odwołań do usuniętych silników (RTMDet, Mobilint) w UI i opisach.
+
+---
+
 **Użycie:**  
 Ten dokument może służyć jako checklist przy tworzeniu issues w GitHub. 
 Każdy wiersz odpowiada jednemu issue do utworzenia.

@@ -89,36 +89,6 @@ object ModelDownloadManager {
     private const val YOLO_DIR = "yolo"
 
     /**
-     * Remote download URLs for RTMDet-nano TorchScript models hosted on GitHub Releases.
-     *
-     * The models are exported from the official OpenMMLab RTMDet weights via
-     * mmdeploy and stored in the project's GitHub Releases under the ``models`` tag.
-     * Replace these URLs with your own CDN or GitHub Releases links if you host
-     * the models elsewhere.
-     */
-    val RTMDET_MODEL_URLS: Map<String, String> = mapOf(
-        RtmDetProcessor.MODEL_DETECT to
-            "https://github.com/MatPomGit/mobile-vis/releases/download/models/rtmdet_nano_det.pt",
-        RtmDetProcessor.MODEL_ROTATED to
-            "https://github.com/MatPomGit/mobile-vis/releases/download/models/rtmdet_nano_rotated.pt",
-    )
-
-    private const val RTMDET_DIR = "rtmdet"
-
-    /**
-     * Remote download URLs for Mobilint Ares NPU optimized models.
-     *
-     * These models are specially compiled for the Mobilint hardware and
-     * are hosted in the project's GitHub Releases.
-     */
-    val MOBILINT_MODEL_URLS: Map<String, String> = mapOf(
-        "mobilint_detect.mbl" to
-            "https://github.com/MatPomGit/mobile-vis/releases/download/models/mobilint_detect.mbl",
-    )
-
-    private const val MOBILINT_DIR = "mobilint"
-
-    /**
      * Remote download URLs for TFLite (SSD MobileNet) models.
      */
     val TFLITE_MODEL_URLS: Map<String, String> = mapOf(
@@ -224,23 +194,6 @@ object ModelDownloadManager {
             manifestFile = yoloManifestFile(context),
         )
 
-    /**
-     * Download a single RTMDet model file from [url] to the RTMDet directory.
-     *
-     * @param context Application or activity context.
-     * @param filename Target filename (e.g. [RtmDetProcessor.MODEL_DETECT]).
-     * @param url Source URL.
-     * @return ``true`` on success.
-     */
-    fun downloadRtmDetModel(context: Context, filename: String, url: String): Boolean =
-        downloadModel(
-            context = context,
-            filename = filename,
-            url = url,
-            dest = rtmdetModelFile(context, filename),
-            manifestFile = rtmdetManifestFile(context),
-        )
-
     fun downloadTfliteModel(context: Context, filename: String, url: String): Boolean =
         downloadModel(
             context = context,
@@ -263,9 +216,6 @@ object ModelDownloadManager {
      * @param dest Destination [File] on internal storage.
      * @return ``true`` on success.
      */
-    fun downloadMobilintModel(context: Context, modelName: String, url: String): Boolean {
-        return downloadModel(context, modelName, url, mobilintModelFile(context, modelName))
-    }
 
     private fun downloadModel(
         context: Context,
@@ -432,122 +382,6 @@ object ModelDownloadManager {
         dir.listFiles()?.forEach { it.delete() }
         Log.i(TAG, "All YOLO models deleted")
     }
-
-    // ------------------------------------------------------------------
-    // RTMDet model management
-    // ------------------------------------------------------------------
-
-    /**
-     * Return the absolute path to an RTMDet model file if it exists in
-     * internal storage, or ``null`` if it has not been downloaded yet.
-     *
-     * @param context Application or activity context.
-     * @param modelFilename Filename such as [RtmDetProcessor.MODEL_DETECT].
-     */
-    fun getRtmDetModelPath(context: Context, modelFilename: String): String? {
-        val file = rtmdetModelFile(context, modelFilename)
-        return if (file.exists() && file.length() > 0) file.absolutePath else null
-    }
-
-    /**
-     * Return ``true`` if **all** RTMDet model files are present and non-empty.
-     *
-     * @param context Application or activity context.
-     */
-    fun areRtmDetModelsReady(context: Context): Boolean =
-        RTMDET_MODEL_URLS.keys.all { getRtmDetModelPath(context, it) != null }
-
-    /**
-     * Download all missing RTMDet model files.
-     *
-     * This is a blocking call; run it on a background thread.
-     *
-     * @param context Application or activity context.
-     * @param onProgress Optional callback invoked with current and total file count.
-     * @return ``true`` if all RTMDet models are now available; ``false`` if any download failed.
-     */
-    fun downloadMissingRtmDetModels(
-        context: Context,
-        onProgress: ((downloaded: Int, total: Int) -> Unit)? = null,
-    ): Boolean {
-        if (!ensureManifestDownloaded(context, rtmdetManifestFile(context))) {
-            Log.e(TAG, "Failed to download RTMDet manifest")
-            return false
-        }
-        val missing = RTMDET_MODEL_URLS.filter { (filename, _) ->
-            getRtmDetModelPath(context, filename) == null
-        }
-        if (missing.isEmpty()) return true
-
-        var downloaded = 0
-        val total = missing.size
-
-        for ((filename, url) in missing) {
-            val dest = rtmdetModelFile(context, filename)
-            val success = downloadModel(
-                context = context,
-                filename = filename,
-                url = url,
-                dest = dest,
-                manifestFile = rtmdetManifestFile(context),
-            )
-            if (success) {
-                downloaded++
-                onProgress?.invoke(downloaded, total)
-            } else {
-                Log.e(TAG, "Failed to download RTMDet model: $filename")
-                return false
-            }
-        }
-        return true
-    }
-
-    /**
-     * Delete all downloaded RTMDet model files from internal storage.
-     *
-     * @param context Application or activity context.
-     */
-    fun deleteAllRtmDetModels(context: Context) {
-        val dir = rtmdetDir(context)
-        dir.listFiles()?.forEach { it.delete() }
-        Log.i(TAG, "All RTMDet models deleted")
-    }
-
-    // ------------------------------------------------------------------
-    // Mobilint Model Management
-    // ------------------------------------------------------------------
-
-    fun getMobilintModelPath(context: Context, modelName: String): String? {
-        val file = mobilintModelFile(context, modelName)
-        return if (file.exists()) file.absolutePath else null
-    }
-
-    fun areMobilintModelsReady(context: Context): Boolean {
-        return MOBILINT_MODEL_URLS.keys.all { mobilintModelFile(context, it).exists() }
-    }
-
-    fun downloadMissingMobilintModels(context: Context, onProgress: ((downloaded: Int, total: Int) -> Unit)? = null): Boolean {
-        val missing = MOBILINT_MODEL_URLS.keys.filter { !mobilintModelFile(context, it).exists() }
-        if (missing.isEmpty()) return true
-
-        var successCount = 0
-        missing.forEach { modelName ->
-            val url = MOBILINT_MODEL_URLS[modelName]!!
-            val file = mobilintModelFile(context, modelName)
-            if (downloadModel(context, modelName, url, file)) {
-                successCount++
-                onProgress?.invoke(successCount, missing.size)
-            }
-        }
-        return successCount == missing.size
-    }
-
-    fun deleteAllMobilintModels(context: Context) {
-        val dir = mobilintDir(context)
-        dir.listFiles()?.forEach { it.delete() }
-        Log.i(TAG, "All Mobilint models deleted")
-    }
-
     // ------------------------------------------------------------------
     // TFLite Model Management
     // ------------------------------------------------------------------
@@ -618,18 +452,6 @@ object ModelDownloadManager {
     private fun yoloModelFile(context: Context, filename: String): File =
         File(yoloDir(context), filename)
 
-    private fun rtmdetDir(context: Context): File =
-        File(context.filesDir, RTMDET_DIR).also { it.mkdirs() }
-
-    private fun rtmdetModelFile(context: Context, filename: String): File =
-        File(rtmdetDir(context), filename)
-
-    private fun mobilintDir(context: Context): File =
-        File(context.filesDir, MOBILINT_DIR).also { it.mkdirs() }
-
-    private fun mobilintModelFile(context: Context, filename: String): File =
-        File(mobilintDir(context), filename)
-
     private fun tfliteDir(context: Context): File =
         File(context.filesDir, TFLITE_DIR).also { it.mkdirs() }
 
@@ -638,9 +460,6 @@ object ModelDownloadManager {
 
     private fun yoloManifestFile(context: Context): File =
         File(yoloDir(context), MANIFEST_FILENAME)
-
-    private fun rtmdetManifestFile(context: Context): File =
-        File(rtmdetDir(context), MANIFEST_FILENAME)
 
     private fun tfliteManifestFile(context: Context): File =
         File(tfliteDir(context), MANIFEST_FILENAME)

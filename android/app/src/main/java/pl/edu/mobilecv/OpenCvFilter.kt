@@ -275,35 +275,6 @@ enum class OpenCvFilter(val displayName: String) {
     YOLO_OBB("YOLO OBB"),
 
     // ------------------------------------------------------------------
-    // RTMDet object detection
-    // ------------------------------------------------------------------
-
-    /**
-     * Detects objects using RTMDet-nano (OpenMMLab) running on the OpenCV DNN
-     * backend.  Draws axis-aligned bounding boxes with class labels and
-     * confidence scores for all 80 COCO classes.
-     */
-    RTMDET_DETECT("RTMDet Detect"),
-
-    /**
-     * Detects objects with oriented (rotated) bounding boxes using
-     * RTMDet-nano-r (RTMDet-Rotated) running on the OpenCV DNN backend.
-     * Each detection is rendered as a rotated rectangle together with its
-     * class label and rotation angle.
-     */
-    RTMDET_ROTATED("RTMDet Rotated"),
-
-    // ------------------------------------------------------------------
-    // Mobilint NPU hardware acceleration
-    // ------------------------------------------------------------------
-
-    /**
-     * High-performance object detection accelerated by Mobilint Ares NPU.
-     * Uses a specialized model optimized for hardware-level execution.
-     */
-    MOBILINT_DETECT("Mobilint Detect (NPU)"),
-
-    // ------------------------------------------------------------------
     // TFLite object detection
     // ------------------------------------------------------------------
 
@@ -375,14 +346,6 @@ val OpenCvFilter.isYolo: Boolean
         this == OpenCvFilter.YOLO_POSE ||
         this == OpenCvFilter.YOLO_CLASSIFY ||
         this == OpenCvFilter.YOLO_OBB
-
-/**
- * Returns ``true`` if this filter requires the RTMDet processing pipeline
- * backed by the PyTorch Mobile library.
- */
-val OpenCvFilter.isRtmDet: Boolean
-    get() = this == OpenCvFilter.RTMDET_DETECT ||
-        this == OpenCvFilter.RTMDET_ROTATED
 
 /**
  * Returns ``true`` if this filter requires the TensorFlow Lite processing pipeline.

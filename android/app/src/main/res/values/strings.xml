@@ -116,15 +116,7 @@
     <string name="yolo_models_ready">Modele YOLO gotowe</string>
     <string name="yolo_models_download_failed" tools:keep="@string/yolo_models_download_failed">Nie udało się pobrać modeli YOLO. Sprawdź połączenie z internetem.</string>
 
-    <!-- RTMDet object detection -->
-    <string name="rtmdet_models_downloading">Pobieranie modeli RTMDet w tle…</string>
-    <string name="rtmdet_models_ready">Modele RTMDet gotowe</string>
-    <string name="rtmdet_models_download_failed">Nie udało się pobrać modeli RTMDet. Sprawdź połączenie z internetem.</string>
 
-    <!-- Mobilint NPU -->
-    <string name="mobilint_models_downloading">Pobieranie modeli Mobilint w tle…</string>
-    <string name="mobilint_models_ready">Modele Mobilint gotowe</string>
-    <string name="mobilint_models_download_failed">Nie udało się pobrać modeli Mobilint. Sprawdź połączenie z internetem.</string>
 
     <!-- TFLite object detection -->
     <string name="tflite_models_downloading">Pobieranie modeli TFLite w tle…</string>
@@ -154,7 +146,7 @@
     <string name="about_section_detection_title">2) Tryby detekcji</string>
     <string name="about_section_detection_content">• Markery: AprilTag, ArUco, QR i CCTag.
 • Poza/Twarz: śledzenie ciała, dłoni i twarzy przez MediaPipe.
-• YOLO / RTMDet / TFLite: detekcja obiektów oraz wybrane warianty segmentacji i estymacji pozy.
+• YOLO / TFLite: detekcja obiektów oraz wybrane warianty segmentacji i estymacji pozy.
 • Część trybów wymaga pobrania modeli z zakładki „Modele”.</string>
 
     <string name="about_section_odometry_title">3) Odometria / SLAM</string>
@@ -253,7 +245,6 @@
     <string name="mode_desc_calibration">Kalibracja kamery wzorcem szachownicy</string>
     <string name="mode_desc_effects">Artystyczne efekty wizualne: inwersja, sepia, tłoczenie, pikselizacja i styl kreskówki</string>
 
-    <!-- About tab – filter descriptions (RTMDET mode) -->
 
     <!-- About tab – filter descriptions (FULL_ODOMETRY_3D mode) -->
     <string name="filter_desc_full_odometry">Pełna odometria 3D: estymuje pozę kamery metodą macierzy zasadniczej, akumuluje trajektorię i wyświetla HUD ze statystykami ruchu.</string>
@@ -278,10 +269,6 @@
     <string name="models_mediapipe_description">Modele do śledzenia pozy ciała (Pose), rąk (Hand) i siatki twarzy (Face Mesh) używane w trybie Poza/Twarz.</string>
     <string name="models_yolo_title">Modele YOLO (źródłowe)</string>
     <string name="models_yolo_description">Pliki źródłowe YOLOv8-nano pobierane bezpośrednio od producenta (Ultralytics). Obejmują detekcję obiektów (Detect), segmentację (Segment), estymację pozy (Pose), klasyfikację (Classify) i orientowane ramki (OBB). Po pobraniu wymagają konwersji do TorchScript w celu uruchomienia na urządzeniu.</string>
-    <string name="models_rtmdet_title">Modele RTMDet</string>
-    <string name="models_rtmdet_description">Modele RTMDet-nano w formacie TorchScript do detekcji obiektów (Detect) i detekcji z obróconymi ramkami (Rotated) używane w trybie RTMDet.</string>
-    <string name="models_mobilint_title">Modele Mobilint NPU</string>
-    <string name="models_mobilint_description">Modele zoptymalizowane pod kątem akceleratora Mobilint NPU. Zapewniają najwyższą wydajność inferencji przy minimalnym zużyciu energii.</string>
     <string name="models_tflite_title">Modele TensorFlow Lite</string>
     <string name="models_tflite_description">Modele w formacie TFLite do detekcji obiektów. SSD MobileNet V2 to lekki i szybki model zoptymalizowany dla urządzeń mobilnych.</string>
     <string name="model_name_pose_landmarker">Pose Landmarker (ciało)</string>
@@ -293,9 +280,6 @@
     <string name="model_name_yolo_pose">YOLOv8n Pose (estymacja pozy)</string>
     <string name="model_name_yolo_classify">YOLOv8n Classify (klasyfikacja ImageNet-1000)</string>
     <string name="model_name_yolo_obb">YOLOv8n OBB (orientowane ramki, DOTAv1)</string>
-    <string name="model_name_rtmdet_detect">RTMDet-nano Detect (detekcja obiektów COCO)</string>
-    <string name="model_name_rtmdet_rotated">RTMDet-nano Rotated (orientowane ramki)</string>
-    <string name="model_name_mobilint_detect">Mobilint Detect (NPU Optimized)</string>
     <string name="model_name_tflite_detect">SSD MobileNet V2 (TFLite)</string>
     <string name="model_status_available">Pobrano • %1$s</string>
     <string name="model_status_missing">Nie pobrano</string>
@@ -310,7 +294,7 @@
 
     <!-- Models-missing suggestion dialog (shown at startup when any model is absent) -->
     <string name="models_missing_title">Brakujące modele</string>
-    <string name="models_missing_message">Niektóre modele AI (MediaPipe, YOLO, RTMDet lub TFLite) nie zostały jeszcze pobrane. Przejdź do zakładki „Modele", aby pobrać brakujące pliki przed pierwszym użyciem tych trybów.</string>
+    <string name="models_missing_message">Niektóre modele AI (MediaPipe, YOLO lub TFLite) nie zostały jeszcze pobrane. Przejdź do zakładki „Modele", aby pobrać brakujące pliki przed pierwszym użyciem tych trybów.</string>
     <string name="models_go_to_tab">Przejdź do Modele</string>
     <string name="models_later">Później</string>
 
@@ -414,7 +398,6 @@
     <!-- Module status store / diagnostics -->
     <string name="module_error_mediapipe">MediaPipe: błąd inicjalizacji modułu.</string>
     <string name="module_error_yolo">YOLO: błąd inicjalizacji modułu.</string>
-    <string name="module_error_rtmdet">RTMDET: błąd inicjalizacji modułu.</string>
     <string name="module_error_tflite">TFLITE: błąd inicjalizacji modułu.</string>
     <string name="module_action_retry">Pobierz ponownie</string>
     <string name="module_action_disable">Wyłącz moduł</string>

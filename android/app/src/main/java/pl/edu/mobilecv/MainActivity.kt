@@ -69,7 +69,6 @@ class MainActivity : AppCompatActivity() {
     private val imageProcessor by lazy { ImageProcessor() }
     private val mediaPipeProcessor by lazy { MediaPipeProcessor(this) }
     private val yoloProcessor by lazy { YoloProcessor(this) }
-    private val rtmDetProcessor by lazy { RtmDetProcessor(this) }
     private val tfliteProcessor by lazy { TfliteProcessor(this) }
     private val processedVideoRecorder: ProcessedVideoRecorder by lazy { ProcessedVideoRecorder(this) }
 
@@ -234,7 +233,6 @@ class MainActivity : AppCompatActivity() {
             imageProcessor = imageProcessor,
             mediaPipeProcessor = mediaPipeProcessor,
             yoloProcessor = yoloProcessor,
-            rtmDetProcessor = rtmDetProcessor,
             tfliteProcessor = tfliteProcessor,
             backgroundExecutor = backgroundExecutor,
             callbacks = object : ModuleLifecycleManager.Callbacks {

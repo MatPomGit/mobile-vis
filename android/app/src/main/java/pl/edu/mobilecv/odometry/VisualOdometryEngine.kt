@@ -90,6 +90,17 @@ class VisualOdometryEngine {
         private const val KEYFRAME_MIN_ROTATION_DEG = 7.0
         private const val KEYFRAME_MAX_SIZE = 15
         private const val MARKER_CORRECTION_ALPHA = 0.2
+        private const val LOW_FEATURE_RECOVERY_THRESHOLD = 2
+        private const val LOW_INLIER_RECOVERY_THRESHOLD = 3
+    }
+
+    /**
+     * Akcja odzyskiwania jakości śledzenia wykonywana lokalnie, bez pełnego resetu aplikacji.
+     */
+    enum class RecoveryAction {
+        NONE,
+        REDETECT_AND_DEGRADE,
+        LOCAL_TRACKER_RESTART,
     }
 
     enum class FeatureDetectorType {
@@ -98,6 +109,7 @@ class VisualOdometryEngine {
     }
 
     private var prevGray = Mat()
+    private val grayBuffer = Mat()
     private var calibrator: CameraCalibrator? = null
     private var lastTracks = mutableListOf<List<Point>>()
     private var globalPose = Pose.identity()
@@ -113,6 +125,9 @@ class VisualOdometryEngine {
     var minParallax = DEFAULT_MIN_PARALLAX_PX
     var isMeshEnabled = false
     var featureDetectorType: FeatureDetectorType = FeatureDetectorType.ORB
+    private var lowFeatureStreak = 0
+    private var lowInlierStreak = 0
+    private var degradedModeActive = false
 
     var lastPointCloud: PointCloudState? = null
         private set
@@ -124,18 +139,16 @@ class VisualOdometryEngine {
         get() = synchronized(this) { lastTracks }
 
     fun updateOdometry(src: Mat, markers: List<MarkerDetection> = emptyList()): OdometryState? {
-        val gray = Mat()
+        val gray = ensureGrayBuffer(src.rows(), src.cols())
         Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
         val (state, _) = processFrameInternal(gray, src, markers)
-        gray.release()
         return state
     }
 
     fun updatePointCloud(src: Mat, markers: List<MarkerDetection> = emptyList()): PointCloudState? {
-        val gray = Mat()
+        val gray = ensureGrayBuffer(src.rows(), src.cols())
         Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
         val (_, cloud) = processFrameInternal(gray, src, markers)
-        gray.release()
         return cloud
     }
 
@@ -143,7 +156,7 @@ class VisualOdometryEngine {
      * Process an RGBA frame and update internal state.
      */
     fun processFrameRgba(src: Mat, calib: CameraCalibrator? = null, markers: List<MarkerDetection> = emptyList()) {
-        val gray = Mat()
+        val gray = ensureGrayBuffer(src.rows(), src.cols())
         if (src.channels() > 1) {
             Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
         } else {
@@ -151,7 +164,6 @@ class VisualOdometryEngine {
         }
         this.calibrator = calib
         processFrameInternal(gray, src, markers)
-        gray.release()
     }
 
     fun processFrame(
@@ -162,6 +174,33 @@ class VisualOdometryEngine {
     ): Pair<OdometryState?, PointCloudState?> {
         this.calibrator = calib
         return processFrameInternal(gray, srcRgba, markers)
+    }
+
+    private fun ensureGrayBuffer(rows: Int, cols: Int): Mat {
+        if (grayBuffer.rows() != rows || grayBuffer.cols() != cols || grayBuffer.type() != CvType.CV_8UC1) {
+            grayBuffer.create(rows, cols, CvType.CV_8UC1)
+        }
+        return grayBuffer
+    }
+
+    /**
+     * Oblicza akcję fallbacku na podstawie jakości śledzenia.
+     */
+    internal fun decideRecoveryAction(pointsCount: Int, inlierRatio: Double): RecoveryAction {
+        if (pointsCount < MIN_INLIERS_COUNT) lowFeatureStreak += 1 else lowFeatureStreak = 0
+        if (inlierRatio < 0.25) lowInlierStreak += 1 else lowInlierStreak = 0
+        return when {
+            lowFeatureStreak >= LOW_FEATURE_RECOVERY_THRESHOLD -> {
+                degradedModeActive = true
+                featureDetectorType = FeatureDetectorType.AKAZE
+                RecoveryAction.REDETECT_AND_DEGRADE
+            }
+            lowInlierStreak >= LOW_INLIER_RECOVERY_THRESHOLD -> {
+                lowInlierStreak = 0
+                RecoveryAction.LOCAL_TRACKER_RESTART
+            }
+            else -> RecoveryAction.NONE
+        }
     }
 
     private fun processFrameInternal(
@@ -252,13 +291,29 @@ class VisualOdometryEngine {
                     "bins=${quality.occupiedBins} (min=$MIN_SPATIAL_BINS), " +
                     "coverage=%.3f (min=%.3f), ".format(quality.spatialCoverage, MIN_SPATIAL_COVERAGE) +
                     "parallax=%.3f (min=%.3f)".format(quality.meanParallax, minParallax)
-            return trackingLost(gray, reason)
+            return when (decideRecoveryAction(quality.inliersCount, 0.0)) {
+                RecoveryAction.LOCAL_TRACKER_RESTART -> localTrackerRestart(gray, reason)
+                else -> trackingLost(gray, reason)
+            }
         }
 
         val (state, points) = estimateMotionAndPoints(inlierPrev, inlierCurr, srcRgba, calibrationProfile, markers)
         inlierPrev.release()
         inlierCurr.release()
 
+        when (decideRecoveryAction(state?.inliersCount ?: 0, state?.inlierRatio ?: 0.0)) {
+            RecoveryAction.REDETECT_AND_DEGRADE -> {
+                gray.copyTo(prevGray)
+                return trackingLost(gray, "adaptive fallback: redetect and degraded detector")
+            }
+            RecoveryAction.LOCAL_TRACKER_RESTART -> return localTrackerRestart(gray, "adaptive fallback: low inlier ratio")
+            RecoveryAction.NONE -> Unit
+        }
+        if (degradedModeActive && (state?.inlierRatio ?: 0.0) >= 0.4) {
+            degradedModeActive = false
+            featureDetectorType = FeatureDetectorType.ORB
+            lowFeatureStreak = 0
+        }
         lastPointCloud = points
         gray.copyTo(prevGray)
         return state to points
@@ -269,6 +324,17 @@ class VisualOdometryEngine {
         gray.copyTo(prevGray)
         lastPointCloud = null
         synchronized(this) { lastTracks.clear() }
+        return null to null
+    }
+
+    /**
+     * Lokalny restart trackera bez resetowania globalnej trajektorii.
+     */
+    private fun localTrackerRestart(gray: Mat, reason: String): Pair<OdometryState?, PointCloudState?> {
+        android.util.Log.w(TAG, "local tracker restart: $reason")
+        gray.copyTo(prevGray)
+        synchronized(this) { lastTracks.clear() }
+        lastPointCloud = null
         return null to null
     }
 
@@ -735,6 +801,7 @@ class VisualOdometryEngine {
         synchronized(this) {
             prevGray.release()
             prevGray = Mat()
+            grayBuffer.release()
             lastPointCloud = null
             lastTracks.clear()
             globalPose = Pose.identity()

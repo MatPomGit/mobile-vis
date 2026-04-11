@@ -39,9 +39,13 @@ import pl.edu.mobilecv.odometry.FullOdometryEngine
 import pl.edu.mobilecv.odometry.VisualOdometryEngine
 import pl.edu.mobilecv.vision.CameraCalibrator
 import java.io.File
+import java.util.concurrent.Callable
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.Future
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.getValue
@@ -61,6 +65,8 @@ class MainActivity : AppCompatActivity() {
         private const val PREFS_NAME = "mobilecv_prefs"
         private const val PREF_CAMERA_RESOLUTION = "camera_resolution"
         private const val UI_UPDATE_MIN_INTERVAL_NS = 33_000_000L
+        private const val HEAVY_FILTER_TIMEOUT_MS = 120L
+        private const val TELEMETRY_RECOVERY_THRESHOLD = 5
     }
 
     private lateinit var binding: ActivityMainBinding
@@ -94,6 +100,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var dataCollectionCache: DataCollectionCacheDataStore
     private val telemetryScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val exceptionTelemetry = ConcurrentHashMap<String, AtomicInteger>()
+    private val frameTimeoutTelemetry = ConcurrentHashMap<String, AtomicInteger>()
+    private val degradedFiltersUntilNs = ConcurrentHashMap<OpenCvFilter, Long>()
 
     private val permissionsLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
@@ -343,6 +351,58 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Uruchamia filtr ciężki w osobnym zadaniu i przerywa oczekiwanie po przekroczeniu limitu czasu.
+     */
+    private fun processWithTimeoutGuard(
+        oriented: Bitmap,
+        filter: OpenCvFilter,
+    ): Bitmap {
+        if (!isHeavyFilter(filter)) {
+            return imageProcessor.processFrame(oriented, filter, ImageProcessor.EmptyState)
+        }
+        val now = System.nanoTime()
+        val blockedUntil = degradedFiltersUntilNs[filter] ?: 0L
+        if (now < blockedUntil) {
+            logExceptionTelemetry("frame_guard", "skip_${filter.name.lowercase()}", IllegalStateException("guarded"))
+            return oriented.copy(Bitmap.Config.ARGB_8888, false)
+        }
+
+        val task: Future<Bitmap> = backgroundExecutor.submit(
+            Callable {
+                imageProcessor.processFrame(oriented, filter, ImageProcessor.EmptyState)
+            },
+        )
+        return try {
+            task.get(HEAVY_FILTER_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+        } catch (_: TimeoutException) {
+            task.cancel(true)
+            val timeoutCount = frameTimeoutTelemetry.getOrPut(filter.name) { AtomicInteger(0) }.incrementAndGet()
+            logExceptionTelemetry("frame_guard", "timeout_${filter.name.lowercase()}", RuntimeException("timeout"))
+            if (timeoutCount >= 3) {
+                degradedFiltersUntilNs[filter] = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
+            }
+            oriented.copy(Bitmap.Config.ARGB_8888, false)
+        }
+    }
+
+    /**
+     * Zwraca true dla filtrów o największym koszcie CPU/GPU.
+     */
+    private fun isHeavyFilter(filter: OpenCvFilter): Boolean = when (filter) {
+        OpenCvFilter.VISUAL_ODOMETRY,
+        OpenCvFilter.POINT_CLOUD,
+        OpenCvFilter.FULL_ODOMETRY,
+        OpenCvFilter.ODOMETRY_TRAJECTORY,
+        OpenCvFilter.ODOMETRY_MAP,
+        OpenCvFilter.SLAM_POINTS,
+        OpenCvFilter.SLAM_MARKERS,
+        OpenCvFilter.SLAM_MARKERS_FUSED,
+        OpenCvFilter.PLANE_DETECTION,
+        OpenCvFilter.VANISHING_POINTS -> true
+        else -> false
+    }
+
     private fun processFrame(imageProxy: ImageProxy) {
         if (isFinishing || isDestroyed) {
             imageProxy.close()
@@ -356,11 +416,8 @@ class MainActivity : AppCompatActivity() {
             }
 
             val start = System.nanoTime()
-            val processed = imageProcessor.processFrame(
-                oriented,
-                analysisUiController.currentFilter,
-                ImageProcessor.EmptyState
-            )
+            val currentFilter = analysisUiController.currentFilter
+            val processed = processWithTimeoutGuard(oriented, currentFilter)
             val processingTimeMs = (System.nanoTime() - start) / 1_000_000L
 
             frameWidth = processed.width
@@ -447,7 +504,12 @@ class MainActivity : AppCompatActivity() {
 
     private fun logExceptionTelemetry(scope: String, category: String, error: Throwable) {
         val key = "$scope:$category"
-        exceptionTelemetry.getOrPut(key) { AtomicInteger(0) }.incrementAndGet()
+        val count = exceptionTelemetry.getOrPut(key) { AtomicInteger(0) }.incrementAndGet()
+        if (count >= TELEMETRY_RECOVERY_THRESHOLD && scope.startsWith("frame")) {
+            // Lokalny auto-recovery: reset tylko aktualnego modułu bez restartu aktywności.
+            imageProcessor.resetModule(analysisUiController.currentMode)
+            exceptionTelemetry[key]?.set(0)
+        }
         telemetryScope.launch {
             try {
                 dataCollectionCache.incrementErrorCount(scope, category)

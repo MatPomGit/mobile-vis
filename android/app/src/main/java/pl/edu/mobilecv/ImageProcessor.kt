@@ -440,41 +440,44 @@ class ImageProcessor {
             src.copyTo(base)
             base
         }
+        var processed: Mat? = null
+        var shouldReleaseProcessed = false
 
-        val shouldBenchmark = filter in benchmarkFilters
-        var benchmarkBeforeNs = 0L
-        if (shouldBenchmark) {
-            val beforeStart = System.nanoTime()
-            val before = processHotFilterLegacy(baseFrame, filter)
-            benchmarkBeforeNs = System.nanoTime() - beforeStart
-            before.release()
-        }
+        try {
+            val shouldBenchmark = filter in benchmarkFilters
+            var benchmarkBeforeNs = 0L
+            if (shouldBenchmark) {
+                val beforeStart = System.nanoTime()
+                val before = processHotFilterLegacy(baseFrame, filter)
+                benchmarkBeforeNs = System.nanoTime() - beforeStart
+                before.release()
+            }
 
-        val processedPair = when (filter) {
-            OpenCvFilter.ORIGINAL,
-            OpenCvFilter.GRAYSCALE,
-            OpenCvFilter.CANNY_EDGES,
-            OpenCvFilter.GAUSSIAN_BLUR -> processHotFilterBuffered(baseFrame, filter)
-            OpenCvFilter.THRESHOLD -> Triple(LegacyFilters.applyThreshold(baseFrame), true, 0L)
-            OpenCvFilter.SOBEL -> Triple(LegacyFilters.applySobel(baseFrame), true, 0L)
-            OpenCvFilter.LAPLACIAN -> Triple(LegacyFilters.applyLaplacian(baseFrame), true, 0L)
-            OpenCvFilter.DILATE,
-            OpenCvFilter.ERODE,
-            OpenCvFilter.OPEN,
-            OpenCvFilter.CLOSE,
-            OpenCvFilter.GRADIENT,
-            OpenCvFilter.TOP_HAT,
-            OpenCvFilter.BLACK_HAT -> Triple(
-                runModuleSafely(
-                    moduleName = "morphology",
-                    filter = filter,
-                    baseFrame = baseFrame,
-                    module = morphologyModule,
-                    state = moduleState as? MorphologyState ?: MorphologyState(),
-                ),
-                true,
-                0L,
-            )
+            val processedPair = when (filter) {
+                OpenCvFilter.ORIGINAL,
+                OpenCvFilter.GRAYSCALE,
+                OpenCvFilter.CANNY_EDGES,
+                OpenCvFilter.GAUSSIAN_BLUR -> processHotFilterBuffered(baseFrame, filter)
+                OpenCvFilter.THRESHOLD -> Triple(LegacyFilters.applyThreshold(baseFrame), true, 0L)
+                OpenCvFilter.SOBEL -> Triple(LegacyFilters.applySobel(baseFrame), true, 0L)
+                OpenCvFilter.LAPLACIAN -> Triple(LegacyFilters.applyLaplacian(baseFrame), true, 0L)
+                OpenCvFilter.DILATE,
+                OpenCvFilter.ERODE,
+                OpenCvFilter.OPEN,
+                OpenCvFilter.CLOSE,
+                OpenCvFilter.GRADIENT,
+                OpenCvFilter.TOP_HAT,
+                OpenCvFilter.BLACK_HAT -> Triple(
+                    runModuleSafely(
+                        moduleName = "morphology",
+                        filter = filter,
+                        baseFrame = baseFrame,
+                        module = morphologyModule,
+                        state = moduleState as? MorphologyState ?: MorphologyState(),
+                    ),
+                    true,
+                    0L,
+                )
             OpenCvFilter.APRIL_TAGS -> Triple(applyAprilTagDetection(baseFrame), true, 0L)
             OpenCvFilter.APRIL_TAG_3D -> Triple(applyAprilTag3D(baseFrame), true, 0L)
             OpenCvFilter.ARUCO -> Triple(applyArucoDetection(baseFrame), true, 0L)
@@ -526,24 +529,23 @@ class ImageProcessor {
             OpenCvFilter.SLAM_POINTS -> Triple(applySlamPoints(baseFrame), true, 0L)
             OpenCvFilter.SLAM_MARKERS_FUSED,
             OpenCvFilter.SLAM_MARKERS -> Triple(applySlamMarkersFused(baseFrame), true, 0L)
-            else -> Triple(baseFrame.clone(), true, 0L)
+                else -> Triple(baseFrame.clone(), true, 0L)
+            }
+            processed = processedPair.first
+            shouldReleaseProcessed = processedPair.second
+
+            val benchmarkAfterNs = if (shouldBenchmark) processedPair.third else 0L
+            val result = createBitmap(processed.cols(), processed.rows())
+            Utils.matToBitmap(processed, result)
+            if (showFpsOverlay) {
+                drawFpsOnBitmap(result)
+            }
+            if (shouldBenchmark && benchmarkAfterNs > 0L) updateBenchmark(filter, benchmarkBeforeNs, benchmarkAfterNs)
+            return result
+        } finally {
+            if (shouldReleaseProcessed) processed?.release()
+            if (isActiveVisionEnabled) baseFrame.release()
         }
-        val processed = processedPair.first
-        val shouldReleaseProcessed = processedPair.second
-
-        val benchmarkAfterNs = if (shouldBenchmark) processedPair.third else 0L
-
-        val result = createBitmap(processed.cols(), processed.rows())
-        Utils.matToBitmap(processed, result)
-
-        if (showFpsOverlay) {
-            drawFpsOnBitmap(result)
-        }
-
-        if (shouldReleaseProcessed) processed.release()
-        if (isActiveVisionEnabled) baseFrame.release()
-        if (shouldBenchmark && benchmarkAfterNs > 0L) updateBenchmark(filter, benchmarkBeforeNs, benchmarkAfterNs)
-        return result
     }
 
     private val fpsPaint = Paint().apply {

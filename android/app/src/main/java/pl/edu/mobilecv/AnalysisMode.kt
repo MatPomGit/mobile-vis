@@ -67,13 +67,7 @@ enum class AnalysisMode(val displayName: String, val filters: List<OpenCvFilter>
         )
     ),
 
-    /**
-     * Human body, face and hand tracking using MediaPipe Holistic and Iris.
-     *
-     * Includes full-body pose estimation, bilateral hand tracking,
-     * 468-landmark face mesh, iris/gaze tracking, and a 3D hologram that
-     * rotates based on the viewer's face position.
-     */
+    /** Human body, face and hand tracking using MediaPipe Holistic and Iris. */
     POSE(
         "Poza / Twarz",
         listOf(
@@ -90,41 +84,32 @@ enum class AnalysisMode(val displayName: String, val filters: List<OpenCvFilter>
         )
     ),
 
-    /**
-     * Visual odometry and pseudo point-cloud reconstruction from monocular video.
-     */
+    /** Unified odometry workflow: VO, full pose, trajectory and sparse map. */
     ODOMETRY(
-        "Odometria 3D",
+        "Odometria",
         listOf(
             OpenCvFilter.VISUAL_ODOMETRY,
-            OpenCvFilter.POINT_CLOUD,
+            OpenCvFilter.FULL_ODOMETRY,
+            OpenCvFilter.ODOMETRY_TRAJECTORY,
+            OpenCvFilter.ODOMETRY_MAP,
         )
     ),
 
-    /**
-     * Full monocular visual-odometry pipeline as implemented in practice:
-     * Essential-matrix estimation, pose recovery, accumulated world-frame
-     * trajectory, and sparse 3-D map built via point triangulation.
-     */
-    FULL_ODOMETRY_3D(
-        "Pełna Odometria 3D",
+    /** Separate SLAM tab combining odometry points and marker landmarks. */
+    SLAM(
+        "SLAM",
         listOf(
-            OpenCvFilter.FULL_ODOMETRY,
-            OpenCvFilter.ODOMETRY_TRAJECTORY,
             OpenCvFilter.ODOMETRY_MAP,
             OpenCvFilter.SLAM_MARKERS,
         )
     ),
 
-    /**
-     * 3-D geometry analysis: plane detection, vanishing-point extraction,
-     * and point-cloud visualisation.
-     */
-    GEOMETRY(
-        "Geometria 3D",
+    /** Dynamic ROI / active tracking controls collected under one tab. */
+    ACTIVE_TRACKING(
+        "Active Tracking",
         listOf(
-            OpenCvFilter.PLANE_DETECTION,
-            OpenCvFilter.VANISHING_POINTS,
+            OpenCvFilter.YOLO_KALMAN,
+            OpenCvFilter.MARKER_UKF,
         )
     ),
 
@@ -137,77 +122,15 @@ enum class AnalysisMode(val displayName: String, val filters: List<OpenCvFilter>
         )
     ),
 
-    /**
-     * Real-time object detection, instance segmentation and pose estimation
-     * powered by YOLOv8-nano models running on the OpenCV DNN backend.
-     *
-     * Models are downloaded on demand the first time this tab is selected.
-     */
+    /** YOLO family models for object detection and scene understanding. */
     YOLO(
         "YOLO",
         listOf(
             OpenCvFilter.YOLO_DETECT,
-            OpenCvFilter.YOLO_KALMAN,
             OpenCvFilter.YOLO_SEGMENT,
             OpenCvFilter.YOLO_POSE,
             OpenCvFilter.YOLO_CLASSIFY,
             OpenCvFilter.YOLO_OBB,
-        )
-    ),
-
-    /**
-     * Real-time object detection with axis-aligned and rotated bounding boxes
-     * powered by RTMDet-nano (OpenMMLab) models running on the PyTorch Mobile
-     * backend.
-     *
-     * RTMDet (Real-Time instance detection) delivers state-of-the-art accuracy
-     * at competitive inference speeds.  The rotated variant (RTMDet-R) supports
-     * oriented bounding boxes for aerial and scene-text imagery.
-     *
-     * Models are downloaded on demand the first time this tab is selected.
-     */
-    RTMDET(
-        "RTMDet",
-        listOf(
-            OpenCvFilter.RTMDET_DETECT,
-            OpenCvFilter.RTMDET_ROTATED,
-        )
-    ),
-
-    /**
-     * Real-time object detection accelerated by the Mobilint NPU hardware.
-     *
-     * This mode uses models specifically optimized for the Mobilint Ares NPU,
-     * providing significant speedups and energy efficiency compared to
-     * CPU-based inference.
-     */
-    MOBILINT(
-        "Mobilint NPU",
-        listOf(
-            OpenCvFilter.MOBILINT_DETECT,
-        )
-    ),
-
-    /**
-     * Standard object detection using TensorFlow Lite (SSD MobileNet V2).
-     *
-     * TFLite is the industry-standard mobile inference engine. This mode
-     * demonstrates CPU and GPU-accelerated inference for common objects.
-     */
-    TFLITE(
-        "TFLite",
-        listOf(
-            OpenCvFilter.TFLITE_DETECT,
-        )
-    ),
-
-    /**
-     * Advanced object tracking using Kalman Filters to stabilize YOLO detections.
-     */
-    TRACKING(
-        "Śledzenie",
-        listOf(
-            OpenCvFilter.YOLO_KALMAN,
         )
     ),
 

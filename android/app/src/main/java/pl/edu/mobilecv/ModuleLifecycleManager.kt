@@ -87,17 +87,8 @@ class ModuleLifecycleManager(
             AnalysisMode.POSE -> if (!ModelDownloadManager.areAllModelsReady(context)) {
                 startMediaPipeModelDownload()
             }
-            AnalysisMode.YOLO, AnalysisMode.TRACKING -> if (!ModelDownloadManager.areYoloModelsReady(context)) {
+            AnalysisMode.YOLO, AnalysisMode.ACTIVE_TRACKING -> if (!ModelDownloadManager.areYoloModelsReady(context)) {
                 startYoloModelDownload()
-            }
-            AnalysisMode.RTMDET -> if (!ModelDownloadManager.areRtmDetModelsReady(context)) {
-                startRtmDetModelDownload()
-            }
-            AnalysisMode.MOBILINT -> if (!ModelDownloadManager.areMobilintModelsReady(context)) {
-                startMobilintModelDownload()
-            }
-            AnalysisMode.TFLITE -> if (!ModelDownloadManager.areTfliteModelsReady(context)) {
-                startTfliteModelDownload()
             }
             else -> Unit
         }

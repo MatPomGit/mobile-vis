@@ -269,8 +269,11 @@ class ImageProcessor {
      */
     fun resetModule(mode: AnalysisMode) {
         when (mode) {
-            AnalysisMode.ODOMETRY -> odometryModule.reset()
-            AnalysisMode.FULL_ODOMETRY_3D -> fullOdometryEngine.reset()
+            AnalysisMode.ODOMETRY -> {
+                odometryModule.reset()
+                fullOdometryEngine.reset()
+            }
+            AnalysisMode.SLAM -> fullOdometryEngine.reset()
             else -> {
                 // Pozostałe moduły nie utrzymują trwałego stanu między klatkami.
             }

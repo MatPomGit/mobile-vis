@@ -399,10 +399,8 @@ class MainActivity : AppCompatActivity() {
         val moduleType = when (analysisUiController.currentMode) {
             AnalysisMode.POSE -> ModuleStatusStore.ModuleType.MEDIAPIPE
             AnalysisMode.YOLO,
-            AnalysisMode.TRACKING,
+            AnalysisMode.ACTIVE_TRACKING,
             -> ModuleStatusStore.ModuleType.YOLO
-            AnalysisMode.RTMDET -> ModuleStatusStore.ModuleType.RTMDET
-            AnalysisMode.TFLITE -> ModuleStatusStore.ModuleType.TFLITE
             else -> return getString(R.string.module_status_not_applicable)
         }
         val snapshot = ModuleStatusStore.get(moduleType)

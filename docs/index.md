@@ -650,19 +650,16 @@ Po zainstalowaniu APK i pierwszym uruchomieniu aplikacja:
 | Paski chipów           | Poziomy, przewijalny pasek z jednorazowym wyborem filtra          |
 | FAB (prawy dół)        | Przełącza między kamerą tylną a przednią                          |
 
-### 7.3 Dostępne filtry OpenCV
+### 7.3 Aktualny workflow trybów Android
 
-| Filtr          | Opis techniczny                                                   |
-|----------------|-------------------------------------------------------------------|
-| **Original**   | Klatka z kamery bez modyfikacji                                   |
-| **Grayscale**  | Konwersja `BGRA → GRAY → BGRA` (`COLOR_BGRA2GRAY`)               |
-| **Canny Edges**| Rozmycie 5×5 + algorytm Canny (progi 50/150)                     |
-| **Gaussian Blur** | Rozmycie gaussowskie jądrem 15×15                             |
-| **Threshold**  | Progowanie binarne `THRESH_BINARY` przy wartości 127              |
-| **Sobel Edges**| Gradient XY przez Sobel CV_16S + `addWeighted(0.5, 0.5)`         |
-| **Laplacian**  | Operator Laplace'a CV_16S + `convertScaleAbs`                     |
-| **Dilate**     | Dylacja morfologiczna jądrem prostokątnym 9×9                     |
-| **Erode**      | Erozja morfologiczna jądrem prostokątnym 9×9                      |
+| Grupa | Zakładki | Zawartość |
+|------|----------|-----------|
+| **Detekcja** | `MARKERS`, `POSE`, `YOLO` | Markery wizualne, MediaPipe oraz detekcja/segmentacja/poza YOLO |
+| **Odometria** | `ODOMETRY` | Jeden przebieg: `VISUAL_ODOMETRY` → `FULL_ODOMETRY` → `ODOMETRY_TRAJECTORY` → `ODOMETRY_MAP` |
+| **SLAM** | `SLAM` | Połączenie punktów odometrii i markerów (`SLAM_MARKERS`) |
+| **Dynamic ROI** | `ACTIVE_TRACKING` | Stabilizowane śledzenie obiektu/ROI (`YOLO_KALMAN`, `MARKER_UKF`) |
+
+Pozostałe tryby (`Filtry`, `Krawędzie`, `Morfologia`, `Efekty`, `Kalibracja`) pozostają bez zmian i służą do szybkich eksperymentów oraz diagnostyki obrazu.
 
 ### 7.4 Przełączanie filtrów
 

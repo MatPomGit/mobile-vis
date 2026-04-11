@@ -22,7 +22,7 @@ import androidx.appcompat.app.AppCompatActivity
  * 7. From pixel to 3-D world point (camera matrix K, ray casting, parallax)
  * 8. Robot control using full odometry (velocity, navigation)
  *
- * A button at the bottom launches [MainActivity] pre-set to [AnalysisMode.FULL_ODOMETRY_3D]
+ * A button at the bottom launches [MainActivity] pre-set to [AnalysisMode.ODOMETRY]
  * so the user can immediately try the real pipeline after reading the theory.
  */
 class OdometryTutorialActivity : AppCompatActivity() {
@@ -112,7 +112,7 @@ class OdometryTutorialActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnLaunchOdometry).setOnClickListener {
             startActivity(
                 Intent(this, MainActivity::class.java).apply {
-                    putExtra(MenuActivity.EXTRA_MODE, AnalysisMode.FULL_ODOMETRY_3D.name)
+                    putExtra(MenuActivity.EXTRA_MODE, AnalysisMode.ODOMETRY.name)
                 }
             )
         }

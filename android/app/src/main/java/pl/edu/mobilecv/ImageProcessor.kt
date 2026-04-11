@@ -29,6 +29,7 @@ import androidx.core.graphics.createBitmap
 import pl.edu.mobilecv.vision.CameraCalibrator
 import pl.edu.mobilecv.odometry.VisualOdometryEngine
 import pl.edu.mobilecv.odometry.FullOdometryEngine
+import pl.edu.mobilecv.tracking.ObjectPoseTracker
 import kotlin.math.atan2
 import kotlin.math.min
 import kotlin.math.sqrt
@@ -307,6 +308,7 @@ class ImageProcessor {
     @Volatile
     var poseOneEuroBeta: Double = 0.02
     private val poseTemporalFilter = PoseTemporalFilter()
+    private val objectPoseTracker = ObjectPoseTracker()
     private val exceptionTelemetry = ConcurrentHashMap<String, AtomicInteger>()
     @Volatile
     private var lastCalibrationDiagnosticsKey: String? = null
@@ -829,30 +831,71 @@ class ImageProcessor {
     private fun drawMarkerPoseOverlay(res: Mat, corners: List<Pair<Float, Float>>, markerKey: String, markerLabel: String): MarkerPoseEstimate? {
         val calib = calibrator?.calibrationResult ?: return null
         if (corners.size != 4) return null
-        val imagePoints = MatOfPoint2f(Point(corners[0].first.toDouble(), corners[0].second.toDouble()), Point(corners[1].first.toDouble(), corners[1].second.toDouble()), Point(corners[2].first.toDouble(), corners[2].second.toDouble()), Point(corners[3].first.toDouble(), corners[3].second.toDouble()))
-        val half = MARKER_SIZE_METERS / 2.0
-        val objectPoints = MatOfPoint3f(Point3(-half, half, 0.0), Point3(half, half, 0.0), Point3(half, -half, 0.0), Point3(-half, -half, 0.0))
-        val rvec = Mat(); val tvec = Mat()
-        val solved = Calib3d.solvePnP(objectPoints, imagePoints, calib.cameraMatrix, calib.distCoeffs, rvec, tvec, false, Calib3d.SOLVEPNP_IPPE_SQUARE) || Calib3d.solvePnP(objectPoints, imagePoints, calib.cameraMatrix, calib.distCoeffs, rvec, tvec)
-        if (!solved) { imagePoints.release(); objectPoints.release(); rvec.release(); tvec.release(); return null }
 
-        val filtered = selectPoseForRender(markerKey, tvec, rvec)
+        val intrinsics = ObjectPoseTracker.CameraIntrinsics(
+            fx = calib.cameraMatrix.get(0, 0)[0],
+            fy = calib.cameraMatrix.get(1, 1)[0],
+            cx = calib.cameraMatrix.get(0, 2)[0],
+            cy = calib.cameraMatrix.get(1, 2)[0],
+            distCoeffs = calib.distCoeffs,
+        )
+
+        val half = MARKER_SIZE_METERS / 2.0
+        val poseInput = ObjectPoseTracker.PoseInput(
+            trackId = markerKey,
+            confidence = 1.0,
+            cameraIntrinsics = intrinsics,
+            imageLandmarks = corners.map { ObjectPoseTracker.ImagePoint(it.first.toDouble(), it.second.toDouble()) },
+            objectLandmarks = listOf(
+                ObjectPoseTracker.ObjectPoint(-half, half, 0.0),
+                ObjectPoseTracker.ObjectPoint(half, half, 0.0),
+                ObjectPoseTracker.ObjectPoint(half, -half, 0.0),
+                ObjectPoseTracker.ObjectPoint(-half, -half, 0.0),
+            ),
+            referenceObjectSizeMeters = MARKER_SIZE_METERS,
+        )
+        val trackedPose = objectPoseTracker.estimatePose(poseInput)
+        if (trackedPose.status == ObjectPoseTracker.PoseStatus.NO_POSE) return null
+
+        val filteredTvec = Mat(3, 1, CvType.CV_64F).apply {
+            put(0, 0, trackedPose.translationMeters[0])
+            put(1, 0, trackedPose.translationMeters[1])
+            put(2, 0, trackedPose.translationMeters[2])
+        }
+        val filteredRvec = Mat(3, 1, CvType.CV_64F).apply {
+            put(0, 0, trackedPose.rotationRvec[0])
+            put(1, 0, trackedPose.rotationRvec[1])
+            put(2, 0, trackedPose.rotationRvec[2])
+        }
+
+        val filtered = Triple(
+            filteredTvec,
+            filteredRvec,
+            PoseTemporalDebugMetrics(
+                mode = poseOutputMode,
+                jitterRawTvecMm = null,
+                jitterRawRvecDeg = null,
+                jitterSmoothTvecMm = null,
+                jitterSmoothRvecDeg = null,
+                stableStaticScene = trackedPose.filterStatus != "UKF_INIT",
+            ),
+        )
         val rmat = Mat(); Calib3d.Rodrigues(filtered.second, rmat)
         val zAxis = doubleArrayOf(rmat.get(0, 2)[0], rmat.get(1, 2)[0], rmat.get(2, 2)[0])
         val euler = rotationMatrixToEuler(rmat)
         ensureZAxisConsistency(markerKey, zAxis, markerLabel)
         
         Calib3d.drawFrameAxes(res, calib.cameraMatrix, calib.distCoeffs, filtered.second, filtered.first, AXIS_LENGTH_METERS.toFloat())
-        val reprojectionError = computeReprojectionError(objectPoints, imagePoints, filtered.second, filtered.first, calib.cameraMatrix, calib.distCoeffs)
+        val reprojectionError = trackedPose.reprojectionErrorPx ?: Double.NaN
         val distance = norm3(filtered.first)
-        val confidence = 1.0 / (1.0 + reprojectionError)
+        val confidence = trackedPose.confidence
 
         markerPoseStates[markerKey] = PoseState(zAxisCamera = zAxis)
         val poseRvec = List(3) { filtered.second.get(it, 0)[0] }
         val poseTvec = List(3) { filtered.first.get(it, 0)[0] }
         val metrics = PoseOverlayMetrics(distance, euler[0], euler[1], euler[2], reprojectionError, confidence, filtered.third)
         
-        imagePoints.release(); objectPoints.release(); rvec.release(); tvec.release(); rmat.release(); filtered.first.release(); filtered.second.release()
+        rmat.release(); filtered.first.release(); filtered.second.release()
         return MarkerPoseEstimate(poseRvec, poseTvec, MarkerDetection.Quality(confidence, reprojectionError), metrics)
     }
 

@@ -19,8 +19,10 @@ import org.pytorch.LiteModuleLoader
 import org.pytorch.Module
 import org.pytorch.Tensor
 import pl.edu.mobilecv.util.BBoxKalmanFilter
+import pl.edu.mobilecv.tracking.ObjectPoseTracker
 import java.io.File
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.exp
 import androidx.core.graphics.withRotation
 import androidx.core.graphics.scale
@@ -109,6 +111,7 @@ class YoloProcessor(private val context: Context) {
 
     // Tracking for YOLO_KALMAN mode
     private data class TrackedObject(
+        val trackId: Int,
         val classId: Int,
         val label: String,
         val color: Int,
@@ -119,6 +122,8 @@ class YoloProcessor(private val context: Context) {
     )
 
     private val activeTracks = mutableListOf<TrackedObject>()
+    private val objectPoseTracker = ObjectPoseTracker()
+    private val trackIdGenerator = AtomicInteger(1)
     private var lastFilter: OpenCvFilter? = null
 
     // -------------------------------------------------------------------------
@@ -233,6 +238,12 @@ class YoloProcessor(private val context: Context) {
 
     private fun applyKalmanTracking(canvas: Canvas, boxes: List<Rect2d>, scores: List<Float>,
                                     classIds: List<Int>, kept: List<Int>, scaleX: Double, scaleY: Double) {
+        val intrinsics = ObjectPoseTracker.CameraIntrinsics(
+            fx = canvas.width.toDouble(),
+            fy = canvas.width.toDouble(),
+            cx = canvas.width / 2.0,
+            cy = canvas.height / 2.0,
+        )
         activeTracks.forEach { it.kalman.predict() }
 
         val currentDetections = kept.map { idx ->
@@ -270,7 +281,7 @@ class YoloProcessor(private val context: Context) {
         for (i in currentDetections.indices) {
             if (i !in matchedDetections) {
                 val det = currentDetections[i]
-                val track = TrackedObject(det.first, COCO_CLASSES.getOrElse(det.first) { det.first.toString() },
+                val track = TrackedObject(trackIdGenerator.getAndIncrement(), det.first, COCO_CLASSES.getOrElse(det.first) { det.first.toString() },
                     CLASS_COLORS[det.first % CLASS_COLORS.size], det.second, BBoxKalmanFilter(), det.third)
                 track.kalman.update(det.third.left, det.third.top, det.third.width(), det.third.height())
                 activeTracks.add(track)
@@ -282,6 +293,46 @@ class YoloProcessor(private val context: Context) {
             val rectF = RectF(track.rect.left * scaleX.toFloat(), track.rect.top * scaleY.toFloat(),
                               track.rect.right * scaleX.toFloat(), track.rect.bottom * scaleY.toFloat())
             drawBox(canvas, rectF, track.label, track.score, track.color)
+            drawPoseDiagnosticsOverlay(
+                canvas = canvas,
+                pose = objectPoseTracker.estimatePose(
+                    ObjectPoseTracker.PoseInput(
+                        trackId = "yolo:${track.trackId}",
+                        confidence = track.score.toDouble(),
+                        cameraIntrinsics = intrinsics,
+                        boundingBox = ObjectPoseTracker.BoundingBox.fromRectF(rectF),
+                        referenceObjectSizeMeters = 0.5,
+                    )
+                ),
+                x = rectF.left,
+                y = rectF.top,
+            )
+        }
+    }
+
+    /**
+     * Rysuje diagnostyczny overlay trackera pozycji 3D dla obiektu YOLO.
+     */
+    private fun drawPoseDiagnosticsOverlay(
+        canvas: Canvas,
+        pose: ObjectPoseTracker.PoseResult,
+        x: Float,
+        y: Float,
+    ) {
+        val paint = Paint().apply {
+            color = Color.WHITE
+            textSize = 26f
+            isAntiAlias = true
+            style = Paint.Style.FILL
+            setShadowLayer(4f, 0f, 0f, Color.BLACK)
+        }
+        val lines = listOf(
+            "track=${pose.trackId}",
+            "conf=${"%.2f".format(Locale.US, pose.confidence)} status=${pose.status.name}",
+            "repr=${pose.reprojectionErrorPx?.let { \"%.2f\".format(Locale.US, it) } ?: \"n/a\"} filter=${pose.filterStatus}",
+        )
+        lines.forEachIndexed { idx, line ->
+            canvas.drawText(line, x + 6f, (y - 8f - idx * 28f).coerceAtLeast(28f), paint)
         }
     }
 

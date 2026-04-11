@@ -23,6 +23,7 @@ import com.google.mediapipe.tasks.vision.objectdetector.ObjectDetector
 import com.google.mediapipe.tasks.vision.objectdetector.ObjectDetectorResult
 import com.google.mediapipe.tasks.vision.poselandmarker.PoseLandmarker
 import com.google.mediapipe.tasks.vision.poselandmarker.PoseLandmarkerResult
+import pl.edu.mobilecv.tracking.ObjectPoseTracker
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.sin
@@ -298,6 +299,7 @@ class MediaPipeProcessor(private val context: Context) {
     )
 
     private val detectionInterval = 3 // Run detection every 3 frames to save CPU
+    private val objectPoseTracker = ObjectPoseTracker()
 
     private val dotPaint = Paint().apply {
         style = Paint.Style.FILL
@@ -643,12 +645,39 @@ class MediaPipeProcessor(private val context: Context) {
 
         val output = bitmap.copy(Bitmap.Config.ARGB_8888, true)
         val canvas = Canvas(output)
+        val intrinsics = ObjectPoseTracker.CameraIntrinsics(
+            fx = output.width.toDouble(),
+            fy = output.width.toDouble(),
+            cx = output.width / 2.0,
+            cy = output.height / 2.0,
+        )
 
         val personCount = result.landmarks().size
 
-        for (person in result.landmarks()) {
+        for ((personIndex, person) in result.landmarks().withIndex()) {
             drawConnections(canvas, person, output.width, output.height, POSE_COLOR, POSE_CONNECTIONS)
             drawDots(canvas, person, output.width, output.height, POSE_COLOR)
+
+            // Person-centric integracja trackera 3D bazująca na landmarkach oraz bbox.
+            val bbox = normalizedLandmarksToBbox(person, output.width, output.height)
+            if (bbox != null) {
+                val pose = objectPoseTracker.estimatePose(
+                    ObjectPoseTracker.PoseInput(
+                        trackId = "mediapipe:person:$personIndex",
+                        confidence = 0.9,
+                        cameraIntrinsics = intrinsics,
+                        boundingBox = bbox,
+                        imageLandmarks = person.take(8).map {
+                            ObjectPoseTracker.ImagePoint(
+                                x = (it.x() * output.width).toDouble(),
+                                y = (it.y() * output.height).toDouble(),
+                            )
+                        },
+                        referenceObjectSizeMeters = 1.7,
+                    )
+                )
+                drawPoseDiagnostics(canvas, pose, bbox.x1.toFloat(), bbox.y1.toFloat())
+            }
         }
 
         // -- Human detection info overlay --
@@ -671,6 +700,51 @@ class MediaPipeProcessor(private val context: Context) {
         }
 
         return output
+    }
+
+    /**
+     * Konwertuje zestaw landmarków normalizowanych na bounding box w pikselach.
+     */
+    private fun normalizedLandmarksToBbox(
+        landmarks: List<NormalizedLandmark>,
+        width: Int,
+        height: Int,
+    ): ObjectPoseTracker.BoundingBox? {
+        if (landmarks.isEmpty()) return null
+        var minX = Double.POSITIVE_INFINITY
+        var minY = Double.POSITIVE_INFINITY
+        var maxX = Double.NEGATIVE_INFINITY
+        var maxY = Double.NEGATIVE_INFINITY
+        for (landmark in landmarks) {
+            val px = (landmark.x() * width).toDouble()
+            val py = (landmark.y() * height).toDouble()
+            minX = minOf(minX, px)
+            minY = minOf(minY, py)
+            maxX = maxOf(maxX, px)
+            maxY = maxOf(maxY, py)
+        }
+        if (!minX.isFinite() || !minY.isFinite() || !maxX.isFinite() || !maxY.isFinite()) return null
+        return ObjectPoseTracker.BoundingBox(minX, minY, maxX, maxY)
+    }
+
+    /**
+     * Rysuje na obrazie metryki diagnostyczne trackera 3D.
+     */
+    private fun drawPoseDiagnostics(
+        canvas: Canvas,
+        pose: ObjectPoseTracker.PoseResult,
+        x: Float,
+        y: Float,
+    ) {
+        val lines = listOf(
+            "track=${pose.trackId}",
+            "conf=${"%.2f".format(Locale.US, pose.confidence)} status=${pose.status.name}",
+            "repr=${pose.reprojectionErrorPx?.let { "%.2f".format(Locale.US, it) } ?: "n/a"} filter=${pose.filterStatus}",
+        )
+        infoPaint.color = Color.WHITE
+        lines.forEachIndexed { idx, line ->
+            canvas.drawText(line, x, (y - 12f - idx * 30f).coerceAtLeast(30f), infoPaint)
+        }
     }
 
     private fun applyHandLandmarker(bitmap: Bitmap): Bitmap {

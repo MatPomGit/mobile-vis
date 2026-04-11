@@ -185,7 +185,7 @@ class MenuActivity : AppCompatActivity() {
     }
 
     // ------------------------------------------------------------------
-    // "Analiza 3D" tab – ODOMETRY, FULL_ODOMETRY_3D, GEOMETRY, CALIBRATION + PointCloudViewer
+    // "Analiza 3D" tab – ODOMETRY_UNIFIED, GEOMETRY, CALIBRATION + PointCloudViewer
     // ------------------------------------------------------------------
 
     /**

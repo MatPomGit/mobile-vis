@@ -85,20 +85,12 @@ enum class AnalysisMode(val displayName: String, val filters: List<OpenCvFilter>
     ),
 
     /** Unified odometry workflow: VO, full pose, trajectory and sparse map. */
-    ODOMETRY(
+    ODOMETRY_UNIFIED(
         "Odometria",
         listOf(
             OpenCvFilter.VISUAL_ODOMETRY,
             OpenCvFilter.FULL_ODOMETRY,
             OpenCvFilter.ODOMETRY_TRAJECTORY,
-            OpenCvFilter.ODOMETRY_MAP,
-        )
-    ),
-
-    /** Separate SLAM tab combining odometry points and marker landmarks. */
-    SLAM(
-        "SLAM",
-        listOf(
             OpenCvFilter.ODOMETRY_MAP,
             OpenCvFilter.SLAM_MARKERS,
         )

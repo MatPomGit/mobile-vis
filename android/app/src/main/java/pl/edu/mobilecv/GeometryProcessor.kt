@@ -1,161 +1,81 @@
 package pl.edu.mobilecv
 
-import android.util.Log
-import org.opencv.core.*
+import org.opencv.core.Core
+import org.opencv.core.Mat
+import org.opencv.core.MatOfInt
+import org.opencv.core.MatOfPoint
+import org.opencv.core.Point
+import org.opencv.core.Scalar
 import org.opencv.imgproc.Imgproc
-import kotlin.math.*
+import kotlin.math.abs
+import kotlin.math.atan2
+import kotlin.math.min
 
 /**
- * Handles complex geometric computer vision tasks like plane detection and vanishing points.
+ * Zarządza pipeline geometrii: linie -> VP -> hipotezy płaszczyzn -> tracking czasowy.
  */
-data class LineSegment(
-    val p1: Point,
-    val p2: Point,
-    val length: Double,
-    val angleRad: Double
-)
-
-data class PlaneData(
-    val c1: Cluster,
-    val c2: Cluster,
-    val index: Int
-)
-
-data class Cluster(
-    val lines: List<LineSegment>,
-    val totalWeight: Double,
-    val meanAngleDeg: Double
-)
-
 class GeometryProcessor(private val exceptionLogger: (String, String, Throwable) -> Unit) {
 
     companion object {
-        private const val TAG = "GeometryProcessor"
-        private const val PLANE_ANGLE_DIFF_MIN = 25.0
-        private const val CLUSTER_ANGLE_THRESHOLD = 8.0
         private const val OVERLAY_ALPHA = 0.18
+        private const val PLANE_MIN_ANGLE_DIFF_DEG = 22.0
     }
 
     @Volatile
     var maxPlanes: Int = 3
 
-    private val claheObj = Imgproc.createCLAHE(2.0, Size(8.0, 8.0))
-    private val dilationKernel3x3 by lazy {
-        Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(3.0, 3.0))
-    }
+    private val lineExtractor = LineExtractor()
+    private val vpEstimator = VanishingPointEstimator()
+    private val planeTracker = PlaneHypothesisTracker()
 
+    /**
+     * Wykrywa i śledzi płaszczyzny w nowym pipeline opartym o punkty zbieżności.
+     */
     fun detectPlanes(src: Mat, res: Mat, labels: Map<String, String>): Int {
-        val gray = Mat()
-        val clahe = Mat()
-        val blurred = Mat()
-        val edges = Mat()
-        val lines = Mat()
-        var planeIdx = 0
+        return try {
+            val extraction = lineExtractor.extract(src)
+            val vanishingPoints = vpEstimator.estimate(extraction.clusters, src.size())
+            val hypotheses = buildPlaneHypotheses(vanishingPoints, extraction.lines.size)
+            val trackedPlanes = planeTracker.update(hypotheses, maxPlanes)
 
-        try {
-            Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
-            claheObj.apply(gray, clahe)
-            // Bilateral filter helps preserve edges while removing noise
-            Imgproc.bilateralFilter(clahe, blurred, 9, 75.0, 75.0)
-
-            val medianVal = medianIntensity(blurred)
-            Imgproc.Canny(blurred, edges, maxOf(0.0, 0.5 * medianVal), minOf(255.0, 1.2 * medianVal))
-            Imgproc.dilate(edges, edges, dilationKernel3x3)
-
-            // Dynamic threshold based on image size
-            val houghThreshold = (src.cols() * 0.08).toInt().coerceAtLeast(35)
-            Imgproc.HoughLinesP(edges, lines, 1.0, Math.PI / 180.0, houghThreshold, 50.0, 20.0)
-
-            val rawClusters = clusterLinesByAngleAndSpace(lines)
-            val clusters = rawClusters.map { segs ->
-                val totalWeight = segs.sumOf { it.length }
-                val meanAngle = weightedAngleMean(segs)
-                Cluster(segs, totalWeight, meanAngle)
-            }
-
-            val sortedClusters = clusters
-                .filter { it.lines.size >= 2 && it.totalWeight > 100 }
-                .sortedByDescending { it.totalWeight }
-                .take(maxPlanes * 5)
-
-            val usedClusters = mutableSetOf<Int>()
-            val detectedPlanes = mutableListOf<PlaneData>()
-
-            for (i in sortedClusters.indices) {
-                if (planeIdx >= maxPlanes) break
-                if (i in usedClusters) continue
-
-                for (j in i + 1 until sortedClusters.size) {
-                    if (j in usedClusters) continue
-
-                    val c1 = sortedClusters[i]
-                    val c2 = sortedClusters[j]
-
-                    var angleDiff = abs(c1.meanAngleDeg - c2.meanAngleDeg)
-                    angleDiff = minOf(angleDiff, 180.0 - angleDiff)
-
-                    // Robust check: significant angle difference AND spatial proximity
-                    if (angleDiff >= PLANE_ANGLE_DIFF_MIN && areClustersSpatiallyRelated(c1.lines, c2.lines)) {
-                        detectedPlanes.add(PlaneData(c1, c2, planeIdx))
-                        usedClusters.add(i)
-                        usedClusters.add(j)
-                        planeIdx++
-                        break
-                    }
-                }
-            }
-
-            drawAllPlanes(res, detectedPlanes, lines.rows())
-
-            if (detectedPlanes.isEmpty() && lines.rows() > 0) {
-                val labelLines = labels["lines"] ?: "Lines"
-                Imgproc.putText(res, "$labelLines: ${lines.rows()} - szukanie płaszczyzn...", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255.0, 255.0, 255.0), 2)
-            }
-
+            drawTrackedPlanes(res, trackedPlanes)
+            drawPlaneMetrics(res, extraction.lines.size, vanishingPoints.size, trackedPlanes, labels)
+            trackedPlanes.size
         } catch (e: Exception) {
             exceptionLogger("plane_detection", "error", e)
-        } finally {
-            gray.release(); clahe.release(); blurred.release(); edges.release(); lines.release()
+            0
         }
-        return planeIdx
     }
 
+    /**
+     * Wizualizuje punkty zbieżności korzystając z tej samej estymacji co detekcja płaszczyzn.
+     */
     fun detectVanishingPoints(src: Mat, res: Mat, labels: Map<String, String>) {
-        val gray = Mat()
-        val blurred = Mat()
-        val edges = Mat()
-        val lines = Mat()
         try {
-            Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
-            Imgproc.GaussianBlur(gray, blurred, Size(5.0, 5.0), 0.0)
-            Imgproc.Canny(blurred, edges, 50.0, 150.0)
-
-            Imgproc.HoughLinesP(edges, lines, 1.0, Math.PI / 180.0, 40, 20.0, 8.0)
-
-            val rawClusters = clusterLinesByAngleAndSpace(lines)
+            val extraction = lineExtractor.extract(src)
+            val vanishingPoints = vpEstimator.estimate(extraction.clusters, src.size())
             val vpColors = arrayOf(
                 Scalar(0.0, 255.0, 0.0),
                 Scalar(0.0, 0.0, 255.0),
                 Scalar(0.0, 165.0, 255.0),
-                Scalar(255.0, 255.0, 0.0)
+                Scalar(255.0, 255.0, 0.0),
             )
-            var foundVP = false
 
-            val sortedClusters = rawClusters.sortedByDescending { it.size }.take(4)
-
-            for (i in sortedClusters.indices) {
-                val cluster = sortedClusters[i]
-                if (cluster.size < 2) continue
-                val color = vpColors[i % vpColors.size]
-                for (seg in cluster) {
-                    Imgproc.line(res, seg.p1, seg.p2, color, 1)
+            for ((index, vp) in vanishingPoints.take(4).withIndex()) {
+                val color = vpColors[index % vpColors.size]
+                for (segment in vp.cluster.lines) {
+                    Imgproc.line(res, segment.p1, segment.p2, color, 1)
                 }
-                val vp = computeVanishingPoint(cluster)
-                if (vp != null) {
-                    Imgproc.circle(res, vp, 10, color, -1)
-                    Imgproc.putText(res, "VP${i + 1}", Point(vp.x + 12, vp.y + 5), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
-                    foundVP = true
-                }
+                Imgproc.circle(res, vp.point, 10, color, -1)
+                Imgproc.putText(
+                    res,
+                    "VP${index + 1} ${(vp.confidence * 100).toInt()}%",
+                    Point(vp.point.x + 12, vp.point.y + 5),
+                    Imgproc.FONT_HERSHEY_SIMPLEX,
+                    0.55,
+                    color,
+                    2,
+                )
             }
 
             val labelNoLines = labels["noLines"] ?: "No lines"
@@ -164,42 +84,143 @@ class GeometryProcessor(private val exceptionLogger: (String, String, Throwable)
             val labelGroups = labels["groups"] ?: "Groups"
 
             when {
-                lines.rows() == 0 -> Imgproc.putText(res, labelNoLines, Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.8, Scalar(200.0, 200.0, 200.0), 2)
-                !foundVP -> Imgproc.putText(res, "$labelNoVanishingPoints ($labelLines: ${lines.rows()})", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(200.0, 200.0, 200.0), 2)
-                else -> Imgproc.putText(res, "$labelLines: ${lines.rows()} | $labelGroups: ${rawClusters.size}", Point(30.0, 30.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255.0, 255.0, 255.0), 2)
+                extraction.lines.isEmpty() -> Imgproc.putText(res, labelNoLines, Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.8, Scalar(200.0, 200.0, 200.0), 2)
+                vanishingPoints.isEmpty() -> Imgproc.putText(res, "$labelNoVanishingPoints ($labelLines: ${extraction.lines.size})", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(200.0, 200.0, 200.0), 2)
+                else -> Imgproc.putText(res, "$labelLines: ${extraction.lines.size} | $labelGroups: ${extraction.clusters.size}", Point(30.0, 30.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255.0, 255.0, 255.0), 2)
             }
         } catch (e: Exception) {
             exceptionLogger("vanishing_points", "error", e)
             val labelVpError = labels["vpError"] ?: "VP Error"
             Imgproc.putText(res, "$labelVpError: ${e.message?.take(30)}", Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255.0, 100.0, 100.0), 2)
-        } finally {
-            gray.release(); blurred.release(); edges.release(); lines.release()
         }
     }
 
-    private fun drawAllPlanes(res: Mat, planes: List<PlaneData>, totalLines: Int) {
+    /**
+     * Buduje hipotezy płaszczyzn łącząc pary niezależnych punktów zbieżności.
+     */
+    private fun buildPlaneHypotheses(
+        vanishingPoints: List<VanishingPointCandidate>,
+        totalLineCount: Int,
+    ): List<PlaneHypothesis> {
+        if (vanishingPoints.size < 2 || totalLineCount <= 0) return emptyList()
+
+        val hypotheses = mutableListOf<PlaneHypothesis>()
+
+        for (i in vanishingPoints.indices) {
+            for (j in i + 1 until vanishingPoints.size) {
+                val first = vanishingPoints[i]
+                val second = vanishingPoints[j]
+                val angleDiff = angleDifference(first.cluster.meanAngleDeg, second.cluster.meanAngleDeg)
+                if (angleDiff < PLANE_MIN_ANGLE_DIFF_DEG) continue
+
+                val mergedLines = (first.cluster.lines + second.cluster.lines)
+                if (mergedLines.size < 4) continue
+
+                val centroid = computeCentroid(mergedLines)
+                val normalAngle = computeNormalAngle(first.point, second.point)
+                val supportRatio = mergedLines.size.toDouble() / totalLineCount
+                val confidence = (
+                    0.45 * supportRatio.coerceIn(0.0, 1.0) +
+                        0.30 * first.confidence +
+                        0.20 * second.confidence +
+                        0.05 * (angleDiff / 90.0).coerceIn(0.0, 1.0)
+                    ).coerceIn(0.0, 1.0)
+
+                hypotheses.add(
+                    PlaneHypothesis(
+                        normalAngleDeg = normalAngle,
+                        centroid = centroid,
+                        lines = mergedLines,
+                        supportLineCount = mergedLines.size,
+                        confidence = confidence,
+                        vanishingPair = first.point to second.point,
+                    ),
+                )
+            }
+        }
+
+        return hypotheses.sortedByDescending { it.confidence }
+    }
+
+    private fun drawTrackedPlanes(res: Mat, planes: List<TrackedPlane>) {
         if (planes.isEmpty()) return
 
         val overlay = res.clone()
         for (plane in planes) {
-            val color = getPlaneColor(plane.index)
-            val allPoints = (plane.c1.lines + plane.c2.lines).flatMap { listOf(it.p1, it.p2) }
-
-            for (line in plane.c1.lines + plane.c2.lines) {
+            val color = getPlaneColor(plane.displayIndex)
+            val allPoints = plane.lines.flatMap { listOf(it.p1, it.p2) }
+            for (line in plane.lines) {
                 Imgproc.line(res, line.p1, line.p2, color, 1)
             }
-
             drawHullOnMat(overlay, allPoints, color)
-            
-            val cx = allPoints.map { it.x }.average()
-            val cy = allPoints.map { it.y }.average()
-            val planeLineCount = plane.c1.lines.size + plane.c2.lines.size
-            val confidence = if (totalLines > 0) (planeLineCount * 100 / totalLines).coerceAtMost(100) else 0
-            Imgproc.putText(res, "P${plane.index + 1} ($confidence%)", Point(cx + 8, cy), Imgproc.FONT_HERSHEY_SIMPLEX, 0.55, color, 2)
+            Imgproc.putText(
+                res,
+                "P${plane.planeId}",
+                Point(plane.centroid.x + 8, plane.centroid.y),
+                Imgproc.FONT_HERSHEY_SIMPLEX,
+                0.58,
+                color,
+                2,
+            )
         }
 
         Core.addWeighted(res, 1.0 - OVERLAY_ALPHA, overlay, OVERLAY_ALPHA, 0.0, res)
         overlay.release()
+    }
+
+    /**
+     * Rysuje metryki jakości nowego modelu: linie, confidence, stability i jitter.
+     */
+    private fun drawPlaneMetrics(
+        res: Mat,
+        lineCount: Int,
+        vpCount: Int,
+        planes: List<TrackedPlane>,
+        labels: Map<String, String>,
+    ) {
+        val labelLines = labels["lines"] ?: "Lines"
+        val labelPlanes = labels["planes"] ?: "Planes"
+        val labelConfidence = labels["confidence"] ?: "Confidence"
+        val labelStability = labels["stability"] ?: "Stability"
+        val labelJitter = labels["normalJitter"] ?: "Normal jitter"
+        val labelNoPlanes = labels["noPlanes"] ?: "No planes"
+
+        Imgproc.putText(
+            res,
+            "$labelLines: $lineCount | VP: $vpCount | $labelPlanes: ${planes.size}",
+            Point(30.0, 30.0),
+            Imgproc.FONT_HERSHEY_SIMPLEX,
+            0.58,
+            Scalar(255.0, 255.0, 255.0),
+            2,
+        )
+
+        if (planes.isEmpty()) {
+            Imgproc.putText(
+                res,
+                labelNoPlanes,
+                Point(30.0, 55.0),
+                Imgproc.FONT_HERSHEY_SIMPLEX,
+                0.64,
+                Scalar(200.0, 200.0, 200.0),
+                2,
+            )
+            return
+        }
+
+        var y = 58.0
+        for (plane in planes) {
+            Imgproc.putText(
+                res,
+                "P${plane.planeId} $labelConfidence ${(plane.confidence * 100).toInt()}% | $labelStability ${(plane.stability * 100).toInt()}% | $labelJitter ${"%.1f".format(plane.jitterDeg)}°",
+                Point(30.0, y),
+                Imgproc.FONT_HERSHEY_SIMPLEX,
+                0.50,
+                getPlaneColor(plane.displayIndex),
+                2,
+            )
+            y += 22.0
+        }
     }
 
     private fun drawHullOnMat(dst: Mat, points: List<Point>, color: Scalar) {
@@ -208,7 +229,7 @@ class GeometryProcessor(private val exceptionLogger: (String, String, Throwable)
             val contourMat = MatOfPoint().apply { fromArray(*points.toTypedArray()) }
             val hullIdx = MatOfInt()
             Imgproc.convexHull(contourMat, hullIdx)
-            val hullPts = hullIdx.toArray().map { i -> points[i] }
+            val hullPts = hullIdx.toArray().map { index -> points[index] }
             if (hullPts.size >= 3) {
                 val hullMat = MatOfPoint().apply { fromArray(*hullPts.toTypedArray()) }
                 Imgproc.fillConvexPoly(dst, hullMat, color)
@@ -221,122 +242,30 @@ class GeometryProcessor(private val exceptionLogger: (String, String, Throwable)
         }
     }
 
+    private fun computeCentroid(lines: List<LineSegment>): Point {
+        val points = lines.flatMap { listOf(it.p1, it.p2) }
+        return Point(points.map { it.x }.average(), points.map { it.y }.average())
+    }
+
+    private fun computeNormalAngle(vp1: Point, vp2: Point): Double {
+        val directionDeg = Math.toDegrees(atan2(vp2.y - vp1.y, vp2.x - vp1.x))
+        val normal = (directionDeg + 90.0) % 180.0
+        return if (normal < 0) normal + 180.0 else normal
+    }
+
+    private fun angleDifference(a: Double, b: Double): Double {
+        val diff = abs(a - b)
+        return min(diff, 180.0 - diff)
+    }
+
     private fun getPlaneColor(index: Int): Scalar {
         val colors = arrayOf(
             Scalar(0.0, 255.0, 0.0),
             Scalar(255.0, 150.0, 0.0),
             Scalar(0.0, 180.0, 255.0),
             Scalar(255.0, 0.0, 255.0),
-            Scalar(0.0, 255.0, 255.0)
+            Scalar(0.0, 255.0, 255.0),
         )
         return colors[index % colors.size]
-    }
-
-    private fun areClustersSpatiallyRelated(c1: List<LineSegment>, c2: List<LineSegment>): Boolean {
-        val r1 = getClusterBoundingBox(c1)
-        val r2 = getClusterBoundingBox(c2)
-        val padding = 50.0
-        val inflatedR1 = Rect((r1.x - padding).toInt(), (r1.y - padding).toInt(), (r1.width + 2 * padding).toInt(), (r1.height + 2 * padding).toInt())
-        return inflatedR1.x < r2.x + r2.width && inflatedR1.x + inflatedR1.width > r2.x && inflatedR1.y < r2.y + r2.height && inflatedR1.y + inflatedR1.height > r2.y
-    }
-
-    private fun getClusterBoundingBox(cluster: List<LineSegment>): Rect {
-        var minX = Double.MAX_VALUE; var minY = Double.MAX_VALUE
-        var maxX = Double.MIN_VALUE; var maxY = Double.MIN_VALUE
-        for (seg in cluster) {
-            minX = minOf(minX, seg.p1.x, seg.p2.x); maxX = maxOf(maxX, seg.p1.x, seg.p2.x)
-            minY = minOf(minY, seg.p1.y, seg.p2.y); maxY = maxOf(maxY, seg.p1.y, seg.p2.y)
-        }
-        return Rect(minX.toInt(), minY.toInt(), (maxX - minX).toInt(), (maxY - minY).toInt())
-    }
-
-    private fun clusterLinesByAngleAndSpace(lines: Mat): List<List<LineSegment>> {
-        val allSegments = mutableListOf<LineSegment>()
-        for (i in 0 until lines.rows()) {
-            val vec = lines.get(i, 0) ?: continue
-            val x1 = vec[0]; val y1 = vec[1]; val x2 = vec[2]; val y2 = vec[3]
-            val length = hypot(x2 - x1, y2 - y1)
-            val angle = Math.toDegrees(atan2(y2 - y1, x2 - x1)).let { if (it < 0) it + 180.0 else it } % 180.0
-            allSegments.add(LineSegment(Point(x1, y1), Point(x2, y2), length, Math.toRadians(angle)))
-        }
-
-        val clusters = mutableListOf<MutableList<LineSegment>>()
-        val clusterStates = mutableListOf<Pair<Double, Rect>>() // MeanAngle, BoundingBox
-
-        for (seg in allSegments) {
-            var assigned = false
-            for (k in clusters.indices) {
-                val (cAngle, cRect) = clusterStates[k]
-                var diff = abs(Math.toDegrees(seg.angleRad) - cAngle)
-                diff = minOf(diff, 180.0 - diff)
-
-                // Check angle AND spatial distance to cluster bounding box
-                if (diff <= CLUSTER_ANGLE_THRESHOLD) {
-                    val dist = distanceToRect(seg.p1, cRect).coerceAtMost(distanceToRect(seg.p2, cRect))
-                    if (dist < 150.0) { // Max gap between lines in same cluster
-                        clusters[k].add(seg)
-                        val newAngle = weightedAngleMean(clusters[k])
-                        val newRect = getClusterBoundingBox(clusters[k])
-                        clusterStates[k] = Pair(newAngle, newRect)
-                        assigned = true
-                        break
-                    }
-                }
-            }
-            if (!assigned) {
-                clusters.add(mutableListOf(seg))
-                clusterStates.add(Pair(Math.toDegrees(seg.angleRad), getClusterBoundingBox(listOf(seg))))
-            }
-        }
-        return clusters
-    }
-
-    private fun distanceToRect(p: Point, r: Rect): Double {
-        val dx = maxOf(0.0, r.x.toDouble() - p.x, p.x - (r.x + r.width).toDouble())
-        val dy = maxOf(0.0, r.y.toDouble() - p.y, p.y - (r.y + r.height).toDouble())
-        return hypot(dx, dy)
-    }
-
-    private fun medianIntensity(mat: Mat): Double {
-        val hist = Mat()
-        Imgproc.calcHist(listOf(mat), MatOfInt(0), Mat(), hist, MatOfInt(256), MatOfFloat(0f, 256f))
-        val total = mat.rows().toLong() * mat.cols().toLong()
-        var cumulative = 0.0
-        for (i in 0 until 256) {
-            cumulative += hist.get(i, 0)[0]
-            if (cumulative >= total / 2.0) {
-                hist.release(); return i.toDouble()
-            }
-        }
-        hist.release(); return 128.0
-    }
-
-    private fun weightedAngleMean(cluster: List<LineSegment>): Double {
-        var sumSin = 0.0; var sumCos = 0.0; var totalWeight = 0.0
-        for (seg in cluster) {
-            sumSin += seg.length * sin(2.0 * seg.angleRad)
-            sumCos += seg.length * cos(2.0 * seg.angleRad)
-            totalWeight += seg.length
-        }
-        return if (totalWeight == 0.0) 0.0 else Math.toDegrees(atan2(sumSin, sumCos) / 2.0).let { if (it < 0) it + 180.0 else it } % 180.0
-    }
-
-    private fun computeVanishingPoint(lines: List<LineSegment>): Point? {
-        if (lines.size < 2) return null
-        val aMat = Mat(lines.size, 2, CvType.CV_64F)
-        val bMat = Mat(lines.size, 1, CvType.CV_64F)
-        for (i in lines.indices) {
-            val p1 = lines[i].p1; val p2 = lines[i].p2
-            val a = p1.y - p2.y
-            val b = p2.x - p1.x
-            val c = a * p1.x + b * p1.y
-            aMat.put(i, 0, a); aMat.put(i, 1, b)
-            bMat.put(i, 0, c)
-        }
-        val solution = Mat()
-        val solved = Core.solve(aMat, bMat, solution, Core.DECOMP_SVD)
-        val res = if (solved && solution.rows() >= 2) Point(solution.get(0, 0)[0], solution.get(1, 0)[0]) else null
-        aMat.release(); bMat.release(); solution.release()
-        return res
     }
 }

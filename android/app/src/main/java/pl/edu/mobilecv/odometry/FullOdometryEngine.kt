@@ -20,6 +20,14 @@ import org.opencv.features2d.BFMatcher
  */
 class FullOdometryEngine {
     /**
+     * Akcje fallbacku aktywowane przy pogorszeniu jakości VO.
+     */
+    enum class RecoveryAction {
+        NONE,
+        REDETECT_AND_DEGRADE,
+        LOCAL_TRACKER_RESTART,
+    }
+    /**
      * Profil pracy odometrii pełnej.
      *
      * - [PURE_VO] używa wyłącznie śledzenia punktów VO i nie koryguje pozy markerami.
@@ -82,6 +90,9 @@ class FullOdometryEngine {
         private const val MIN_HOMOGENEOUS_COORDINATE = 1e-6
         private const val MIN_TRANSLATION_NORM = 0.01
         private const val AUTO_SAVE_THRESHOLD = 100
+        private const val MIN_INLIER_RATIO = 0.20
+        private const val LOW_TRACK_RECOVERY_THRESHOLD = 2
+        private const val LOW_INLIER_RECOVERY_THRESHOLD = 3
 
         private fun vectorNorm(m: Mat): Double {
             if (m.empty()) return 0.0
@@ -95,6 +106,7 @@ class FullOdometryEngine {
     }
 
     private var prevGray = Mat()
+    private val grayBuffer = Mat()
     private var prevPts = MatOfPoint2f()
     private var calibratorRef: CameraCalibrator? = null
 
@@ -161,6 +173,8 @@ class FullOdometryEngine {
     /** Callback for loop closure events. */
     var onLoopClosed: ((String) -> Unit)? = null
     private var lastAutoSaveCount = 0
+    private var lowTrackStreak = 0
+    private var lowInlierStreak = 0
 
     // Tracking indices between frames
     private var prevPointIds = IntArray(0)
@@ -216,7 +230,7 @@ class FullOdometryEngine {
         markers: List<MarkerDetection> = emptyList(),
         profile: RuntimeProfile = RuntimeProfile.MARKER_AIDED,
     ) {
-        val gray = Mat()
+        val gray = ensureGrayBuffer(src.rows(), src.cols())
         if (src.channels() > 1) {
             Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
         } else {
@@ -230,7 +244,26 @@ class FullOdometryEngine {
         }
 
         processFrameInternal(gray, src)
-        gray.release()
+    }
+
+    private fun ensureGrayBuffer(rows: Int, cols: Int): Mat {
+        if (grayBuffer.rows() != rows || grayBuffer.cols() != cols || grayBuffer.type() != CvType.CV_8UC1) {
+            grayBuffer.create(rows, cols, CvType.CV_8UC1)
+        }
+        return grayBuffer
+    }
+
+    /**
+     * Determinuje tryb recover na podstawie liczby punktów i inlier ratio.
+     */
+    internal fun decideRecoveryAction(tracksCount: Int, inlierRatio: Double): RecoveryAction {
+        if (tracksCount < MIN_TRACK_COUNT) lowTrackStreak += 1 else lowTrackStreak = 0
+        if (inlierRatio < MIN_INLIER_RATIO) lowInlierStreak += 1 else lowInlierStreak = 0
+        return when {
+            lowTrackStreak >= LOW_TRACK_RECOVERY_THRESHOLD -> RecoveryAction.REDETECT_AND_DEGRADE
+            lowInlierStreak >= LOW_INLIER_RECOVERY_THRESHOLD -> RecoveryAction.LOCAL_TRACKER_RESTART
+            else -> RecoveryAction.NONE
+        }
     }
 
     private fun integrateMarkers(markers: List<MarkerDetection>) {
@@ -387,14 +420,21 @@ class FullOdometryEngine {
         err.release()
 
         if (goodNextList.size < MIN_TRACK_COUNT) {
+            val action = decideRecoveryAction(goodNextList.size, 0.0)
             gray.copyTo(prevGray)
             detectNewFeatures(gray)
             nextPts.release()
-            synchronized(this) { 
-                lastTracks.clear() 
+            if (action == RecoveryAction.REDETECT_AND_DEGRADE) {
+                // Fallback adaptacyjny: re-detekcja + degradacja trybu bez pełnego resetu.
+                localTrackerRestart(gray, "low tracked points")
+            } else {
+                synchronized(this) {
+                    lastTracks.clear()
+                }
             }
             return
         }
+        lowTrackStreak = 0
 
         val goodPrev = MatOfPoint2f(*goodPrevList.toTypedArray())
         val goodNext = MatOfPoint2f(*goodNextList.toTypedArray())
@@ -478,6 +518,10 @@ class FullOdometryEngine {
                     stepCount,
                     PoseFrame(currentPos, yaw, tNorm, inlierNext.size.toDouble() / goodNextList.size)
                 )
+                val inlierRatio = inlierNext.size.toDouble() / goodNextList.size.coerceAtLeast(1)
+                if (decideRecoveryAction(goodNextList.size, inlierRatio) == RecoveryAction.LOCAL_TRACKER_RESTART) {
+                    localTrackerRestart(gray, "low inlier ratio")
+                }
                 
                 nextGlobalR.release(); nextGlobalT.release(); r_w_c.release(); camPos.release(); rot.release()
             }
@@ -510,6 +554,17 @@ class FullOdometryEngine {
         }
         
         features.release()
+    }
+
+    /**
+     * Restartuje lokalny tracker (punkty + flow) bez resetowania mapy i trajektorii.
+     */
+    private fun localTrackerRestart(gray: Mat, reason: String) {
+        android.util.Log.w(TAG, "Local tracker restart: $reason")
+        detectNewFeatures(gray)
+        synchronized(this) {
+            lastTracks.clear()
+        }
     }
 
     private fun triangulateAndUpdateMap(prev: List<Point>, next: List<Point>, ids: List<Int>, k: Mat, r: Mat, t: Mat, src: Mat) {
@@ -823,6 +878,7 @@ class FullOdometryEngine {
         synchronized(this) {
             prevGray.release()
             prevPts.release()
+            grayBuffer.release()
             prevGray = Mat()
             prevPts = MatOfPoint2f()
             globalR.release()

@@ -234,35 +234,31 @@
 
     <!-- About tab – filter descriptions (YOLO mode) -->
     <string name="filter_desc_yolo_detect">Detekcja obiektów YOLOv8-nano: rozpoznaje 80 klas obiektów (COCO), rysuje ramki z etykietami i poziomem pewności detekcji.</string>
+    <string name="filter_desc_yolo_kalman">YOLO + Kalman: stabilizuje ramki detekcji i poprawia śledzenie ruchomych obiektów.</string>
+    <string name="filter_desc_marker_ukf">Marker + UKF: wygładza pozycję markerów i redukuje drgania estymacji 6DoF.</string>
+    <string name="filter_desc_slam_markers">SLAM markerowy: łączy punkty odometrii z markerami, aby ograniczać dryf mapy.</string>
+    <string name="mode_desc_active_tracking">Dynamic ROI (Active Tracking): stabilizowane śledzenie obiektów i obszaru zainteresowania</string>
+    <string name="mode_desc_slam">SLAM: punkty odometrii połączone z markerami dla stabilnej mapy sceny</string>
     <string name="filter_desc_yolo_segment">Segmentacja instancji YOLOv8-nano: wykrywa obiekty i przybliża maski pikselowe za pomocą nakładek na ramkach detekcji.</string>
     <string name="filter_desc_yolo_pose">Estymacja pozy YOLOv8-nano: wykrywa osoby i rysuje 17 punktów szkieletu połączonych kolorowymi liniami.</string>
     <string name="filter_desc_yolo_classify">Klasyfikacja obrazu YOLOv8-nano: rozpoznaje scenę i wyświetla 5 najbardziej prawdopodobnych kategorii ImageNet-1000 z poziomem pewności klasyfikacji.</string>
     <string name="filter_desc_yolo_obb">Detekcja z orientowanymi ramkami YOLOv8-nano (OBB): wykrywa obiekty na zdjęciach lotniczych w zbiorze DOTAv1 i rysuje obrócone prostokąty wyrównane do osi obiektu.</string>
-    <string name="mode_desc_yolo">Detekcja obiektów, segmentacja instancji, estymacja pozy, klasyfikacja obrazu i detekcja z orientowanymi ramkami z użyciem YOLOv8</string>
+    <string name="mode_desc_yolo">YOLO: detekcja obiektów, segmentacja, poza i klasyfikacja obrazu</string>
     <string name="mode_desc_filters">Konwersja kolorów, rozmycie Gaussowskie, progowanie</string>
     <string name="mode_desc_edges">Detekcja krawędzi: Canny, Sobel, Laplacian</string>
     <string name="mode_desc_morphology">Dylatacja, erozja, otwarcie, zamknięcie i inne</string>
     <string name="mode_desc_markers">Detekcja znaczników: AprilTag, ArUco, QR, CCTag</string>
-    <string name="mode_desc_pose">Śledzenie ciała, rąk i twarzy (MediaPipe)</string>
-    <string name="mode_desc_odometry">Odometria wizualna i rekonstrukcja chmury punktów 3D</string>
-    <string name="mode_desc_geometry">Detekcja płaszczyzn i punkty zbieżności perspektywy</string>
+    <string name="mode_desc_pose">MediaPipe: śledzenie ciała, rąk, twarzy i wzroku</string>
+    <string name="mode_desc_odometry">Jeden workflow odometrii: VO, pełna poza, trajektoria i mapa 3D</string>
     <string name="mode_desc_calibration">Kalibracja kamery wzorcem szachownicy</string>
     <string name="mode_desc_effects">Artystyczne efekty wizualne: inwersja, sepia, tłoczenie, pikselizacja i styl kreskówki</string>
 
     <!-- About tab – filter descriptions (RTMDET mode) -->
-    <string name="filter_desc_rtmdet_detect">Detekcja obiektów RTMDet-nano: wykrywa obiekty w czasie rzeczywistym, rysuje ramki z etykietami klas i poziomem pewności (format end2end TorchScript).</string>
-    <string name="filter_desc_rtmdet_rotated">Detekcja z obróconymi ramkami RTMDet-nano (RTMDet-R): wykrywa obiekty i rysuje zorientowane prostokąty zgodne z osią obiektu.</string>
-    <string name="filter_desc_tflite_detect">Detekcja obiektów TensorFlow Lite (SSD MobileNet V2): standardowa detekcja obiektów z akceleracją GPU (jeśli dostępna).</string>
-    <string name="mode_desc_rtmdet">Detekcja obiektów z ramkami prostopadłymi i zorientowanymi z użyciem RTMDet-nano (OpenMMLab)</string>
-    <string name="mode_desc_mobilint">Akceleracja sprzętowa NPU przy użyciu układów Mobilint Ares do detekcji obiektów w czasie rzeczywistym</string>
-    <string name="mode_desc_tflite">Standardowa detekcja obiektów przy użyciu silnika TensorFlow Lite i modelu SSD MobileNet V2</string>
-    <string name="mode_desc_tracking">Stabilizowane śledzenie obiektów z użyciem filtru Kalmana dla detekcji YOLO</string>
 
     <!-- About tab – filter descriptions (FULL_ODOMETRY_3D mode) -->
     <string name="filter_desc_full_odometry">Pełna odometria 3D: estymuje pozę kamery metodą macierzy zasadniczej, akumuluje trajektorię i wyświetla HUD ze statystykami ruchu.</string>
     <string name="filter_desc_odometry_trajectory">Trajektoria ruchu kamery: nakłada skumulowaną ścieżkę jako linię łamaną w widoku z góry w lewym górnym rogu ekranu.</string>
     <string name="filter_desc_odometry_map">Mapa 3D: wyświetla trójwymiarową chmurę punktów pozyskaną przez triangulację cech między kolejnymi klatkami.</string>
-    <string name="mode_desc_full_odometry_3d">Pełny potok odometrii wizualnej: estymacja pozy, akumulacja trajektorii i rekonstrukcja mapy 3D</string>
 
     <!-- About tab – filter descriptions (EFFECTS mode) -->
     <string name="filter_desc_invert">Inwersja kolorów: odwraca wartości pikseli (255 − wartość), tworząc efekt fotograficznego negatywu.</string>

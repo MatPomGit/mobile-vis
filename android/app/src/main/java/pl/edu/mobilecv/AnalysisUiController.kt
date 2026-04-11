@@ -204,8 +204,7 @@ class AnalysisUiController(
         val layoutRes = when (mode) {
             AnalysisMode.MORPHOLOGY -> R.layout.layout_controls_morphology
             AnalysisMode.ODOMETRY,
-            AnalysisMode.FULL_ODOMETRY_3D,
-            AnalysisMode.GEOMETRY,
+            AnalysisMode.SLAM,
             -> R.layout.layout_controls_odometry
             else -> R.layout.layout_controls_detection
         }
@@ -368,8 +367,7 @@ class AnalysisUiController(
         val hintRes = when (mode) {
             AnalysisMode.MORPHOLOGY -> R.string.context_hint_morphology
             AnalysisMode.ODOMETRY,
-            AnalysisMode.FULL_ODOMETRY_3D,
-            AnalysisMode.GEOMETRY,
+            AnalysisMode.SLAM,
             -> R.string.context_hint_odometry
             else -> R.string.context_hint_detection
         }
@@ -381,15 +379,10 @@ class AnalysisUiController(
 
         controls?.layoutKernelSize?.visibility =
             if (currentMode == AnalysisMode.MORPHOLOGY) View.VISIBLE else View.GONE
-        controls?.layoutGeometryMaxPlanes?.visibility =
-            if (currentMode == AnalysisMode.GEOMETRY && currentFilter == OpenCvFilter.PLANE_DETECTION) {
-                View.VISIBLE
-            } else {
-                View.GONE
-            }
+        controls?.layoutGeometryMaxPlanes?.visibility = View.GONE
 
         val isOdometry = currentMode == AnalysisMode.ODOMETRY ||
-            currentMode == AnalysisMode.FULL_ODOMETRY_3D
+            currentMode == AnalysisMode.SLAM
         controls?.layoutVoMaxFeatures?.visibility = if (isOdometry) View.VISIBLE else View.GONE
         controls?.layoutVoMinParallax?.visibility = if (isOdometry) View.VISIBLE else View.GONE
         controls?.layoutVoMesh?.visibility = if (isOdometry) View.VISIBLE else View.GONE

@@ -47,7 +47,7 @@ Warstwa Python pokrywa typowy przepływ pracy obejmujący:
 - narzędzia pomocnicze (utils).
 
 Repozytorium zawiera też rozszerzone moduły do hologramów, iris/holistic, QR, AprilTagów,
-benchmarkingu, robot perception, RTMDet i YOLO oraz odpowiadające im testy. Artefakty budowania,
+benchmarkingu, robot perception, markerów, odometrii, SLAM i YOLO oraz odpowiadające im testy. Artefakty budowania,
 lokalne dane i pliki tymczasowe nie powinny być commitowane.
 
 ---
@@ -90,6 +90,12 @@ Katalog `android/` zawiera pełną aplikację na Androida umożliwiającą:
 - **podgląd na żywo** z kamery przedniej lub tylnej telefonu,
 - **przełączanie kamer** przyciskiem FAB w dolnym pasku,
 - **wybór filtra OpenCV** z poziomego paska chipów (pojedyncze zaznaczenie).
+
+- **uproszczony workflow trybów detekcji i analizy**:
+  - Detekcja: `MARKERS`, `POSE`, `YOLO`,
+  - Odometria: jedna zakładka (`VISUAL_ODOMETRY`, `FULL_ODOMETRY`, `ODOMETRY_TRAJECTORY`, `ODOMETRY_MAP`),
+  - SLAM: osobna zakładka (punkty odometrii + markery),
+  - Dynamic ROI (Active Tracking): osobna zakładka.
 
 ### Dostępne filtry
 

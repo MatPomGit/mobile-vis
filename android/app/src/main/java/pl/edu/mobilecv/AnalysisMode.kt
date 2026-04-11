@@ -92,7 +92,15 @@ enum class AnalysisMode(val displayName: String, val filters: List<OpenCvFilter>
             OpenCvFilter.FULL_ODOMETRY,
             OpenCvFilter.ODOMETRY_TRAJECTORY,
             OpenCvFilter.ODOMETRY_MAP,
-            OpenCvFilter.SLAM_MARKERS,
+        )
+    ),
+
+    /** Dedicated SLAM workflows: pure VO map vs marker-aided fusion. */
+    SLAM(
+        "SLAM",
+        listOf(
+            OpenCvFilter.SLAM_POINTS,
+            OpenCvFilter.SLAM_MARKERS_FUSED,
         )
     ),
 

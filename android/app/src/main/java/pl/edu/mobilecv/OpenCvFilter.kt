@@ -315,6 +315,18 @@ enum class OpenCvFilter(val displayName: String) {
      */
     SLAM_MARKERS("SLAM (Markery)"),
 
+    /**
+     * SLAM profile oparty wyłącznie o VO (bez markerów referencyjnych).
+     * Użyteczny do szybkiego mapowania scen bez przygotowania znaczników.
+     */
+    SLAM_POINTS("SLAM Points (VO)"),
+
+    /**
+     * SLAM profile łączący marker landmarks oraz VO (fuzja źródeł pozy).
+     * Zapewnia mniejszy dryf i stabilniejszą globalną mapę.
+     */
+    SLAM_MARKERS_FUSED("SLAM Fused (Markery + VO)"),
+
     /** Estimates distance to objects or markers in the scene. */
     DISTANCE_ESTIMATION("Odległość"),
 }
@@ -361,7 +373,9 @@ val OpenCvFilter.isFullOdometry: Boolean
     get() = this == OpenCvFilter.FULL_ODOMETRY ||
         this == OpenCvFilter.ODOMETRY_TRAJECTORY ||
         this == OpenCvFilter.ODOMETRY_MAP ||
-        this == OpenCvFilter.SLAM_MARKERS
+        this == OpenCvFilter.SLAM_MARKERS ||
+        this == OpenCvFilter.SLAM_POINTS ||
+        this == OpenCvFilter.SLAM_MARKERS_FUSED
 
 /**
  * Returns ``true`` if this filter belongs to any odometry visualization path.

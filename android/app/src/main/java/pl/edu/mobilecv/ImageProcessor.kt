@@ -204,12 +204,13 @@ class ImageProcessor {
             markers: List<MarkerDetection>,
             runVisual: Boolean,
             runFull: Boolean,
+            fullProfile: FullOdometryEngine.RuntimeProfile = FullOdometryEngine.RuntimeProfile.MARKER_AIDED,
         ): OdometryOverlayState {
             if (runVisual) {
                 visualEngine.processFrameRgba(frame, calibrator)
             }
             if (runFull) {
-                fullEngine.processFrameRgba(frame, calibrator, markers)
+                fullEngine.processFrameRgba(frame, calibrator, markers, fullProfile)
             }
             return OdometryOverlayState(
                 visualTracks = visualEngine.currentTracks,
@@ -323,7 +324,8 @@ class ImageProcessor {
      */
     fun resetModule(mode: AnalysisMode) {
         when (mode) {
-            AnalysisMode.ODOMETRY_UNIFIED -> odometryOrchestrator.resetAll()
+            AnalysisMode.ODOMETRY_UNIFIED,
+            AnalysisMode.SLAM -> odometryOrchestrator.resetAll()
             else -> {
                 // Pozostałe moduły nie utrzymują trwałego stanu między klatkami.
             }
@@ -521,6 +523,9 @@ class ImageProcessor {
             OpenCvFilter.ODOMETRY_TRAJECTORY -> Triple(applyOdometryTrajectory(baseFrame), true, 0L)
             OpenCvFilter.ODOMETRY_MAP -> Triple(applyOdometryMap(baseFrame), true, 0L)
             OpenCvFilter.DISTANCE_ESTIMATION -> Triple(applyDistanceEstimation(baseFrame), true, 0L)
+            OpenCvFilter.SLAM_POINTS -> Triple(applySlamPoints(baseFrame), true, 0L)
+            OpenCvFilter.SLAM_MARKERS_FUSED,
+            OpenCvFilter.SLAM_MARKERS -> Triple(applySlamMarkersFused(baseFrame), true, 0L)
             else -> Triple(baseFrame.clone(), true, 0L)
         }
         val processed = processedPair.first
@@ -1256,7 +1261,11 @@ class ImageProcessor {
     /**
      * Wspólny pipeline odometrii: ekstrakcja punktów i estymacja ruchu.
      */
-    private fun processOdometryFrame(src: Mat, overlayMode: OdometryOverlayMode): OdometryOverlayState {
+    private fun processOdometryFrame(
+        src: Mat,
+        overlayMode: OdometryOverlayMode,
+        fullProfile: FullOdometryEngine.RuntimeProfile = FullOdometryEngine.RuntimeProfile.MARKER_AIDED,
+    ): OdometryOverlayState {
         val geometryInput = prepareGeometryInput(src, "odometry_unified_${overlayMode.name.lowercase()}")
         val markers = detectMarkersForOdometry(geometryInput)
         val state = odometryOrchestrator.process(
@@ -1265,6 +1274,7 @@ class ImageProcessor {
             markers = markers,
             runVisual = overlayMode == OdometryOverlayMode.VISUAL_TRACKS,
             runFull = overlayMode != OdometryOverlayMode.VISUAL_TRACKS,
+            fullProfile = fullProfile,
         )
         geometryInput.release()
         return state
@@ -1380,6 +1390,57 @@ class ImageProcessor {
             Imgproc.line(res, Point(sc.x, sc.y - 12.0), Point(sc.x, sc.y + 12.0), Scalar(255.0, 80.0, 0.0, 255.0), 2)
         }
         drawXzAxisLabels(res, margin, drawW, drawH); return res
+    }
+
+    /**
+     * Renderuje SLAM w profilu pure-VO (bez fuzji markerów).
+     */
+    private fun applySlamPoints(src: Mat): Mat =
+        applyFullOdometryWithProfile(src, FullOdometryEngine.RuntimeProfile.PURE_VO)
+
+    /**
+     * Renderuje SLAM w profilu marker-aided (fuzja markerów i VO).
+     */
+    private fun applySlamMarkersFused(src: Mat): Mat =
+        applyFullOdometryWithProfile(src, FullOdometryEngine.RuntimeProfile.MARKER_AIDED)
+
+    /**
+     * Wspólny renderer HUD dla wariantów SLAM z przełączanym profilem silnika.
+     */
+    private fun applyFullOdometryWithProfile(
+        src: Mat,
+        profile: FullOdometryEngine.RuntimeProfile,
+    ): Mat {
+        val state = processOdometryFrame(src, OdometryOverlayMode.FULL_TRACKS, profile)
+        val res = src.clone()
+        val tracks = state.fullTracks
+        for (track in tracks) {
+            val color = if (track.isInlier) Scalar(0.0, 255.0, 0.0, 255.0) else Scalar(255.0, 0.0, 0.0, 200.0)
+            Imgproc.line(res, track.p1, track.p2, color, 1)
+            if (track.isInlier) {
+                Imgproc.circle(res, track.p2, 3, Scalar(255.0, 80.0, 0.0, 255.0), -1)
+            }
+        }
+        val fullState = state.fullState
+        var y = 40.0
+        Imgproc.putText(res, "$labelOdometryTracks: ${tracks.size}", Point(FULL_ODOMETRY_HUD_X, y), Imgproc.FONT_HERSHEY_SIMPLEX, 0.65, Scalar(255.0, 255.0, 255.0, 255.0), 2)
+        if (fullState != null) {
+            y += FULL_ODOMETRY_HUD_LINE_HEIGHT
+            Imgproc.putText(res, "$labelOdometryInliers: ${fullState.inliersCount}/${fullState.tracksCount}", Point(FULL_ODOMETRY_HUD_X, y), Imgproc.FONT_HERSHEY_SIMPLEX, 0.65, Scalar(255.0, 255.0, 255.0, 255.0), 2)
+            y += FULL_ODOMETRY_HUD_LINE_HEIGHT
+            Imgproc.putText(res, "$labelOdometryFrames: ${fullState.frameCount}  $labelOdometrySteps: ${fullState.totalSteps}", Point(FULL_ODOMETRY_HUD_X, y), Imgproc.FONT_HERSHEY_SIMPLEX, 0.65, Scalar(255.0, 255.0, 255.0, 255.0), 2)
+        }
+        val profileLabel = if (profile == FullOdometryEngine.RuntimeProfile.PURE_VO) "Profil: VO" else "Profil: Markery+VO"
+        y += FULL_ODOMETRY_HUD_LINE_HEIGHT
+        Imgproc.putText(res, profileLabel, Point(FULL_ODOMETRY_HUD_X, y), Imgproc.FONT_HERSHEY_SIMPLEX, 0.55, Scalar(120.0, 220.0, 255.0, 255.0), 2)
+        val currentPose = fullState?.currentPose
+        if (currentPose != null) {
+            y += FULL_ODOMETRY_HUD_LINE_HEIGHT
+            Imgproc.putText(res, "$labelOdometryPosition: (%.2f, %.2f, %.2f)".format(currentPose.position.x, currentPose.position.y, currentPose.position.z), Point(FULL_ODOMETRY_HUD_X, y), Imgproc.FONT_HERSHEY_SIMPLEX, 0.55, Scalar(255.0, 255.0, 255.0, 255.0), 2)
+            y += FULL_ODOMETRY_HUD_LINE_HEIGHT
+            Imgproc.putText(res, "R: %.1f°  inlier: %.0f%%".format(currentPose.rotationDeg, currentPose.inlierRatio * 100), Point(FULL_ODOMETRY_HUD_X, y), Imgproc.FONT_HERSHEY_SIMPLEX, 0.55, Scalar(255.0, 255.0, 255.0, 255.0), 2)
+        }
+        return res
     }
 
     private fun computeAdaptiveMapPointRadius(pointCount: Int): Int {

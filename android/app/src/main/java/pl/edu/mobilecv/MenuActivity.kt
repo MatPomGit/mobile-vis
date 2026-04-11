@@ -195,8 +195,26 @@ class MenuActivity : AppCompatActivity() {
      */
     private fun buildAnalysisCards() {
         buildCardsForGroup(binding.analysisContainer, ModeRegistry.FunctionalGroup.ANALYSIS)
+        buildSlamProfilesInfoCard()
         buildOdometryTutorialCard()
         buildPointCloudViewerCard()
+    }
+
+    /**
+     * Dodaje kartę informacyjną opisującą różnice profili SLAM i rekomendowany scenariusz użycia.
+     */
+    private fun buildSlamProfilesInfoCard() {
+        addCustomCard(
+            container = binding.analysisContainer,
+            title = getString(R.string.slam_profiles_card_title),
+            description = getString(R.string.slam_profiles_card_description),
+            strokeColorRes = R.color.group_analysis
+        ) {
+            // Karta pełni funkcję opisu, bez dodatkowej akcji.
+        }.apply {
+            isClickable = false
+            isFocusable = false
+        }
     }
 
 

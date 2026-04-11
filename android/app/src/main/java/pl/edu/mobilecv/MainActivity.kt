@@ -322,14 +322,25 @@ class MainActivity : AppCompatActivity() {
             finish()
         }
         binding.fabSavePointCloud.setOnClickListener {
-            if (analysisUiController.currentFilter.isFullOdometry) {
+            // W trybie SLAM przycisk zachowuje istniejącą akcję zapisu mapy.
+            if (analysisUiController.currentMode == AnalysisMode.SLAM &&
+                analysisUiController.currentFilter.isFullOdometry
+            ) {
                 showSaveSlamMapDialog()
             } else {
                 showSavePointCloudDialog()
             }
         }
-        binding.fabSaveSlamMap.setOnClickListener { showSaveSlamMapDialog() }
-        binding.fabLoadSlamMap.setOnClickListener { filePickerSlam.launch("*/*") }
+        binding.fabSaveSlamMap.setOnClickListener {
+            if (analysisUiController.currentMode == AnalysisMode.SLAM) {
+                showSaveSlamMapDialog()
+            }
+        }
+        binding.fabLoadSlamMap.setOnClickListener {
+            if (analysisUiController.currentMode == AnalysisMode.SLAM) {
+                filePickerSlam.launch("*/*")
+            }
+        }
     }
 
     private fun processFrame(imageProxy: ImageProxy) {

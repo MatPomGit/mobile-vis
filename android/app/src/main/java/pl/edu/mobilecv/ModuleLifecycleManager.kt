@@ -77,7 +77,7 @@ class ModuleLifecycleManager(
             AnalysisMode.POSE -> if (!ModelDownloadManager.areAllModelsReady(context)) {
                 startMediaPipeModelDownload()
             }
-            AnalysisMode.YOLO, AnalysisMode.ACTIVE_TRACKING -> if (!ModelDownloadManager.areYoloModelsReady(context)) {
+            AnalysisMode.YOLO -> if (!ModelDownloadManager.areYoloModelsReady(context)) {
                 startYoloModelDownload()
             }
             else -> Unit

@@ -53,7 +53,6 @@ object ModeRegistry {
         ModeEntry(AnalysisMode.MARKERS, FunctionalGroup.DETECTION, R.string.mode_desc_markers, AnalysisMode.MARKERS.filters),
         ModeEntry(AnalysisMode.POSE, FunctionalGroup.DETECTION, R.string.mode_desc_pose, AnalysisMode.POSE.filters),
         ModeEntry(AnalysisMode.YOLO, FunctionalGroup.DETECTION, R.string.mode_desc_yolo, AnalysisMode.YOLO.filters),
-        ModeEntry(AnalysisMode.ACTIVE_TRACKING, FunctionalGroup.DETECTION, R.string.mode_desc_active_tracking, AnalysisMode.ACTIVE_TRACKING.filters),
         ModeEntry(AnalysisMode.ODOMETRY, FunctionalGroup.ANALYSIS, R.string.mode_desc_odometry, AnalysisMode.ODOMETRY.filters),
         ModeEntry(AnalysisMode.SLAM, FunctionalGroup.ANALYSIS, R.string.mode_desc_slam, AnalysisMode.SLAM.filters),
         ModeEntry(AnalysisMode.CALIBRATION, FunctionalGroup.ANALYSIS, R.string.mode_desc_calibration, AnalysisMode.CALIBRATION.filters),

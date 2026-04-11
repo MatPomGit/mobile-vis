@@ -14,7 +14,6 @@ object ModuleStatusStore {
     enum class ModuleType {
         MEDIAPIPE,
         YOLO,
-        RTMDET,
         TFLITE,
     }
 

@@ -60,6 +60,9 @@
     <string name="active_vision_disabled" tools:keep="@string/active_vision_disabled">Tryb Active Vision wyłączony</string>
     <string name="diagnostics_active_vision">Active Vision: %1$b</string>
     <string name="diagnostics_active_vision_visualization">Wizualizacja AV: %1$b</string>
+    <string name="active_tracking_roi_auto_toggle">ROI: auto</string>
+    <string name="active_tracking_target_lock_toggle">Blokada celu</string>
+    <string name="active_tracking_aggressiveness_label">Agresywność śledzenia:</string>
 
     <string name="advanced_section_title">Zaawansowane</string>
     <string name="advanced_section_toggle">Pokaż lub ukryj ustawienia zaawansowane</string>
@@ -67,6 +70,7 @@
     <string name="context_hint_morphology">Dopasuj parametry morfologii do bieżących krawędzi i szumu.</string>
     <string name="context_hint_odometry">Ustaw parametry rekonstrukcji i śledzenia ruchu kamery.</string>
     <string name="context_hint_slam">Wybierz profil SLAM: VO-only dla szybkiego startu albo Marker+VO dla mniejszego dryfu.</string>
+    <string name="context_hint_active_tracking">Skonfiguruj lifecycle ROI: auto/manual, agresywność i blokadę celu podczas śledzenia.</string>
     <string name="context_hint_detection">Wybierz filtr detekcji i w razie potrzeby rozwiń ustawienia szczegółowe.</string>
     <string name="morphology_kernel_size_label">Jądro:</string>
     <string name="morphology_kernel_size_value">%1$d×%2$d</string>
@@ -212,6 +216,7 @@
     <string name="filter_desc_aruco">Detekcja znaczników ArUco (słownik 4×4): wykrywa i identyfikuje markery, nakłada oś układu współrzędnych XYZ.</string>
     <string name="filter_desc_qr">Detekcja kodów QR: dekoduje zawartość tekstową lub URL i zaznacza kod na ekranie.</string>
     <string name="filter_desc_cctag">Detekcja znaczników CCTag (koncentryczne okręgi): odporne na zmianę kąta widzenia i warunki oświetleniowe.</string>
+    <string name="filter_desc_active_tracking">Active Tracking: osobny pipeline wykrycia i śledzenia ROI z predykcją, confidence oraz automatyczną re-akwizycją po utracie celu.</string>
 
     <!-- About tab – filter descriptions (POSE mode) -->
     <string name="filter_desc_body">Śledzenie pozy ciała: MediaPipe Pose Landmarker rysuje 33 punkty szkieletu całego ciała w czasie rzeczywistym.</string>

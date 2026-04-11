@@ -162,6 +162,10 @@ class ImageProcessor {
 
     var isActiveVisionEnabled: Boolean = false
     var isActiveVisionVisualizationEnabled: Boolean = false
+    var activeTrackingAutoRoi: Boolean = true
+    var activeTrackingAggressiveness: Double = 0.55
+    var activeTrackingTargetLocked: Boolean = false
+    var activeTrackingFallbackFrames: Int = 12
 
     val lastPointCloud: VisualOdometryEngine.PointCloudState?
         get() = visualOdometryEngine.lastPointCloud
@@ -329,6 +333,7 @@ class ImageProcessor {
         when (mode) {
             AnalysisMode.ODOMETRY_UNIFIED,
             AnalysisMode.SLAM -> odometryOrchestrator.resetAll()
+            AnalysisMode.ACTIVE_TRACKING -> activeVisionOptimizer.reset()
             else -> {
                 // Pozostałe moduły nie utrzymują trwałego stanu między klatkami.
             }
@@ -436,7 +441,8 @@ class ImageProcessor {
 
         val src = ensureMat(srcBuffer, bitmap.height, bitmap.width, CvType.CV_8UC4)
         Utils.bitmapToMat(bitmap, src)
-        val baseFrame = if (isActiveVisionEnabled) {
+        val activeTrackingEnabled = filter == OpenCvFilter.ACTIVE_TRACKING
+        val baseFrame = if (isActiveVisionEnabled && !activeTrackingEnabled) {
             activeVisionOptimizer.optimize(src, visualizeWork = isActiveVisionVisualizationEnabled)
         } else {
             val base = ensureMat(baseFrameBuffer, src.rows(), src.cols(), src.type())
@@ -457,6 +463,11 @@ class ImageProcessor {
             }
 
             val processedPair = when (filter) {
+                OpenCvFilter.ACTIVE_TRACKING -> Triple(
+                    applyActiveTracking(baseFrame),
+                    true,
+                    0L,
+                )
                 OpenCvFilter.ORIGINAL,
                 OpenCvFilter.GRAYSCALE,
                 OpenCvFilter.CANNY_EDGES,
@@ -547,8 +558,26 @@ class ImageProcessor {
             return result
         } finally {
             if (shouldReleaseProcessed) processed?.release()
-            if (isActiveVisionEnabled) baseFrame.release()
+            if (isActiveVisionEnabled && !activeTrackingEnabled) baseFrame.release()
         }
+    }
+
+    /**
+     * Dedykowany pipeline aktywnego śledzenia:
+     * detekcja celu -> aktualizacja ROI -> śledzenie ROI -> re-akwizycja po utracie.
+     */
+    private fun applyActiveTracking(frame: Mat): Mat {
+        val trackingOutput = activeVisionOptimizer.process(
+            input = frame,
+            config = ActiveVisionOptimizer.TrackingConfig(
+                autoRoi = activeTrackingAutoRoi,
+                aggressiveness = activeTrackingAggressiveness,
+                targetLocked = activeTrackingTargetLocked,
+                fallbackToFullFrameAfter = activeTrackingFallbackFrames,
+                visualizeOverlay = true,
+            ),
+        )
+        return trackingOutput.output
     }
 
     private val fpsPaint = Paint().apply {

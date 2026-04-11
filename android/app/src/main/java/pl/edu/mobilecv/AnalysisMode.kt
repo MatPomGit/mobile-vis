@@ -67,6 +67,14 @@ enum class AnalysisMode(val displayName: String, val filters: List<OpenCvFilter>
         )
     ),
 
+    /** Active object tracking with dynamic ROI updates and re-acquisition fallback. */
+    ACTIVE_TRACKING(
+        "Active Tracking",
+        listOf(
+            OpenCvFilter.ACTIVE_TRACKING,
+        )
+    ),
+
     /** Human body, face and hand tracking using MediaPipe Holistic and Iris. */
     POSE(
         "Poza / Twarz",

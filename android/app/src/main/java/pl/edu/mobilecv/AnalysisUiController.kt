@@ -203,9 +203,7 @@ class AnalysisUiController(
     private fun inflateControlsForMode(mode: AnalysisMode) {
         val layoutRes = when (mode) {
             AnalysisMode.MORPHOLOGY -> R.layout.layout_controls_morphology
-            AnalysisMode.ODOMETRY,
-            AnalysisMode.SLAM,
-            -> R.layout.layout_controls_odometry
+            AnalysisMode.ODOMETRY_UNIFIED -> R.layout.layout_controls_odometry
             else -> R.layout.layout_controls_detection
         }
 
@@ -366,9 +364,7 @@ class AnalysisUiController(
         )
         val hintRes = when (mode) {
             AnalysisMode.MORPHOLOGY -> R.string.context_hint_morphology
-            AnalysisMode.ODOMETRY,
-            AnalysisMode.SLAM,
-            -> R.string.context_hint_odometry
+            AnalysisMode.ODOMETRY_UNIFIED -> R.string.context_hint_odometry
             else -> R.string.context_hint_detection
         }
         binding.textViewContextHint.text = binding.root.context.getString(hintRes)
@@ -381,8 +377,7 @@ class AnalysisUiController(
             if (currentMode == AnalysisMode.MORPHOLOGY) View.VISIBLE else View.GONE
         controls?.layoutGeometryMaxPlanes?.visibility = View.GONE
 
-        val isOdometry = currentMode == AnalysisMode.ODOMETRY ||
-            currentMode == AnalysisMode.SLAM
+        val isOdometry = currentMode == AnalysisMode.ODOMETRY_UNIFIED
         controls?.layoutVoMaxFeatures?.visibility = if (isOdometry) View.VISIBLE else View.GONE
         controls?.layoutVoMinParallax?.visibility = if (isOdometry) View.VISIBLE else View.GONE
         controls?.layoutVoMesh?.visibility = if (isOdometry) View.VISIBLE else View.GONE

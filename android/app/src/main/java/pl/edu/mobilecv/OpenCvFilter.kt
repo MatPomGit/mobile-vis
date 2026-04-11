@@ -362,3 +362,11 @@ val OpenCvFilter.isFullOdometry: Boolean
         this == OpenCvFilter.ODOMETRY_TRAJECTORY ||
         this == OpenCvFilter.ODOMETRY_MAP ||
         this == OpenCvFilter.SLAM_MARKERS
+
+/**
+ * Returns ``true`` if this filter belongs to any odometry visualization path.
+ */
+val OpenCvFilter.isOdometryFilter: Boolean
+    get() = this == OpenCvFilter.VISUAL_ODOMETRY ||
+        this == OpenCvFilter.POINT_CLOUD ||
+        this.isFullOdometry

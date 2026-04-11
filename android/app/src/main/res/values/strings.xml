@@ -125,6 +125,15 @@
 
     <string name="vo_overlay_tracks" tools:keep="@string/vo_overlay_tracks">Ścieżki VO</string>
     <string name="vo_overlay_point_cloud" tools:keep="@string/vo_overlay_point_cloud">Chmura</string>
+    <string name="odometry_overlay_inliers">Inliery</string>
+    <string name="odometry_overlay_frames">Klatki</string>
+    <string name="odometry_overlay_steps">Kroki</string>
+    <string name="odometry_overlay_position">Pozycja</string>
+    <string name="odometry_overlay_trajectory">Trajektoria</string>
+    <string name="odometry_overlay_map">Mapa 3D</string>
+    <string name="odometry_overlay_points">punktów</string>
+    <string name="odometry_overlay_collecting_data">Zbieranie danych...</string>
+    <string name="odometry_overlay_collecting_points">Zbieranie punktów...</string>
 
     <!-- Visual Odometry parameters -->
     <string name="vo_max_features_label">Max cech:</string>

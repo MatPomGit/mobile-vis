@@ -135,6 +135,10 @@ class ImageProcessor {
     var labelBoardNotFound: String = "Brak szachownicy"
     var labelNoCalibration: String = "Brak kalibracji"
     var labelOdometryTracks: String = "Ścieżki"
+    var labelOdometryInliers: String = "Inlierów"
+    var labelOdometryFrames: String = "Klatki"
+    var labelOdometrySteps: String = "Kroki"
+    var labelOdometryPosition: String = "Poz"
     var labelPointCloud: String = "Chmura"
     var labelNoPlanes: String = "Brak płaszczyzn"
     var labelNoVanishingPoints: String = "Brak punktów zbieżności"
@@ -147,11 +151,6 @@ class ImageProcessor {
     var labelVoMaxFeaturesDesc: String = ""
     var labelVoMinParallaxDesc: String = ""
     var labelVoColorDepthDesc: String = ""
-    var labelFullOdometryTracks: String = "Tory"
-    var labelFullOdometryInliers: String = "Inlierów"
-    var labelFullOdometryFrames: String = "Klatki"
-    var labelFullOdometrySteps: String = "Kroki"
-    var labelFullOdometryPos: String = "Poz"
     var labelTrajectory: String = "Trajektoria"
     var labelMap3D: String = "Mapa 3D"
     var labelOdometryPoints: String = "Punkty"
@@ -187,6 +186,61 @@ class ImageProcessor {
         it.maxFeatures = OdometryState().maxFeatures
         it.minParallax = OdometryState().minParallax
     }
+    private val odometryOrchestrator = OdometryOrchestrator(visualOdometryEngine, fullOdometryEngine)
+
+    /**
+     * Orkiestruje wspólny etap przygotowania danych dla wariantów odometrii.
+     */
+    private class OdometryOrchestrator(
+        private val visualEngine: VisualOdometryEngine,
+        private val fullEngine: FullOdometryEngine,
+    ) {
+        /**
+         * Przetwarza klatkę jednym wspólnym pipeline i zwraca dane do warstwy overlay.
+         */
+        fun process(
+            frame: Mat,
+            calibrator: CameraCalibrator?,
+            markers: List<MarkerDetection>,
+            runVisual: Boolean,
+            runFull: Boolean,
+        ): OdometryOverlayState {
+            if (runVisual) {
+                visualEngine.processFrameRgba(frame, calibrator)
+            }
+            if (runFull) {
+                fullEngine.processFrameRgba(frame, calibrator, markers)
+            }
+            return OdometryOverlayState(
+                visualTracks = visualEngine.currentTracks,
+                pointCloud = visualEngine.lastPointCloud,
+                fullTracks = fullEngine.currentTracks,
+                fullState = fullEngine.lastOdometryState,
+                trajectory = fullEngine.currentTrajectory,
+                mapState = fullEngine.currentMap,
+            )
+        }
+
+        /**
+         * Zeruje oba silniki jednocześnie, aby uniknąć rozjazdu stanów.
+         */
+        fun resetAll() {
+            visualEngine.reset()
+            fullEngine.reset()
+        }
+    }
+
+    /**
+     * Snapshot danych wspólnych dla wszystkich widoków odometrii.
+     */
+    private data class OdometryOverlayState(
+        val visualTracks: List<List<Point>>,
+        val pointCloud: VisualOdometryEngine.PointCloudState?,
+        val fullTracks: List<FullOdometryEngine.VisualTrack>,
+        val fullState: FullOdometryEngine.FullOdometryState?,
+        val trajectory: FullOdometryEngine.TrajectoryState,
+        val mapState: FullOdometryEngine.MapState,
+    )
 
     /** Callback for automatic map export. */
     var onLargeMapDetected: ((FullOdometryEngine.MapState) -> Unit)? = null
@@ -269,11 +323,7 @@ class ImageProcessor {
      */
     fun resetModule(mode: AnalysisMode) {
         when (mode) {
-            AnalysisMode.ODOMETRY -> {
-                odometryModule.reset()
-                fullOdometryEngine.reset()
-            }
-            AnalysisMode.SLAM -> fullOdometryEngine.reset()
+            AnalysisMode.ODOMETRY_UNIFIED -> odometryOrchestrator.resetAll()
             else -> {
                 // Pozostałe moduły nie utrzymują trwałego stanu między klatkami.
             }
@@ -347,7 +397,7 @@ class ImageProcessor {
         }
 
         override fun reset() {
-            visualOdometryEngine.reset()
+            odometryOrchestrator.resetAll()
         }
     }
 
@@ -358,11 +408,8 @@ class ImageProcessor {
     }
 
     fun processFrame(bitmap: Bitmap, filter: OpenCvFilter, moduleState: ModuleState): Bitmap {
-        if (filter != OpenCvFilter.VISUAL_ODOMETRY && filter != OpenCvFilter.POINT_CLOUD) {
-            visualOdometryEngine.reset()
-        }
-        if (!filter.isFullOdometry) {
-            fullOdometryEngine.reset()
+        if (!filter.isOdometryFilter) {
+            odometryOrchestrator.resetAll()
         }
         if (filter.isMediaPipe) {
             val result = mediaPipeProcessor?.processFrame(bitmap, filter) ?: bitmap.copy(Bitmap.Config.ARGB_8888, false)
@@ -1126,26 +1173,22 @@ class ImageProcessor {
     }
 
     private fun applyVisualOdometry(src: Mat): Mat {
-        val geometryInput = prepareGeometryInput(src, "vo")
         val res = src.clone()
-        val markers = detectMarkersForOdometry(geometryInput)
-        visualOdometryEngine.processFrameRgba(geometryInput, calibrator)
-        // ... (remaining code using markers if needed)
-        val tracks = visualOdometryEngine.currentTracks
+        val state = processOdometryFrame(src, OdometryOverlayMode.VISUAL_TRACKS)
+        val tracks = state.visualTracks
         for (track in tracks) {
             if (track.size < 2) continue
             for (i in 0 until track.size - 1) Imgproc.line(res, track[i], track[i+1], Scalar(0.0, 255.0, 0.0, 255.0), 1)
             Imgproc.circle(res, track.last(), 3, Scalar(0.0, 0.0, 255.0, 255.0), -1)
         }
         Imgproc.putText(res, "$labelOdometryTracks: ${tracks.size}", Point(30.0, 30.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.7, Scalar(255.0, 255.0, 255.0), 2)
-        geometryInput.release(); return res
+        return res
     }
 
-    private fun applyPointCloud(src: Mat, state: OdometryState): Mat {
-        val geometryInput = prepareGeometryInput(src, "point_cloud")
-        visualOdometryEngine.processFrameRgba(geometryInput, calibrator)
+    private fun applyPointCloud(src: Mat, _state: OdometryState): Mat {
+        val overlayState = processOdometryFrame(src, OdometryOverlayMode.VISUAL_TRACKS)
         val res = Mat.zeros(src.rows(), src.cols(), src.type())
-        val cloud = visualOdometryEngine.lastPointCloud
+        val cloud = overlayState.pointCloud
         val pointRadius = computeAdaptivePointRadius(res.cols(), res.rows(), cloud?.points?.size ?: 0)
         if (cloud != null) {
             if (isVoMeshEnabled) {
@@ -1157,7 +1200,7 @@ class ImageProcessor {
             }
             Imgproc.putText(res, "$labelPointCloud: ${cloud.points.size}", Point(30.0, 30.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.7, Scalar(255.0, 255.0, 255.0, 255.0), 2)
         }
-        geometryInput.release(); return res
+        return res
     }
 
     private fun computeAdaptivePointRadius(width: Int, height: Int, pointCount: Int): Int {
@@ -1200,12 +1243,37 @@ class ImageProcessor {
         Imgproc.putText(canvas, "Z", Point((margin + drawW / 2).toDouble(), (margin + 50 - 6).toDouble()), Imgproc.FONT_HERSHEY_SIMPLEX, 0.5, axisColor, 1)
     }
 
-    private fun applyFullOdometry(src: Mat): Mat {
-        val geometryInput = prepareGeometryInput(src, "full_odometry")
-        val res = src.clone()
+    /**
+     * Dostępne podtryby widoku overlay dla zunifikowanej sekcji odometrii.
+     */
+    private enum class OdometryOverlayMode {
+        VISUAL_TRACKS,
+        FULL_TRACKS,
+        TRAJECTORY,
+        MAP,
+    }
+
+    /**
+     * Wspólny pipeline odometrii: ekstrakcja punktów i estymacja ruchu.
+     */
+    private fun processOdometryFrame(src: Mat, overlayMode: OdometryOverlayMode): OdometryOverlayState {
+        val geometryInput = prepareGeometryInput(src, "odometry_unified_${overlayMode.name.lowercase()}")
         val markers = detectMarkersForOdometry(geometryInput)
-        fullOdometryEngine.processFrameRgba(geometryInput, calibrator, markers)
-        val tracks = fullOdometryEngine.currentTracks
+        val state = odometryOrchestrator.process(
+            frame = geometryInput,
+            calibrator = calibrator,
+            markers = markers,
+            runVisual = overlayMode == OdometryOverlayMode.VISUAL_TRACKS,
+            runFull = overlayMode != OdometryOverlayMode.VISUAL_TRACKS,
+        )
+        geometryInput.release()
+        return state
+    }
+
+    private fun applyFullOdometry(src: Mat): Mat {
+        val state = processOdometryFrame(src, OdometryOverlayMode.FULL_TRACKS)
+        val res = src.clone()
+        val tracks = state.fullTracks
         for (track in tracks) {
             val color = if (track.isInlier) Scalar(0.0, 255.0, 0.0, 255.0) else Scalar(255.0, 0.0, 0.0, 200.0)
             Imgproc.line(res, track.p1, track.p2, color, 1)
@@ -1213,31 +1281,29 @@ class ImageProcessor {
                 Imgproc.circle(res, track.p2, 3, Scalar(255.0, 80.0, 0.0, 255.0), -1)
             }
         }
-        val state = fullOdometryEngine.lastOdometryState; var y = 40.0
-        Imgproc.putText(res, "$labelFullOdometryTracks: ${tracks.size}", Point(FULL_ODOMETRY_HUD_X, y), Imgproc.FONT_HERSHEY_SIMPLEX, 0.65, Scalar(255.0, 255.0, 255.0, 255.0), 2)
-        if (state != null) {
+        val fullState = state.fullState
+        var y = 40.0
+        Imgproc.putText(res, "$labelOdometryTracks: ${tracks.size}", Point(FULL_ODOMETRY_HUD_X, y), Imgproc.FONT_HERSHEY_SIMPLEX, 0.65, Scalar(255.0, 255.0, 255.0, 255.0), 2)
+        if (fullState != null) {
             y += FULL_ODOMETRY_HUD_LINE_HEIGHT
-            Imgproc.putText(res, "$labelFullOdometryInliers: ${state.inliersCount}/${state.tracksCount}", Point(FULL_ODOMETRY_HUD_X, y), Imgproc.FONT_HERSHEY_SIMPLEX, 0.65, Scalar(255.0, 255.0, 255.0, 255.0), 2)
+            Imgproc.putText(res, "$labelOdometryInliers: ${fullState.inliersCount}/${fullState.tracksCount}", Point(FULL_ODOMETRY_HUD_X, y), Imgproc.FONT_HERSHEY_SIMPLEX, 0.65, Scalar(255.0, 255.0, 255.0, 255.0), 2)
             y += FULL_ODOMETRY_HUD_LINE_HEIGHT
-            Imgproc.putText(res, "$labelFullOdometryFrames: ${state.frameCount}  $labelFullOdometrySteps: ${state.totalSteps}", Point(FULL_ODOMETRY_HUD_X, y), Imgproc.FONT_HERSHEY_SIMPLEX, 0.65, Scalar(255.0, 255.0, 255.0, 255.0), 2)
-            val currentPose = state.currentPose
+            Imgproc.putText(res, "$labelOdometryFrames: ${fullState.frameCount}  $labelOdometrySteps: ${fullState.totalSteps}", Point(FULL_ODOMETRY_HUD_X, y), Imgproc.FONT_HERSHEY_SIMPLEX, 0.65, Scalar(255.0, 255.0, 255.0, 255.0), 2)
+            val currentPose = fullState.currentPose
             if (currentPose != null) {
                 y += FULL_ODOMETRY_HUD_LINE_HEIGHT
-                Imgproc.putText(res, "$labelFullOdometryPos: (%.2f, %.2f, %.2f)".format(currentPose.position.x, currentPose.position.y, currentPose.position.z), Point(FULL_ODOMETRY_HUD_X, y), Imgproc.FONT_HERSHEY_SIMPLEX, 0.55, Scalar(255.0, 255.0, 255.0, 255.0), 2)
+                Imgproc.putText(res, "$labelOdometryPosition: (%.2f, %.2f, %.2f)".format(currentPose.position.x, currentPose.position.y, currentPose.position.z), Point(FULL_ODOMETRY_HUD_X, y), Imgproc.FONT_HERSHEY_SIMPLEX, 0.55, Scalar(255.0, 255.0, 255.0, 255.0), 2)
                 y += FULL_ODOMETRY_HUD_LINE_HEIGHT
                 Imgproc.putText(res, "R: %.1f°  inlier: %.0f%%".format(currentPose.rotationDeg, currentPose.inlierRatio * 100), Point(FULL_ODOMETRY_HUD_X, y), Imgproc.FONT_HERSHEY_SIMPLEX, 0.55, Scalar(255.0, 255.0, 255.0, 255.0), 2)
             }
         }
-        geometryInput.release(); return res
+        return res
     }
 
     private fun applyOdometryTrajectory(src: Mat): Mat {
-        val geometryInput = prepareGeometryInput(src, "odometry_trajectory")
-        val markers = detectMarkersForOdometry(geometryInput)
-        fullOdometryEngine.processFrameRgba(geometryInput, calibrator, markers)
-        geometryInput.release()
+        val state = processOdometryFrame(src, OdometryOverlayMode.TRAJECTORY)
         val res = Mat.zeros(src.rows(), src.cols(), src.type())
-        val positions = fullOdometryEngine.currentTrajectory.positions
+        val positions = state.trajectory.positions
         Imgproc.putText(res, "$labelTrajectory: ${positions.size}", Point(FULL_ODOMETRY_HUD_X, 36.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.65, Scalar(200.0, 200.0, 200.0, 255.0), 2)
         if (positions.size < 2) {
             Imgproc.putText(res, labelCollectingData, Point(FULL_ODOMETRY_HUD_X, 72.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.55, Scalar(150.0, 150.0, 150.0, 255.0), 1)
@@ -1259,7 +1325,7 @@ class ImageProcessor {
             Imgproc.circle(res, toScreenCoord(positions[i]), 2, Scalar(255.0, 255.0, 255.0, 255.0), -1)
         }
         
-        val current = fullOdometryEngine.currentTrajectory.currentPosition
+        val current = state.trajectory.currentPosition
         if (current != null) {
             val sc = toScreenCoord(current)
             Imgproc.circle(res, sc, 6, Scalar(0.0, 0.0, 255.0, 255.0), -1)
@@ -1270,12 +1336,9 @@ class ImageProcessor {
     }
 
     private fun applyOdometryMap(src: Mat): Mat {
-        val geometryInput = prepareGeometryInput(src, "odometry_map")
-        val markers = detectMarkersForOdometry(geometryInput)
-        fullOdometryEngine.processFrameRgba(geometryInput, calibrator, markers)
-        geometryInput.release()
+        val state = processOdometryFrame(src, OdometryOverlayMode.MAP)
         val res = Mat.zeros(src.rows(), src.cols(), src.type())
-        val mapState = fullOdometryEngine.currentMap
+        val mapState = state.mapState
         val points = mapState.points3d
         val colors = mapState.colors
         Imgproc.putText(res, "$labelMap3D: ${points.size} $labelOdometryPoints", Point(FULL_ODOMETRY_HUD_X, 36.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.65, Scalar(200.0, 200.0, 200.0, 255.0), 2)

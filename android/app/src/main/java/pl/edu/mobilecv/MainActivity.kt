@@ -496,6 +496,9 @@ class MainActivity : AppCompatActivity() {
         imageProcessor.labelPlanes = getString(R.string.overlay_planes)
         imageProcessor.labelLines = getString(R.string.overlay_lines)
         imageProcessor.labelGroups = getString(R.string.overlay_groups)
+        imageProcessor.labelConfidence = getString(R.string.overlay_confidence)
+        imageProcessor.labelStability = getString(R.string.overlay_stability)
+        imageProcessor.labelNormalJitter = getString(R.string.overlay_normal_jitter)
         imageProcessor.labelGeometryError = getString(R.string.overlay_geometry_error)
         imageProcessor.labelVpError = getString(R.string.overlay_vp_error)
         imageProcessor.onLargeMapDetected = { map -> backgroundExecutor.execute { saveSlamMap(map, isAutoSave = true) } }

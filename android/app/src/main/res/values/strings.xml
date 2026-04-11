@@ -227,7 +227,7 @@
     <string name="filter_desc_point_cloud">Chmura punktów 3D: rekonstruuje głębię sceny z paralaksy ruchu kamery. Punkty kolorowane wg szacowanej odległości.</string>
 
     <!-- About tab – filter descriptions (GEOMETRY mode) -->
-    <string name="filter_desc_plane_detection">Detekcja płaszczyzn: grupuje linie Hougha wg kierunku i wyznacza płaszczyzny metodą RANSAC. Nakłada kolorowe wypełnienia i strzałki normalnych.</string>
+    <string name="filter_desc_plane_detection">Detekcja płaszczyzn: pipeline linie → segmentacja kierunków → VP → hipotezy i tracking czasowy. Nakłada wypełnienia, ID płaszczyzn oraz metryki confidence/stabilności/jittera normalnej.</string>
     <string name="filter_desc_vanishing_points">Punkty zbieżności perspektywy: grupy równoległych linii zbiegają się w punktach znikania. Wizualizuje geometrię 3D sceny.</string>
 
     <!-- About tab – filter descriptions (CALIBRATION mode) -->
@@ -356,6 +356,9 @@
     <string name="overlay_planes" tools:keep="@string/overlay_planes">Płaszczyzny</string>
     <string name="overlay_lines" tools:keep="@string/overlay_lines">Linie</string>
     <string name="overlay_groups" tools:keep="@string/overlay_groups">Grupy</string>
+    <string name="overlay_confidence" tools:keep="@string/overlay_confidence">Pewność</string>
+    <string name="overlay_stability" tools:keep="@string/overlay_stability">Stabilność</string>
+    <string name="overlay_normal_jitter" tools:keep="@string/overlay_normal_jitter">Jitter normalnej</string>
     <string name="overlay_geometry_error" tools:keep="@string/overlay_geometry_error">Błąd geometrii</string>
     <string name="overlay_vp_error" tools:keep="@string/overlay_vp_error">Błąd VP</string>
 

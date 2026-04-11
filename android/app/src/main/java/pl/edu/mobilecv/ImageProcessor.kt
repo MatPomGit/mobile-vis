@@ -146,6 +146,9 @@ class ImageProcessor {
     var labelPlanes: String = "Płaszczyzny"
     var labelLines: String = "Linie"
     var labelGroups: String = "Grupy"
+    var labelConfidence: String = "Pewność"
+    var labelStability: String = "Stabilność"
+    var labelNormalJitter: String = "Jitter normalnej"
     var labelVpError: String = "Błąd VP"
     var labelGeometryError: String = "Błąd geometrii"
     var labelVoMaxFeaturesDesc: String = ""
@@ -1460,14 +1463,15 @@ class ImageProcessor {
             geometryInput.release(); return blocked
         }
         val res = geometryInput.clone()
-        val markers = detectMarkersForOdometry(geometryInput)
-        val labels = mapOf("noPlanes" to labelNoPlanes, "lines" to labelLines, "planes" to labelPlanes)
-        val planeIdx = geometryProcessor.detectPlanes(geometryInput, res, labels)
-        if (planeIdx == 0) {
-            Imgproc.putText(res, labelNoPlanes, Point(30.0, 50.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.7, Scalar(200.0, 200.0, 200.0), 2)
-        } else {
-            Imgproc.putText(res, "$labelPlanes: $planeIdx", Point(30.0, 30.0), Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255.0, 255.0, 255.0), 2)
-        }
+        val labels = mapOf(
+            "noPlanes" to labelNoPlanes,
+            "lines" to labelLines,
+            "planes" to labelPlanes,
+            "confidence" to labelConfidence,
+            "stability" to labelStability,
+            "normalJitter" to labelNormalJitter,
+        )
+        geometryProcessor.detectPlanes(geometryInput, res, labels)
         geometryInput.release(); return res
     }
 

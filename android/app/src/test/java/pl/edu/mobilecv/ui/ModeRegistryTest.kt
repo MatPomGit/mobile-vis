@@ -36,4 +36,14 @@ class ModeRegistryTest {
         assertTrue(AnalysisMode.entries.contains(AnalysisMode.POSE))
         assertTrue(AnalysisMode.entries.contains(AnalysisMode.YOLO))
     }
+
+    /**
+     * Weryfikuje, że nowy tryb SLAM jest widoczny w grupie ANALYSIS.
+     */
+    @Test
+    fun `analysis group should include slam mode`() {
+        val analysisModes = ModeRegistry.entriesForGroup(ModeRegistry.FunctionalGroup.ANALYSIS)
+            .map { it.mode }
+        assertTrue(analysisModes.contains(AnalysisMode.SLAM))
+    }
 }

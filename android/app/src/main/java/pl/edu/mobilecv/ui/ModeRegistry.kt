@@ -59,6 +59,7 @@ object ModeRegistry {
             R.string.mode_desc_odometry,
             AnalysisMode.ODOMETRY_UNIFIED.filters
         ),
+        ModeEntry(AnalysisMode.SLAM, FunctionalGroup.ANALYSIS, R.string.mode_desc_slam, AnalysisMode.SLAM.filters),
         ModeEntry(AnalysisMode.CALIBRATION, FunctionalGroup.ANALYSIS, R.string.mode_desc_calibration, AnalysisMode.CALIBRATION.filters),
     ).associateBy { it.mode }
 
@@ -110,6 +111,8 @@ object ModeRegistry {
         OpenCvFilter.ODOMETRY_TRAJECTORY to R.string.filter_desc_odometry_trajectory,
         OpenCvFilter.ODOMETRY_MAP to R.string.filter_desc_odometry_map,
         OpenCvFilter.SLAM_MARKERS to R.string.filter_desc_slam_markers,
+        OpenCvFilter.SLAM_POINTS to R.string.filter_desc_slam_points,
+        OpenCvFilter.SLAM_MARKERS_FUSED to R.string.filter_desc_slam_markers_fused,
         OpenCvFilter.INVERT to R.string.filter_desc_invert,
         OpenCvFilter.SEPIA to R.string.filter_desc_sepia,
         OpenCvFilter.EMBOSS to R.string.filter_desc_emboss,

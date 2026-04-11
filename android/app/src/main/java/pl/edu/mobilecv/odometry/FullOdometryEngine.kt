@@ -19,6 +19,16 @@ import org.opencv.features2d.BFMatcher
  * 4. Loop closure detection and correction.
  */
 class FullOdometryEngine {
+    /**
+     * Profil pracy odometrii pełnej.
+     *
+     * - [PURE_VO] używa wyłącznie śledzenia punktów VO i nie koryguje pozy markerami.
+     * - [MARKER_AIDED] dodatkowo fuzjuje obserwacje markerów z torem VO.
+     */
+    enum class RuntimeProfile {
+        PURE_VO,
+        MARKER_AIDED,
+    }
 
     /** Current estimated pose relative to the world origin. */
     data class PoseFrame(
@@ -200,7 +210,12 @@ class FullOdometryEngine {
      * @param calib Optional [CameraCalibrator] used to retrieve the camera matrix K.
      * @param markers List of detected markers in current frame.
      */
-    fun processFrameRgba(src: Mat, calib: CameraCalibrator? = null, markers: List<MarkerDetection> = emptyList()) {
+    fun processFrameRgba(
+        src: Mat,
+        calib: CameraCalibrator? = null,
+        markers: List<MarkerDetection> = emptyList(),
+        profile: RuntimeProfile = RuntimeProfile.MARKER_AIDED,
+    ) {
         val gray = Mat()
         if (src.channels() > 1) {
             Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
@@ -209,8 +224,8 @@ class FullOdometryEngine {
         }
         calibratorRef = calib
         
-        // --- Marker Integration ---
-        if (markers.isNotEmpty()) {
+        // Integracja markerów jest aktywna wyłącznie w profilu marker-aided.
+        if (profile == RuntimeProfile.MARKER_AIDED && markers.isNotEmpty()) {
             integrateMarkers(markers)
         }
 

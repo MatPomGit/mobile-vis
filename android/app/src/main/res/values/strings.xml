@@ -66,6 +66,7 @@
     <string name="context_module_title">Moduł: %1$s</string>
     <string name="context_hint_morphology">Dopasuj parametry morfologii do bieżących krawędzi i szumu.</string>
     <string name="context_hint_odometry">Ustaw parametry rekonstrukcji i śledzenia ruchu kamery.</string>
+    <string name="context_hint_slam">Wybierz profil SLAM: VO-only dla szybkiego startu albo Marker+VO dla mniejszego dryfu.</string>
     <string name="context_hint_detection">Wybierz filtr detekcji i w razie potrzeby rozwiń ustawienia szczegółowe.</string>
     <string name="morphology_kernel_size_label">Jądro:</string>
     <string name="morphology_kernel_size_value">%1$d×%2$d</string>
@@ -238,8 +239,10 @@
     <string name="filter_desc_yolo_kalman">YOLO + Kalman: stabilizuje ramki detekcji i poprawia śledzenie ruchomych obiektów.</string>
     <string name="filter_desc_marker_ukf">Marker + UKF: wygładza pozycję markerów i redukuje drgania estymacji 6DoF.</string>
     <string name="filter_desc_slam_markers">SLAM markerowy: łączy punkty odometrii z markerami, aby ograniczać dryf mapy.</string>
+    <string name="filter_desc_slam_points">SLAM Points (VO): mapowanie i lokalizacja wyłącznie na punktach cech. Używaj, gdy nie masz markerów lub chcesz szybki start bez przygotowania sceny.</string>
+    <string name="filter_desc_slam_markers_fused">SLAM Markers Fused: fuzja VO z markerami referencyjnymi. Używaj do dłuższych tras i scen z powrotami, gdy zależy Ci na mniejszym dryfie.</string>
     <string name="mode_desc_active_tracking">Dynamic ROI (Active Tracking): stabilizowane śledzenie obiektów i obszaru zainteresowania</string>
-    <string name="mode_desc_slam">SLAM: punkty odometrii połączone z markerami dla stabilnej mapy sceny</string>
+    <string name="mode_desc_slam">SLAM z dwoma profilami: VO-only (szybki start bez markerów) oraz Marker+VO (najlepsza stabilność i korekcja dryfu).</string>
     <string name="filter_desc_yolo_segment">Segmentacja instancji YOLOv8-nano: wykrywa obiekty i przybliża maski pikselowe za pomocą nakładek na ramkach detekcji.</string>
     <string name="filter_desc_yolo_pose">Estymacja pozy YOLOv8-nano: wykrywa osoby i rysuje 17 punktów szkieletu połączonych kolorowymi liniami.</string>
     <string name="filter_desc_yolo_classify">Klasyfikacja obrazu YOLOv8-nano: rozpoznaje scenę i wyświetla 5 najbardziej prawdopodobnych kategorii ImageNet-1000 z poziomem pewności klasyfikacji.</string>
@@ -271,6 +274,8 @@
     <string name="group_desc_processing">Podstawowe operacje na obrazie: konwersja kolorów, wygładzanie szumów, detekcja cech i transformacje morfologiczne. Punkt wyjścia każdego potoku przetwarzania.</string>
     <string name="group_desc_detection">Zaawansowana detekcja i klasyfikacja: rozpoznawanie znaczników wizualnych, detekcja obiektów sieciami YOLO oraz śledzenie pozy człowieka modelem MediaPipe.</string>
     <string name="group_desc_analysis">Przestrzenna analiza sceny: odometria wizualna, detekcja geometrii 3D i kalibracja parametrów kamery niezbędna dla poprawnych pomiarów.</string>
+    <string name="slam_profiles_card_title">Kiedy użyć profilu SLAM?</string>
+    <string name="slam_profiles_card_description">SLAM Points (VO): wybierz, gdy scena jest bogata w teksturę i potrzebujesz szybkiego uruchomienia bez markerów.\nSLAM Markers Fused: wybierz, gdy możesz rozmieścić markery i chcesz ograniczyć dryf w długich przejściach oraz przy pętlach.</string>
 
     <!-- Models tab -->
     <string name="models_tab_description">Tryby Poza/Twarz i YOLO wymagają pobrania modeli uczenia maszynowego. Sprawdź stan poniżej i pobierz brakujące modele przed pierwszym użyciem tych trybów.</string>

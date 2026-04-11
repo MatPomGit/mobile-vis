@@ -87,7 +87,6 @@ class MenuActivity : AppCompatActivity() {
         setContentView(binding.root)
         validateModeRegistryConsistency()
         showAppVersion()
-        buildInstructionsCard()
         buildProcessingCards()
         buildDetectionCards()
         buildAnalysisCards()
@@ -111,7 +110,7 @@ class MenuActivity : AppCompatActivity() {
     // Tab setup
     // ------------------------------------------------------------------
 
-    /** Configures the five-tab layout and switches the visible scroll view. */
+    /** Konfiguruje układ kart i przełącza widoczny widok dla wybranej zakładki. */
     private fun setupMenuTabs() {
         with(binding.tabLayoutMenu) {
             addTab(newTab().setText(R.string.tab_processing))
@@ -166,52 +165,8 @@ class MenuActivity : AppCompatActivity() {
         container.addView(card)
         return card
     }
-
     /**
-     * Inflates an instructions card and inserts it as the first item in the processing
-     * container. Tapping the card opens a dialog with a step-by-step usage guide.
-     */
-    private fun buildInstructionsCard() {
-        addCustomCard(
-            container = binding.modeListContainer,
-            title = getString(R.string.instructions_card_title),
-            description = getString(R.string.instructions_card_description),
-            strokeColorRes = R.color.group_processing // Default for first tab
-        ) {
-            showInstructionsDialog()
-        }
-    }
-
-    /**
-     * Inflates a tutorial card that launches [OdometryTutorialActivity].
-     *
-     * This card is added to the 3D Analysis container to provide users with
-     * educational context regarding visual odometry and SLAM (Simultaneous
-     * Localization and Mapping) before they use the live tracking modes.
-     */
-    private fun buildOdometryTutorialCard() {
-        addCustomCard(
-            container = binding.analysisContainer,
-            title = getString(R.string.tutorial_card_title),
-            description = getString(R.string.tutorial_card_description),
-            strokeColorRes = R.color.group_analysis
-        ) {
-            startActivity(Intent(this, OdometryTutorialActivity::class.java))
-        }
-    }
-
-    /** Displays a scrollable dialog with the app's usage instructions. */
-    private fun showInstructionsDialog() {
-        AlertDialog.Builder(this)
-            .setTitle(R.string.instructions_title)
-            .setMessage(R.string.instructions_content)
-            .setPositiveButton(R.string.instructions_close, null)
-            .show()
-    }
-
-    /**
-     * Adds a short group description and then one card per mode to the preprocessing tab.
-     * Cards are stroked with [R.color.group_processing] (teal).
+     * Dodaje karty trybów dla sekcji przetwarzania.
      */
     private fun buildProcessingCards() {
         buildCardsForGroup(binding.modeListContainer, ModeRegistry.FunctionalGroup.PROCESSING)
@@ -242,6 +197,21 @@ class MenuActivity : AppCompatActivity() {
         buildCardsForGroup(binding.analysisContainer, ModeRegistry.FunctionalGroup.ANALYSIS)
         buildOdometryTutorialCard()
         buildPointCloudViewerCard()
+    }
+
+
+    /**
+     * Dodaje kartę samouczka odometrii i SLAM w zakładce analizy 3D.
+     */
+    private fun buildOdometryTutorialCard() {
+        addCustomCard(
+            container = binding.analysisContainer,
+            title = getString(R.string.tutorial_card_title),
+            description = getString(R.string.tutorial_card_description),
+            strokeColorRes = R.color.group_analysis
+        ) {
+            startActivity(Intent(this, OdometryTutorialActivity::class.java))
+        }
     }
 
     /** Appends a special card to open the point cloud viewer (not a live-camera mode). */
@@ -614,12 +584,15 @@ class MenuActivity : AppCompatActivity() {
     }
 
     /**
-     * Populates the About tab with a general app description card followed by
-     * one section per [AnalysisMode], each showing its mode description and
-     * a list of individual filter descriptions.
+     * Buduje wspólny strumień treści dla zakładki informacyjnej.
+     *
+     * W jednym miejscu łączymy instrukcję użytkowania i opis aplikacji,
+     * a następnie dodajemy słownik trybów oraz opisów filtrów.
      */
     private fun buildAboutContent() {
-        addAppDescriptionCard()
+        addCombinedInfoCard()
+        val sectionAnchors = addInfoSections()
+        addSectionNavigation(sectionAnchors)
 
         AnalysisMode.entries.forEach { mode ->
             addModeSectionCard(mode)
@@ -629,19 +602,83 @@ class MenuActivity : AppCompatActivity() {
         }
     }
 
-    /** Adds a card at the top of the About tab describing the application. */
-    private fun addAppDescriptionCard() {
+    /**
+     * Dodaje kartę otwierającą zawierającą wspólny opis aplikacji i instrukcji.
+     */
+    private fun addCombinedInfoCard() {
         addCustomCard(
             container = binding.aboutContainer,
-            title = getString(R.string.app_name),
-            description = getString(R.string.about_app_description),
-            strokeColorRes = 0 // No stroke for general info
+            title = getString(R.string.tab_about),
+            description = getString(R.string.about_combined_intro),
+            strokeColorRes = 0
         ) {
-            // No action
+            // Karta statyczna – bez akcji.
         }.apply {
             isClickable = false
             isFocusable = false
         }
+    }
+
+    /**
+     * Dodaje sekcje instruktażowe i zwraca mapę nagłówków do ich widoków.
+     */
+    private fun addInfoSections(): Map<String, View> {
+        val sections = listOf(
+            R.string.about_section_quick_start_title to R.string.about_section_quick_start_content,
+            R.string.about_section_detection_title to R.string.about_section_detection_content,
+            R.string.about_section_odometry_title to R.string.about_section_odometry_content,
+            R.string.about_section_troubleshooting_title to R.string.about_section_troubleshooting_content
+        )
+        val anchors = linkedMapOf<String, View>()
+        sections.forEach { (titleRes, contentRes) ->
+            val title = getString(titleRes)
+            val card = addCustomCard(
+                container = binding.aboutContainer,
+                title = title,
+                description = getString(contentRes),
+                strokeColorRes = 0
+            ) {
+                // Sekcja tylko do odczytu.
+            }.apply {
+                isClickable = false
+                isFocusable = false
+            }
+            anchors[title] = card
+        }
+        return anchors
+    }
+
+    /**
+     * Dodaje szybkie skróty pełniące rolę anchor-linków do sekcji instrukcji.
+     */
+    private fun addSectionNavigation(anchors: Map<String, View>) {
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, 0, 0, 24)
+        }
+
+        val header = TextView(this).apply {
+            text = getString(R.string.about_navigation_title)
+            setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_TitleMedium)
+            setPadding(0, 0, 0, 8)
+        }
+        container.addView(header)
+
+        anchors.forEach { (sectionTitle, targetView) ->
+            val shortcutButton = MaterialButton(
+                this,
+                null,
+                com.google.android.material.R.attr.materialButtonOutlinedStyle
+            ).apply {
+                text = sectionTitle
+                setOnClickListener {
+                    binding.scrollViewAbout.post { binding.scrollViewAbout.smoothScrollTo(0, targetView.top) }
+                }
+            }
+            container.addView(shortcutButton)
+        }
+
+        binding.aboutContainer.addView(container, 1)
     }
 
     /**

@@ -141,24 +141,33 @@
     <string name="vo_depth_gain_label" tools:keep="@string/vo_depth_gain_label">Wzmocnienie głębi:</string>
     <string name="vo_mesh_toggle">Pokaż siatkę (Mesh)</string>
 
-    <!-- Main menu – instructions card -->
-    <string name="instructions_card_title">Instrukcja obsługi</string>
-    <string name="instructions_card_description">Jak korzystać z aplikacji MobileCV</string>
-    <string name="instructions_title">Instrukcja obsługi MobileCV</string>
-    <string name="instructions_content">Witaj w MobileCV – aplikacji do analizy obrazu w czasie rzeczywistym.
+    <!-- Zakładka informacyjna: wspólna instrukcja i opis aplikacji -->
+    <string name="about_combined_intro">MobileCV to mobilna aplikacja do analizy obrazu w czasie rzeczywistym. Przetwarza obraz lokalnie na urządzeniu, korzystając z OpenCV, MediaPipe i YOLO (bez wysyłania danych do chmury). Poniżej znajdziesz szybkie sekcje instruktażowe oraz pełny opis trybów.</string>
+    <string name="about_navigation_title">Przejdź szybko do sekcji:</string>
 
-Jak korzystać z aplikacji:
-1. Wybierz grupę trybów z menu.
-2. Otwórz wybraną zakładkę i wybierz filtr na dole ekranu.
-3. Dla Odometrii przejdź kolejno: VO → Pełna odometria → Trajektoria → Mapa 3D.
-4. Dla SLAM użyj punktów odometrii i markerów do stabilizacji mapy.
-5. Dynamic ROI (Active Tracking) służy do stabilizowanego śledzenia obiektów i ROI.
+    <string name="about_section_quick_start_title">1) Szybki start</string>
+    <string name="about_section_quick_start_content">• Wybierz tryb analizy w jednej z zakładek (Przetwarzanie, Detekcja, Analiza 3D).
+• Po uruchomieniu kamery zmieniaj filtry przyciskami na dole ekranu.
+• Krótkie naciśnięcie migawki zapisuje zdjęcie, długie uruchamia nagrywanie wideo.
+• W trybie Kalibracja użyj ikony szachownicy, aby zebrać klatki wzorca.</string>
 
-Uwaga: tryby Poza i YOLO wymagają pobrania modeli przy pierwszym użyciu (wymagane połączenie z internetem).
+    <string name="about_section_detection_title">2) Tryby detekcji</string>
+    <string name="about_section_detection_content">• Markery: AprilTag, ArUco, QR i CCTag.
+• Poza/Twarz: śledzenie ciała, dłoni i twarzy przez MediaPipe.
+• YOLO / RTMDet / TFLite: detekcja obiektów oraz wybrane warianty segmentacji i estymacji pozy.
+• Część trybów wymaga pobrania modeli z zakładki „Modele”.</string>
 
-Zmiana rozdzielczości: ikona klucza w prawym dolnym rogu.
-Kalibracja: ikona szachownicy (dostępna w trybie Kalibracja).</string>
-    <string name="instructions_close">Zamknij</string>
+    <string name="about_section_odometry_title">3) Odometria / SLAM</string>
+    <string name="about_section_odometry_content">• Odometria wizualna estymuje ruch kamery na podstawie cech między klatkami.
+• Tryby 3D umożliwiają rekonstrukcję chmury punktów, podgląd trajektorii i analizę geometrii sceny.
+• Dla stabilnych wyników poruszaj kamerą płynnie i zapewnij odpowiednią liczbę punktów charakterystycznych.</string>
+
+    <string name="about_section_troubleshooting_title">4) Troubleshooting</string>
+    <string name="about_section_troubleshooting_content">• Brak detekcji: popraw oświetlenie, zmniejsz ruch kamery i sprawdź ostrość.
+• Niski FPS: obniż rozdzielczość (ikona klucza) lub wybierz lżejszy model.
+• Niedziałające tryby AI: przejdź do zakładki „Modele” i pobierz brakujące pliki.
+• Problemy z kalibracją: pokaż całą szachownicę, zmieniaj kąt i dystans przy zbieraniu klatek.</string>
+
 
     <!-- Main menu tabs -->
     <string name="tab_processing">Przetwarzanie</string>
@@ -166,10 +175,7 @@ Kalibracja: ikona szachownicy (dostępna w trybie Kalibracja).</string>
     <string name="tab_analysis">Analiza 3D</string>
     <string name="tab_models">Modele</string>
     <string name="tab_modes">Tryby</string>
-    <string name="tab_about">O aplikacji</string>
-
-    <!-- About tab – app description -->
-    <string name="about_app_description">MobileCV to mobilna aplikacja do analizy obrazu w czasie rzeczywistym. Korzysta z bibliotek OpenCV, MediaPipe i YOLO, przetwarzając obraz z kamery bezpośrednio na urządzeniu – bez przesyłania danych do chmury.\n\nAplikacja umożliwia eksplorację szerokiego zakresu technik computer vision: od filtrowania i detekcji krawędzi, przez rozpoznawanie znaczników i śledzenie pozy człowieka, aż po detekcję obiektów przy użyciu sieci neuronowych.</string>
+    <string name="tab_about">Instrukcja i o aplikacji</string>
 
     <!-- About tab – filter descriptions (FILTERS mode) -->
     <string name="filter_desc_original">Surowy obraz z kamery bez żadnego przetwarzania. Pozwala porównać działanie pozostałych filtrów z oryginałem.</string>

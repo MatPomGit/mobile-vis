@@ -3,12 +3,12 @@
     activity_menu.xml
     Main-menu screen displayed when the application launches.
     The user selects an analysis mode before the camera activity is started.
-    Five tabs:
+    Pięć zakładek:
       "Przetwarzanie" – basic image-processing modes (FILTERS / EDGES / MORPHOLOGY / EFFECTS)
       "Detekcja"      – detection modes (MARKERS / YOLO / POSE)
       "Analiza 3D"    – spatial-analysis modes (ODOMETRY / GEOMETRY / CALIBRATION)
       "Modele"        – model download status and manual-download buttons
-      "O aplikacji"   – app description and per-filter descriptions
+      "Instrukcja i o aplikacji" – wspólny opis aplikacji i instrukcja obsługi
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
@@ -42,7 +42,7 @@
         android:textColor="?attr/colorOnSurfaceVariant" />
 
     <!--
-        Tab bar: Przetwarzanie | Detekcja | Analiza 3D | Modele | O aplikacji
+        Tab bar: Przetwarzanie | Detekcja | Analiza 3D | Modele | Instrukcja i o aplikacji
         scrollable mode because 5 tabs may not fit in a fixed layout on all screen sizes
     -->
     <com.google.android.material.tabs.TabLayout
@@ -132,7 +132,7 @@
 
         </ScrollView>
 
-        <!-- "O aplikacji" tab: app description + per-filter descriptions -->
+        <!-- "Instrukcja i o aplikacji" tab: sekcje instrukcji + opisy trybów i filtrów -->
         <ScrollView
             android:id="@+id/scrollViewAbout"
             android:layout_width="match_parent"

@@ -16,7 +16,6 @@ import android.os.SystemClock
 import android.provider.MediaStore
 import android.provider.OpenableColumns
 import android.util.Log
-import android.view.View
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -34,6 +33,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import org.opencv.android.OpenCVLoader
 import org.opencv.core.Point3
+import pl.edu.mobilecv.ProcessedVideoRecorder
 import pl.edu.mobilecv.databinding.ActivityMainBinding
 import pl.edu.mobilecv.odometry.FullOdometryEngine
 import pl.edu.mobilecv.odometry.VisualOdometryEngine
@@ -50,11 +50,6 @@ import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.getValue
-
-import pl.edu.mobilecv.ProcessedVideoRecorder
-import pl.edu.mobilecv.MenuActivity
-import pl.edu.mobilecv.OpenCvFilter
-import pl.edu.mobilecv.isFullOdometry
 
 /**
  * Główna aktywność: tylko bindowanie widoków, spinanie kontrolerów oraz routing lifecycle.

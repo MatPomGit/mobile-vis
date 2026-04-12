@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 
 from image_analysis.detector_common import load_with_retry, validate_bgr_uint8_image
+from image_analysis.utils import validate_bbox_xyxy
 
 
 def test_validate_bgr_uint8_image_accepts_valid_input() -> None:
@@ -17,11 +18,18 @@ def test_validate_bgr_uint8_image_accepts_valid_input() -> None:
     validate_bgr_uint8_image(image)
 
 
+def test_validate_bgr_uint8_image_accepts_1x1_image() -> None:
+    """Should accept the smallest possible BGR image with one pixel."""
+    image = np.zeros((1, 1, 3), dtype=np.uint8)
+    validate_bgr_uint8_image(image)
+
+
 @pytest.mark.parametrize(
     ("image", "expected_error"),
     [
         (np.zeros((16, 16, 3), dtype=np.float32), ValueError),
         (np.zeros((16, 16), dtype=np.uint8), ValueError),
+        (np.zeros((16, 16, 1), dtype=np.uint8), ValueError),
     ],
 )
 def test_validate_bgr_uint8_image_rejects_invalid_dtype_or_shape(
@@ -31,6 +39,21 @@ def test_validate_bgr_uint8_image_rejects_invalid_dtype_or_shape(
     """Should reject invalid dtype and shape for image validation."""
     with pytest.raises(expected_error):
         validate_bgr_uint8_image(image)
+
+
+@pytest.mark.parametrize("bbox", [(0, 0, 1, 1), [2, 3, 10, 12]])
+def test_validate_bbox_xyxy_accepts_valid_boxes(bbox: object) -> None:
+    """Should accept valid XYXY boxes represented as tuple or list."""
+    validated = validate_bbox_xyxy(bbox)
+    assert validated[2] > validated[0]
+    assert validated[3] > validated[1]
+
+
+@pytest.mark.parametrize("bbox", [(0, 0, 0, 1), (3, 2, 1, 5), (1, 2, 3), "bad"])
+def test_validate_bbox_xyxy_rejects_invalid_boxes(bbox: object) -> None:
+    """Should reject malformed or geometrically invalid XYXY boxes."""
+    with pytest.raises((TypeError, ValueError)):
+        validate_bbox_xyxy(bbox)
 
 
 def test_load_with_retry_succeeds_after_retry() -> None:

@@ -14,12 +14,13 @@ import cv2
 import numpy as np
 from numpy.typing import NDArray
 
+from .types import Image, ImageF32, ImageU8
 from .utils import validate_image
 
 logger = logging.getLogger(__name__)
 
 
-def load_image(path: str | Path) -> NDArray[np.uint8]:
+def load_image(path: str | Path) -> ImageU8:
     """Load an image from disk as a BGR NumPy array.
 
     Args:
@@ -45,17 +46,18 @@ def load_image(path: str | Path) -> NDArray[np.uint8]:
 
 
 def resize_image(
-    image: NDArray[np.uint8] | NDArray[np.float32],
+    image: Image,
     width: int,
     height: int,
-) -> NDArray[np.uint8] | NDArray[np.float32]:
+) -> Image:
     """Resize an image to the specified dimensions.
 
     Uses ``cv2.INTER_AREA`` when downscaling and ``cv2.INTER_LINEAR``
     when upscaling for best quality.
 
     Args:
-        image: Input image array with shape ``(H, W)`` or ``(H, W, C)``.
+        image: Input image with shape ``(H, W)`` or ``(H, W, C)``, dtype
+            ``uint8 [0, 255]`` or ``float32 [0.0, 1.0]``.
         width: Target width in pixels. Must be positive.
         height: Target height in pixels. Must be positive.
 
@@ -76,10 +78,10 @@ def resize_image(
 
     resized = cv2.resize(image, (width, height), interpolation=interpolation)
     logger.debug("Resized image from (%d, %d) to (%d, %d)", original_h, original_w, height, width)
-    return cast(NDArray[np.uint8] | NDArray[np.float32], resized)
+    return cast(Image, resized)
 
 
-def normalize_image(image: NDArray[np.uint8]) -> NDArray[np.float32]:
+def normalize_image(image: ImageU8) -> ImageF32:
     """Normalise a ``uint8`` image to ``float32`` in the range ``[0.0, 1.0]``.
 
     Args:
@@ -100,17 +102,18 @@ def normalize_image(image: NDArray[np.uint8]) -> NDArray[np.float32]:
 
 
 def resize_with_aspect_ratio(
-    image: NDArray[np.uint8] | NDArray[np.float32],
+    image: Image,
     max_width: int,
     max_height: int,
-) -> NDArray[np.uint8] | NDArray[np.float32]:
+) -> Image:
     """Resize an image while preserving aspect ratio.
 
     The resulting image fits inside ``(max_height, max_width)`` and never exceeds
     these dimensions. If the original image already fits, the original size is kept.
 
     Args:
-        image: Input image array with shape ``(H, W)`` or ``(H, W, C)``.
+        image: Input image with shape ``(H, W)`` or ``(H, W, C)``, dtype
+            ``uint8 [0, 255]`` or ``float32 [0.0, 1.0]``.
         max_width: Maximum output width in pixels. Must be positive.
         max_height: Maximum output height in pixels. Must be positive.
 
@@ -142,14 +145,15 @@ def resize_with_aspect_ratio(
 
 
 def center_crop(
-    image: NDArray[np.uint8] | NDArray[np.float32],
+    image: Image,
     crop_width: int,
     crop_height: int,
-) -> NDArray[np.uint8] | NDArray[np.float32]:
+) -> Image:
     """Crop the image around its center.
 
     Args:
-        image: Input image array with shape ``(H, W)`` or ``(H, W, C)``.
+        image: Input image with shape ``(H, W)`` or ``(H, W, C)``, dtype
+            ``uint8 [0, 255]`` or ``float32 [0.0, 1.0]``.
         crop_width: Output crop width in pixels. Must be positive and <= input width.
         crop_height: Output crop height in pixels. Must be positive and <= input height.
 

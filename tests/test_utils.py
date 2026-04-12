@@ -11,6 +11,9 @@ from image_analysis.utils import (
     get_project_root,
     list_images,
     safe_makedirs,
+    validate_bbox_xyxy,
+    validate_bgr_image,
+    validate_gray_image,
     validate_image,
 )
 
@@ -51,6 +54,58 @@ class TestValidateImage:
         image = np.zeros((100, 100, 3), dtype=np.int32)
         with pytest.raises(ValueError):
             validate_image(image)
+
+
+class TestValidateBgrImage:
+    def test_accepts_1x1_uint8_bgr(self) -> None:
+        image = np.zeros((1, 1, 3), dtype=np.uint8)
+        validate_bgr_image(image, allowed_dtypes=(np.uint8,))
+
+    def test_rejects_grayscale_shape(self) -> None:
+        image = np.zeros((8, 8), dtype=np.uint8)
+        with pytest.raises(ValueError):
+            validate_bgr_image(image)
+
+    def test_rejects_invalid_dtype(self) -> None:
+        image = np.zeros((8, 8, 3), dtype=np.int16)
+        with pytest.raises(ValueError):
+            validate_bgr_image(image)
+
+    def test_rejects_float32_out_of_range(self) -> None:
+        image = np.full((4, 4, 3), 1.5, dtype=np.float32)
+        with pytest.raises(ValueError):
+            validate_bgr_image(image)
+
+
+class TestValidateGrayImage:
+    @pytest.mark.parametrize("shape", [(1, 1), (8, 8, 1)])
+    def test_accepts_gray_shapes(self, shape: tuple[int, ...]) -> None:
+        image = np.zeros(shape, dtype=np.uint8)
+        validate_gray_image(image, allowed_dtypes=(np.uint8,))
+
+    def test_rejects_bgr_image(self) -> None:
+        image = np.zeros((8, 8, 3), dtype=np.uint8)
+        with pytest.raises(ValueError):
+            validate_gray_image(image)
+
+    def test_rejects_float32_out_of_range(self) -> None:
+        image = np.full((8, 8), -0.2, dtype=np.float32)
+        with pytest.raises(ValueError):
+            validate_gray_image(image)
+
+
+class TestValidateBboxXyxy:
+    def test_accepts_valid_bbox(self) -> None:
+        assert validate_bbox_xyxy((0, 1, 4, 5)) == (0, 1, 4, 5)
+
+    @pytest.mark.parametrize("bbox", [(0, 1, 0, 5), (2, 3, 1, 9), (1, 2, 3)])
+    def test_rejects_invalid_bbox_geometry_or_length(self, bbox: object) -> None:
+        with pytest.raises((ValueError, TypeError)):
+            validate_bbox_xyxy(bbox)  # type: ignore[arg-type]
+
+    def test_rejects_non_finite_bbox(self) -> None:
+        with pytest.raises(ValueError):
+            validate_bbox_xyxy((0, 0, np.inf, 10))
 
 
 # ---------------------------------------------------------------------------

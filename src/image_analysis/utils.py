@@ -11,6 +11,8 @@ from pathlib import Path
 
 import numpy as np
 
+from .types import BboxXYXY
+
 _PROJECT_ROOT: Path | None = None
 
 
@@ -70,6 +72,94 @@ def validate_image(image: object) -> None:
         raise ValueError(f"Expected dtype uint8 or float32, got {image.dtype}")
 
 
+def validate_bgr_image(
+    image: object,
+    *,
+    allowed_dtypes: tuple[type[np.uint8] | type[np.float32], ...] = (np.uint8, np.float32),
+) -> None:
+    """Validate a BGR image contract.
+
+    Args:
+        image: Value expected to be a BGR image with shape ``(H, W, 3)``.
+        allowed_dtypes: Allowed dtypes for input image values.
+
+    Raises:
+        TypeError: If *image* is not a ``np.ndarray``.
+        ValueError: If shape, dtype, or float32 value range is invalid.
+    """
+    validate_image(image)
+    if not isinstance(image, np.ndarray) or image.ndim != 3 or image.shape[2] != 3:
+        raise ValueError(
+            "Expected BGR image shape (H, W, 3), "
+            f"got {getattr(image, 'shape', 'N/A')}"
+        )
+    if image.dtype.type not in allowed_dtypes:
+        allowed = ", ".join(dtype.__name__ for dtype in allowed_dtypes)
+        raise ValueError(f"Expected dtype in ({allowed}), got {image.dtype}")
+    if image.dtype == np.float32 and (image.min() < 0.0 or image.max() > 1.0):
+        raise ValueError("Expected float32 BGR image values in range [0.0, 1.0]")
+
+
+def validate_gray_image(
+    image: object,
+    *,
+    allowed_dtypes: tuple[type[np.uint8] | type[np.float32], ...] = (np.uint8, np.float32),
+) -> None:
+    """Validate a grayscale image contract.
+
+    Args:
+        image: Value expected to be grayscale with shape ``(H, W)`` or ``(H, W, 1)``.
+        allowed_dtypes: Allowed dtypes for input image values.
+
+    Raises:
+        TypeError: If *image* is not a ``np.ndarray``.
+        ValueError: If shape, dtype, or float32 value range is invalid.
+    """
+    validate_image(image)
+    if not isinstance(image, np.ndarray):
+        raise TypeError(f"Expected np.ndarray, got {type(image).__name__}")
+
+    valid_shape = image.ndim == 2 or (image.ndim == 3 and image.shape[2] == 1)
+    if not valid_shape:
+        raise ValueError(
+            "Expected grayscale image with shape (H, W) or (H, W, 1), "
+            f"got {image.shape}"
+        )
+    if image.dtype.type not in allowed_dtypes:
+        allowed = ", ".join(dtype.__name__ for dtype in allowed_dtypes)
+        raise ValueError(f"Expected dtype in ({allowed}), got {image.dtype}")
+    if image.dtype == np.float32 and (image.min() < 0.0 or image.max() > 1.0):
+        raise ValueError("Expected float32 grayscale values in range [0.0, 1.0]")
+
+
+def validate_bbox_xyxy(bbox: object) -> BboxXYXY:
+    """Validate a bounding box in ``(x1, y1, x2, y2)`` format.
+
+    Args:
+        bbox: Candidate bounding box coordinates.
+
+    Returns:
+        Bounding box normalized to integer tuple.
+
+    Raises:
+        TypeError: If *bbox* is not a 4-item sequence of numeric values.
+        ValueError: If coordinates are invalid (non-finite or inverted box).
+    """
+    if not isinstance(bbox, (tuple, list, np.ndarray)):
+        raise TypeError(f"bbox must be tuple/list/ndarray, got {type(bbox).__name__}")
+    if len(bbox) != 4:
+        raise ValueError(f"bbox must have exactly 4 values, got {len(bbox)}")
+
+    coordinates = tuple(float(value) for value in bbox)
+    if not all(np.isfinite(value) for value in coordinates):
+        raise ValueError(f"bbox coordinates must be finite numbers, got {bbox}")
+
+    x1, y1, x2, y2 = coordinates
+    if x2 <= x1 or y2 <= y1:
+        raise ValueError(f"bbox must satisfy x2 > x1 and y2 > y1, got {bbox}")
+    return int(x1), int(y1), int(x2), int(y2)
+
+
 def safe_makedirs(directory: str | Path) -> Path:
     """Create *directory* (and any parents) if it does not already exist.
 
@@ -114,5 +204,8 @@ PUBLIC_EXPORTS: dict[str, str] = {
     "list_images": "list_images",
     "safe_makedirs": "safe_makedirs",
     "setup_logging": "setup_logging",
+    "validate_bbox_xyxy": "validate_bbox_xyxy",
+    "validate_bgr_image": "validate_bgr_image",
+    "validate_gray_image": "validate_gray_image",
     "validate_image": "validate_image",
 }

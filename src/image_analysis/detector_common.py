@@ -13,7 +13,7 @@ from typing import ParamSpec, TypeVar
 
 import numpy as np
 
-from .utils import validate_image
+from .utils import validate_bgr_image
 
 P = ParamSpec("P")
 T = TypeVar("T")
@@ -29,18 +29,8 @@ def validate_bgr_uint8_image(image: object) -> None:
         TypeError: If *image* is not a ``np.ndarray``.
         ValueError: If the array is not shaped like ``(H, W, 3)`` or is not ``uint8``.
     """
-    validate_image(image)
-    if (
-        not isinstance(image, np.ndarray)
-        or image.ndim != 3
-        or image.shape[2] != 3
-        or image.dtype != np.uint8
-    ):
-        raise ValueError(
-            "Expected uint8 3-channel BGR image with shape (H, W, 3), "
-            f"got shape {getattr(image, 'shape', 'N/A')} and "
-            f"dtype {getattr(image, 'dtype', 'N/A')}"
-        )
+    # Komentarz: Ujednolicamy kontrakt wejścia przez wspólny walidator z utils.
+    validate_bgr_image(image, allowed_dtypes=(np.uint8,))
 
 
 def load_with_retry(

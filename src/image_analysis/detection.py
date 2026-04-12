@@ -12,9 +12,9 @@ from dataclasses import dataclass
 
 import cv2
 import numpy as np
-from numpy.typing import NDArray
 
-from .utils import validate_image
+from .types import BboxXYXY, BgrImageU8
+from .utils import validate_bbox_xyxy, validate_bgr_image
 
 logger = logging.getLogger(__name__)
 
@@ -37,11 +37,11 @@ class Detection:
 
     label: str
     confidence: float
-    bbox: tuple[int, int, int, int]
+    bbox: BboxXYXY
 
 
 def detect_objects(
-    image: NDArray[np.uint8],
+    image: BgrImageU8,
     confidence_threshold: float = DETECTION_CONFIDENCE_THRESHOLD,
 ) -> list[Detection]:
     """Detect objects in *image* and return filtered detections.
@@ -62,7 +62,7 @@ def detect_objects(
         ValueError: If *image* is not a 3-channel BGR array.
         ValueError: If *confidence_threshold* is outside ``[0.0, 1.0]``.
     """
-    _validate_bgr_image(image)
+    validate_bgr_image(image, allowed_dtypes=(np.uint8,))
     if not (0.0 <= confidence_threshold <= 1.0):
         raise ValueError(f"confidence_threshold must be in [0.0, 1.0], got {confidence_threshold}")
 
@@ -120,11 +120,11 @@ def apply_nms(
 
 
 def draw_bounding_boxes(
-    image: NDArray[np.uint8],
+    image: BgrImageU8,
     detections: list[Detection],
     color: tuple[int, int, int] = (0, 255, 0),
     thickness: int = 2,
-) -> NDArray[np.uint8]:
+) -> BgrImageU8:
     """Draw bounding boxes and labels onto a copy of *image*.
 
     Args:
@@ -140,7 +140,7 @@ def draw_bounding_boxes(
         TypeError: If *image* is not a ``np.ndarray``.
         ValueError: If *image* is not a 3-channel BGR array.
     """
-    _validate_bgr_image(image)
+    validate_bgr_image(image, allowed_dtypes=(np.uint8,))
     if thickness <= 0:
         raise ValueError(f"thickness must be positive, got {thickness}")
 
@@ -164,39 +164,10 @@ def draw_bounding_boxes(
     return output
 
 
-def _validate_bgr_image(image: object) -> None:
-    """Validate that *image* is a 3-channel BGR uint8 array.
-
-    Args:
-        image: Value to validate.
-
-    Raises:
-        TypeError: If *image* is not a ``np.ndarray``.
-        ValueError: If *image* does not have shape ``(H, W, 3)``.
-    """
-    validate_image(image)
-    # validate_image is generic, we need specifically BGR 3-channel for these functions
-    if (
-        not isinstance(image, np.ndarray)
-        or image.ndim != 3
-        or image.shape[2] != 3
-        or image.dtype != np.uint8
-    ):
-        raise ValueError(
-            "Expected uint8 3-channel BGR image with shape (H, W, 3), "
-            f"got shape {getattr(image, 'shape', 'N/A')} and "
-            f"dtype {getattr(image, 'dtype', 'N/A')}"
-        )
-
-
 def _validate_detections(detections: list[Detection]) -> None:
     """Validate detection bounding boxes before drawing or applying NMS."""
     for detection in detections:
-        x1, y1, x2, y2 = detection.bbox
-        if x2 <= x1 or y2 <= y1:
-            raise ValueError(
-                f"Detection bbox must satisfy x2 > x1 and y2 > y1, got {detection.bbox}"
-            )
+        validate_bbox_xyxy(detection.bbox)
         if not (0.0 <= detection.confidence <= 1.0):
             raise ValueError(
                 f"Detection confidence must be in [0.0, 1.0], got {detection.confidence}"

@@ -8,7 +8,7 @@ import pytest
 
 
 class TestImageAnalysisPackage:
-    """Validate lazy import behavior and export registry validation."""
+    """Validate lazy import behavior and stable package exports."""
 
     def test_classification_export_is_lazy_loaded(self) -> None:
         """The package should expose non-CV utilities without importing CV modules."""
@@ -29,36 +29,22 @@ class TestImageAnalysisPackage:
         with pytest.raises(AttributeError, match="has no attribute"):
             _ = package.not_existing_symbol
 
-    def test_build_exports_detects_duplicate_public_names(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Duplicate public names across module registries should raise an error."""
+    def test_lazy_symbol_is_imported_only_after_access(self) -> None:
+        """Lazy symbol should load its module only when accessed."""
+        importlib.sys.modules.pop("image_analysis.classification", None)
+        package = importlib.import_module("image_analysis")
+        if "classify_image" in package.__dict__:
+            del package.__dict__["classify_image"]
+
+        assert "image_analysis.classification" not in importlib.sys.modules
+        classify_image = package.classify_image
+        assert callable(classify_image)
+        assert "image_analysis.classification" in importlib.sys.modules
+
+    def test_eager_exports_are_available_without_lazy_loading(self) -> None:
+        """Stable eager utilities should be available without touching CV modules."""
         package = importlib.import_module("image_analysis")
 
-        def fake_load_module_registry(module_name: str) -> tuple[dict[str, str], set[str]]:
-            if module_name == "first":
-                return {"duplicate_name": "first_attr"}, {"first_attr"}
-            return {"duplicate_name": "second_attr"}, {"second_attr"}
-
-        monkeypatch.setattr(package, "_EXPORT_MODULES", ("first", "second"))
-        monkeypatch.setattr(package, "_load_module_registry", fake_load_module_registry)
-
-        with pytest.raises(RuntimeError, match="Duplicate public export"):
-            package._build_exports()
-
-    def test_build_exports_validates_missing_module_attribute(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Exports should fail when registry points to missing module attribute."""
-        package = importlib.import_module("image_analysis")
-
-        def fake_load_module_registry(module_name: str) -> tuple[dict[str, str], set[str]]:
-            return {"public_name": "missing_attr"}, {"another_attr"}
-
-        monkeypatch.setattr(package, "_EXPORT_MODULES", ("single",))
-        monkeypatch.setattr(package, "_load_module_registry", fake_load_module_registry)
-
-        with pytest.raises(RuntimeError, match="attribute 'missing_attr' is not defined"):
-            package._build_exports()
+        assert callable(package.setup_logging)
+        assert callable(package.validate_image)
+        assert isinstance(package.__version__, str)

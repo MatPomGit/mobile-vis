@@ -251,6 +251,36 @@ Wynik zawiera dwie linie:
 
 ---
 
+## Import behavior
+
+Pakiet `image_analysis` został zaprojektowany tak, aby `import image_analysis` działał także
+w środowiskach bez ciężkich zależności opcjonalnych.
+
+### Co importuje się eager (od razu)
+
+Przy samym imporcie pakietu ładowane są tylko stabilne i lekkie elementy:
+
+- `__version__`,
+- podstawowe utility z `image_analysis.utils`
+  (`get_project_root`, `setup_logging`, `validate_image`, `safe_makedirs`, `list_images`).
+
+### Co importuje się lazy (na żądanie)
+
+Cięższe moduły i ich symbole są ładowane dopiero przy pierwszym dostępie przez API pakietu
+(`__getattr__`). Dotyczy to w szczególności:
+
+- `image_analysis.yolo` (zależność opcjonalna: `ultralytics`),
+- `image_analysis.rtmdet` (zależność opcjonalna: `mmdet`),
+- `image_analysis.holistic` i `image_analysis.iris` (MediaPipe i powiązane komponenty).
+
+Dzięki temu:
+
+- prosty `import image_analysis` nie wymaga pełnego stosu CV,
+- koszty startu procesu są mniejsze,
+- moduły opcjonalne instalujesz tylko wtedy, gdy są potrzebne.
+
+---
+
 ## Testowanie
 
 ```bash

@@ -142,6 +142,26 @@ pre-commit install
 Od tej chwili `ruff`, `mypy` i inne sprawdzenia będą uruchamiane automatycznie przed każdym
 commitem.
 
+### 2.6 Import behavior
+
+Pakiet `image_analysis` wspiera model importu, który ogranicza zależności wymagane na starcie.
+
+**Import eager (minimalny, stabilny):**
+
+- `__version__`,
+- podstawowe utility (`get_project_root`, `setup_logging`, `validate_image`,
+  `safe_makedirs`, `list_images`).
+
+**Import lazy (na pierwsze użycie):**
+
+- moduły cięższe obliczeniowo i/lub zależne od opcjonalnych bibliotek,
+  np. `yolo`, `rtmdet`, `holistic`, `iris`,
+- ich publiczne symbole dostępne przez `image_analysis.<symbol>`.
+
+W praktyce oznacza to, że sam `import image_analysis` działa poprawnie także wtedy, gdy
+opcjonalne zależności (np. `ultralytics`, `mmdet`) nie są zainstalowane. Błąd pojawi się dopiero
+w momencie użycia funkcji, która faktycznie wymaga brakującego pakietu.
+
 ---
 
 ## 3. Instalacja – aplikacja Android

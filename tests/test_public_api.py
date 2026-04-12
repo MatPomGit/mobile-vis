@@ -107,6 +107,19 @@ def test_lazy_export_for_classification_symbol() -> None:
         pytest.fail(msg)
 
 
+def test_package_all_is_built_from_module_registries() -> None:
+    """Package __all__ should be derived from all per-module PUBLIC_EXPORTS."""
+    package = importlib.import_module("image_analysis")
+
+    expected_names: set[str] = set()
+    for module_name in package._EXPORT_MODULES:
+        module_registry, _ = package._load_module_registry(module_name)
+        expected_names.update(module_registry)
+
+    assert set(package.__all__) == expected_names
+    assert package.__all__ == sorted(package.__all__)
+
+
 def test_missing_symbol_raises_attribute_error() -> None:
     """Unknown attributes should raise AttributeError."""
     package = importlib.import_module("image_analysis")

@@ -219,3 +219,14 @@ def _normalize_nms_indices(indices: object) -> list[int]:
                 normalized.append(int(item[0]))
         return normalized
     return []
+
+
+# Rejestr publicznych symboli modułu używany przez image_analysis.__init__.
+PUBLIC_EXPORTS: dict[str, str] = {
+    "DETECTION_CONFIDENCE_THRESHOLD": "DETECTION_CONFIDENCE_THRESHOLD",
+    "Detection": "Detection",
+    "NMS_IOU_THRESHOLD": "NMS_IOU_THRESHOLD",
+    "apply_nms": "apply_nms",
+    "detect_objects": "detect_objects",
+    "draw_bounding_boxes": "draw_bounding_boxes",
+}

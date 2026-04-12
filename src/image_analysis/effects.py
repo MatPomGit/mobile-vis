@@ -194,3 +194,14 @@ def apply_cartoon(image: NDArray[np.uint8]) -> NDArray[np.uint8]:
 
     logger.debug("apply_cartoon: shape=%s", image.shape)
     return result
+
+
+# Rejestr publicznych symboli modułu używany przez image_analysis.__init__.
+PUBLIC_EXPORTS: dict[str, str] = {
+    "PIXELATE_BLOCK_SIZE": "PIXELATE_BLOCK_SIZE",
+    "apply_cartoon": "apply_cartoon",
+    "apply_emboss": "apply_emboss",
+    "apply_invert": "apply_invert",
+    "apply_pixelate": "apply_pixelate",
+    "apply_sepia": "apply_sepia",
+}

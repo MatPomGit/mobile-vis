@@ -595,3 +595,18 @@ def _require_mmdet() -> None:
             "or: pip install 'image-analysis[rtmdet]'"
         ) from exc
 
+
+# Rejestr publicznych symboli modułu używany przez image_analysis.__init__.
+PUBLIC_EXPORTS: dict[str, str] = {
+    "DEFAULT_RTMDET_MODEL": "DEFAULT_RTMDET_MODEL",
+    "RTMDET_CONFIDENCE_THRESHOLD": "RTMDET_CONFIDENCE_THRESHOLD",
+    "RTMDET_DOWNLOAD_MAX_RETRIES": "RTMDET_DOWNLOAD_MAX_RETRIES",
+    "RTMDET_DOWNLOAD_RETRY_DELAY_SECONDS": "RTMDET_DOWNLOAD_RETRY_DELAY_SECONDS",
+    "RTMDET_NMS_IOU_THRESHOLD": "RTMDET_NMS_IOU_THRESHOLD",
+    "RtmDetDetection": "RtmDetDetection",
+    "RtmDetDetector": "RtmDetDetector",
+    "detect_rtmdet": "detect_rtmdet",
+    "draw_rtmdet_detections": "draw_rtmdet_detections",
+    "export_rtmdet_to_onnx": "export_rtmdet_to_onnx",
+    "rtmdet_detector": "rtmdet_detector",
+}

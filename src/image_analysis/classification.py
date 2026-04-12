@@ -136,3 +136,12 @@ def evaluate_classifier(
     avg_confidence = sum(conf for _, conf in predictions) / len(predictions)
 
     return {"accuracy": accuracy, "avg_confidence": avg_confidence}
+
+
+# Rejestr publicznych symboli modułu używany przez image_analysis.__init__.
+PUBLIC_EXPORTS: dict[str, str] = {
+    "CLASSIFICATION_CONFIDENCE_THRESHOLD": "CLASSIFICATION_CONFIDENCE_THRESHOLD",
+    "classify_image": "classify_image",
+    "evaluate_classifier": "evaluate_classifier",
+    "load_classifier": "load_classifier",
+}

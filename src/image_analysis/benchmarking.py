@@ -300,3 +300,19 @@ def save_json_file(path: Path, payload: dict[str, object]) -> None:
     """Save dictionary to UTF-8 JSON file with deterministic formatting."""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+# Rejestr publicznych symboli modułu używany przez image_analysis.__init__.
+PUBLIC_EXPORTS: dict[str, str] = {
+    "PlaneMetrics": "PlaneMetrics",
+    "ScenarioBenchmarkResult": "ScenarioBenchmarkResult",
+    "ScenarioConfig": "ScenarioConfig",
+    "VoMetrics": "VoMetrics",
+    "default_alarm_thresholds": "default_alarm_thresholds",
+    "default_benchmark_scenarios": "default_benchmark_scenarios",
+    "detect_regressions": "detect_regressions",
+    "evaluate_scenario": "evaluate_scenario",
+    "load_json_file": "load_json_file",
+    "run_benchmark_suite": "run_benchmark_suite",
+    "save_json_file": "save_json_file",
+}

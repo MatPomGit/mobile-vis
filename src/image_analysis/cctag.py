@@ -205,7 +205,7 @@ def estimate_cctag_pose(
             **metres** (must be positive).
 
     Returns:
-        ``(rvec, tvec)`` – rotation vector ``(3, 1)`` and translation
+        ``(rvec, tvec)`` - rotation vector ``(3, 1)`` and translation
         vector ``(3, 1)`` in the camera coordinate frame, both as
         ``float64`` NumPy arrays.
 
@@ -446,3 +446,12 @@ def _build_detections(
             )
         )
     return detections
+
+
+# Rejestr publicznych symboli modułu używany przez image_analysis.__init__.
+PUBLIC_EXPORTS: dict[str, str] = {
+    "CCTagDetection": "CCTagDetection",
+    "detect_cc_tags": "detect_cc_tags",
+    "draw_cc_tags": "draw_cc_tags",
+    "estimate_cctag_pose": "estimate_cctag_pose",
+}

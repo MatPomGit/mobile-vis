@@ -106,3 +106,10 @@ def load_with_retry(
     final_message = failure_message.format(target=target, max_retries=max_retries)
     logger.error(final_message)
     raise RuntimeError(final_message) from last_error
+
+
+# Rejestr publicznych symboli modułu używany przez image_analysis.__init__.
+PUBLIC_EXPORTS: dict[str, str] = {
+    "load_with_retry": "load_with_retry",
+    "validate_bgr_uint8_image": "validate_bgr_uint8_image",
+}

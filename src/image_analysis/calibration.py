@@ -296,3 +296,16 @@ def _to_grayscale_uint8(
         return cast(NDArray[np.uint8], cv2.cvtColor(arr_uint8, cv2.COLOR_BGR2GRAY))
 
     raise ValueError(f"Unsupported image shape for grayscale conversion: {arr_uint8.shape}")
+
+
+# Rejestr publicznych symboli modułu używany przez image_analysis.__init__.
+PUBLIC_EXPORTS: dict[str, str] = {
+    "CalibrationResult": "CalibrationResult",
+    "DEFAULT_BOARD_HEIGHT": "DEFAULT_BOARD_HEIGHT",
+    "DEFAULT_BOARD_WIDTH": "DEFAULT_BOARD_WIDTH",
+    "MIN_CALIBRATION_FRAMES": "MIN_CALIBRATION_FRAMES",
+    "calibrate_camera": "calibrate_camera",
+    "draw_chessboard_corners": "draw_chessboard_corners",
+    "find_chessboard_corners": "find_chessboard_corners",
+    "undistort_image": "undistort_image",
+}

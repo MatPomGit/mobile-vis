@@ -182,3 +182,13 @@ def center_crop(
 
     # TODO: Dodać tryb cropowania oparty o ROI z detekcji obiektu.
     return image[top:bottom, left:right].copy()
+
+
+# Rejestr publicznych symboli modułu używany przez image_analysis.__init__.
+PUBLIC_EXPORTS: dict[str, str] = {
+    "center_crop": "center_crop",
+    "load_image": "load_image",
+    "normalize_image": "normalize_image",
+    "resize_image": "resize_image",
+    "resize_with_aspect_ratio": "resize_with_aspect_ratio",
+}

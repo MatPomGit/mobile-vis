@@ -430,3 +430,14 @@ def _validate_bgr_image(image: object) -> None:
         )
     if image.dtype != np.uint8:
         raise ValueError(f"Expected uint8 BGR image, got dtype {image.dtype}")
+
+
+# Rejestr publicznych symboli modułu używany przez image_analysis.__init__.
+PUBLIC_EXPORTS: dict[str, str] = {
+    "IrisLandmark": "IrisLandmark",
+    "IrisResult": "IrisResult",
+    "create_face_mesh_iris": "create_face_mesh_iris",
+    "draw_iris_results": "draw_iris_results",
+    "estimate_gaze_offset": "estimate_gaze_offset",
+    "process_iris": "process_iris",
+}

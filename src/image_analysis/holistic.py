@@ -432,3 +432,13 @@ def _validate_bgr_image(image: object) -> None:
         )
     if image.dtype != np.uint8:
         raise ValueError(f"Expected uint8 BGR image, got dtype {image.dtype}")
+
+
+# Rejestr publicznych symboli modułu używany przez image_analysis.__init__.
+PUBLIC_EXPORTS: dict[str, str] = {
+    "HolisticLandmark": "HolisticLandmark",
+    "HolisticResult": "HolisticResult",
+    "create_holistic": "create_holistic",
+    "draw_holistic_results": "draw_holistic_results",
+    "process_holistic": "process_holistic",
+}

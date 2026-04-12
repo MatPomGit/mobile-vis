@@ -30,6 +30,11 @@ import pl.edu.mobilecv.vision.CameraCalibrator
 import pl.edu.mobilecv.odometry.VisualOdometryEngine
 import pl.edu.mobilecv.odometry.FullOdometryEngine
 import pl.edu.mobilecv.tracking.ObjectPoseTracker
+import pl.edu.mobilecv.processing.BenchmarkCollector
+import pl.edu.mobilecv.processing.FramePipeline
+import pl.edu.mobilecv.processing.ModeRouter
+import pl.edu.mobilecv.processing.Renderer
+import pl.edu.mobilecv.processing.RuntimeBenchmarkSnapshot
 import pl.edu.mobilecv.util.FpsCounter
 import kotlin.math.atan2
 import kotlin.math.min
@@ -81,15 +86,6 @@ class ImageProcessor {
         fun process(frame: Mat, filter: OpenCvFilter, state: S): Mat
         fun reset()
     }
-
-    data class RuntimeBenchmarkSnapshot(
-        val filter: OpenCvFilter,
-        val samples: Int,
-        val avgBeforeMs: Double,
-        val avgAfterMs: Double,
-        val fpsBefore: Double,
-        val fpsAfter: Double,
-    )
 
     data class PoseOverlayMetrics(
         val distanceMeters: Double,
@@ -318,6 +314,9 @@ class ImageProcessor {
     private val srcBuffer = Mat()
     private val baseFrameBuffer = Mat()
     private val originalBuffer = Mat()
+    private val framePipeline = FramePipeline()
+    private val modeRouter = ModeRouter()
+    private val renderer = Renderer(::drawFpsOnBitmap)
 
     fun release() {
         srcBuffer.release()
@@ -331,7 +330,7 @@ class ImageProcessor {
      * Resetuje zasoby modułu powiązanego z danym trybem analizy.
      */
     fun resetModule(mode: AnalysisMode) {
-        when (mode) {
+        when (modeRouter.strategyForMode(mode).mode) {
             AnalysisMode.ODOMETRY_UNIFIED,
             AnalysisMode.SLAM -> odometryOrchestrator.resetAll()
             AnalysisMode.ACTIVE_TRACKING -> activeVisionOptimizer.reset()
@@ -341,21 +340,19 @@ class ImageProcessor {
         }
     }
 
-    private data class RuntimeBenchmarkAccumulator(
-        var samples: Int = 0,
-        var beforeNs: Long = 0,
-        var afterNs: Long = 0,
-    )
-
     private val benchmarkFilters = setOf(
         OpenCvFilter.ORIGINAL,
         OpenCvFilter.GRAYSCALE,
         OpenCvFilter.CANNY_EDGES,
         OpenCvFilter.GAUSSIAN_BLUR,
     )
-    private val benchmarkAccumulators = mutableMapOf<OpenCvFilter, RuntimeBenchmarkAccumulator>()
+    private val benchmarkCollector = BenchmarkCollector(benchmarkFilters)
     @Volatile
     var benchmarkSampleLimit: Int = 30
+        set(value) {
+            field = value
+            benchmarkCollector.sampleLimit = value
+        }
     @Volatile
     var showFpsOverlay: Boolean = true
     @Volatile
@@ -419,25 +416,27 @@ class ImageProcessor {
     }
 
     fun processFrame(bitmap: Bitmap, filter: OpenCvFilter, moduleState: ModuleState): Bitmap {
-        if (!filter.isOdometryFilter) {
+        val pipelineDecision = framePipeline.decide(filter)
+        if (pipelineDecision.resetOdometry) {
             odometryOrchestrator.resetAll()
         }
-        if (filter.isMediaPipe) {
-            val result = mediaPipeProcessor?.processFrame(bitmap, filter) ?: bitmap.copy(Bitmap.Config.ARGB_8888, false)
-            if (showFpsOverlay) drawFpsOnBitmap(result)
-            return result
-        }
-        if (filter.isYolo) {
-            val result = yoloProcessor?.processFrame(bitmap, filter)
-                ?: bitmap.copy(Bitmap.Config.ARGB_8888, false)
-            if (showFpsOverlay) drawFpsOnBitmap(result)
-            return result
-        }
-        if (filter.isTflite) {
-            val result = tfliteProcessor?.processFrame(bitmap, filter)
-                ?: bitmap.copy(Bitmap.Config.ARGB_8888, false)
-            if (showFpsOverlay) drawFpsOnBitmap(result)
-            return result
+        when (pipelineDecision.route) {
+            FramePipeline.Route.MEDIAPIPE -> {
+                val result = mediaPipeProcessor?.processFrame(bitmap, filter)
+                    ?: bitmap.copy(Bitmap.Config.ARGB_8888, false)
+                return renderer.render(result, showFpsOverlay)
+            }
+            FramePipeline.Route.YOLO -> {
+                val result = yoloProcessor?.processFrame(bitmap, filter)
+                    ?: bitmap.copy(Bitmap.Config.ARGB_8888, false)
+                return renderer.render(result, showFpsOverlay)
+            }
+            FramePipeline.Route.TFLITE -> {
+                val result = tfliteProcessor?.processFrame(bitmap, filter)
+                    ?: bitmap.copy(Bitmap.Config.ARGB_8888, false)
+                return renderer.render(result, showFpsOverlay)
+            }
+            FramePipeline.Route.OPENCV -> Unit
         }
 
         val src = ensureMat(srcBuffer, bitmap.height, bitmap.width, CvType.CV_8UC4)
@@ -454,7 +453,7 @@ class ImageProcessor {
         var shouldReleaseProcessed = false
 
         try {
-            val shouldBenchmark = filter in benchmarkFilters
+            val shouldBenchmark = benchmarkCollector.shouldCollect(filter)
             var benchmarkBeforeNs = 0L
             if (shouldBenchmark) {
                 val beforeStart = System.nanoTime()
@@ -552,11 +551,10 @@ class ImageProcessor {
             val benchmarkAfterNs = if (shouldBenchmark) processedPair.third else 0L
             val result = createBitmap(processed.cols(), processed.rows())
             Utils.matToBitmap(processed, result)
-            if (showFpsOverlay) {
-                drawFpsOnBitmap(result)
+            if (shouldBenchmark && benchmarkAfterNs > 0L) {
+                benchmarkCollector.addSample(filter, benchmarkBeforeNs, benchmarkAfterNs)
             }
-            if (shouldBenchmark && benchmarkAfterNs > 0L) updateBenchmark(filter, benchmarkBeforeNs, benchmarkAfterNs)
-            return result
+            return renderer.render(result, showFpsOverlay)
         } finally {
             if (shouldReleaseProcessed) processed?.release()
             if (isActiveVisionEnabled && !activeTrackingEnabled) baseFrame.release()
@@ -647,23 +645,8 @@ class ImageProcessor {
         }
     }
 
-    private fun updateBenchmark(filter: OpenCvFilter, beforeNs: Long, afterNs: Long) {
-        val acc = benchmarkAccumulators.getOrPut(filter) { RuntimeBenchmarkAccumulator() }
-        if (acc.samples >= benchmarkSampleLimit) return
-        acc.samples += 1
-        acc.beforeNs += beforeNs
-        acc.afterNs += afterNs
-    }
-
     fun consumeBenchmarkSnapshot(filter: OpenCvFilter): RuntimeBenchmarkSnapshot? {
-        val acc = benchmarkAccumulators[filter] ?: return null
-        if (acc.samples == 0 || acc.samples < benchmarkSampleLimit) return null
-        benchmarkAccumulators.remove(filter)
-        val avgBeforeMs = acc.beforeNs.toDouble() / acc.samples / 1_000_000.0
-        val avgAfterMs = acc.afterNs.toDouble() / acc.samples / 1_000_000.0
-        val fpsBefore = if (avgBeforeMs > 0.0) 1000.0 / avgBeforeMs else 0.0
-        val fpsAfter = if (avgAfterMs > 0.0) 1000.0 / avgAfterMs else 0.0
-        return RuntimeBenchmarkSnapshot(filter, acc.samples, avgBeforeMs, avgAfterMs, fpsBefore, fpsAfter)
+        return benchmarkCollector.consumeSnapshot(filter)
     }
 
     private fun applyAprilTag3D(src: Mat): Mat {

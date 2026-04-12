@@ -9,6 +9,7 @@ from typing import Any
 
 from image_analysis.benchmarking import (
     default_alarm_thresholds,
+    default_pr_lite_benchmark_scenarios,
     detect_regressions,
     load_json_file,
     run_benchmark_suite,
@@ -41,6 +42,12 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Exit with non-zero code when regressions are detected.",
     )
+    parser.add_argument(
+        "--scenario-set",
+        choices=("full", "pr-lite"),
+        default="full",
+        help="Select benchmark scenario set.",
+    )
     return parser.parse_args()
 
 
@@ -61,7 +68,12 @@ def _print_summary(result: dict[str, Any]) -> None:
 def main() -> int:
     """Execute benchmark workflow."""
     args = parse_args()
-    result: dict[str, Any] = run_benchmark_suite()
+    scenarios = None
+    if args.scenario_set == "pr-lite":
+        # Tryb PR-lite uruchamia krótszy zestaw scen dla szybkiej walidacji pull requestów.
+        scenarios = default_pr_lite_benchmark_scenarios()
+
+    result: dict[str, Any] = run_benchmark_suite(scenarios=scenarios)
     save_json_file(args.output, result)
     print(f"Saved benchmark result to: {args.output}")
     _print_summary(result)
@@ -77,9 +89,13 @@ def main() -> int:
         return 0
 
     baseline = load_json_file(args.baseline)
+    baseline_summary = baseline.get("summary")
+    if not isinstance(baseline_summary, dict):
+        raise ValueError("Baseline payload must contain an object under 'summary'.")
+
     regressions = detect_regressions(
         current_summary=result["summary"],
-        baseline_summary=baseline["summary"],
+        baseline_summary=baseline_summary,
         thresholds=default_alarm_thresholds(),
     )
 

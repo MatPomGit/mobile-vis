@@ -9,6 +9,7 @@ import android.graphics.RectF
 import android.os.SystemClock
 import android.util.Log
 import org.tensorflow.lite.Interpreter
+import pl.edu.mobilecv.lifecycle.ModelDownloadManager
 import org.tensorflow.lite.gpu.CompatibilityList
 import org.tensorflow.lite.gpu.GpuDelegate
 import org.tensorflow.lite.DataType

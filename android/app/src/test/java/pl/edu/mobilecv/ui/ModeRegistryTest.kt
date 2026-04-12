@@ -2,9 +2,12 @@ package pl.edu.mobilecv.ui
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import pl.edu.mobilecv.AnalysisMode
+import pl.edu.mobilecv.ModuleStatusState
+import pl.edu.mobilecv.ModuleStatusStore
 
 /**
  * Testy rejestru trybów używanego przez menu.
@@ -47,5 +50,21 @@ class ModeRegistryTest {
         val analysisModes = ModeRegistry.entriesForGroup(ModeRegistry.FunctionalGroup.ANALYSIS)
             .map { it.mode }
         assertTrue(analysisModes.contains(AnalysisMode.SLAM))
+    }
+
+    /**
+     * Sprawdza spójność routingu trybu z kontraktem statusu modułów.
+     */
+    @Test
+    fun `module status contract should expose labels and presentation`() {
+        val snapshot = ModuleStatusStore.ModuleSnapshot(status = ModuleStatusState.Ready)
+        val presentation = ModuleStatusContracts.toPresentation(
+            ModuleStatusStore.ModuleType.MEDIAPIPE,
+            snapshot,
+        )
+
+        assertEquals("READY", presentation.statusLabel)
+        assertEquals(ModuleStatusStore.ModuleType.MEDIAPIPE, presentation.moduleType)
+        assertNotNull(ModuleStatusContracts.moduleTypeForMode(AnalysisMode.POSE))
     }
 }

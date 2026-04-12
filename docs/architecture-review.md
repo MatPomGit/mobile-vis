@@ -114,3 +114,30 @@ krótkim czasie będzie wynikała z:
 - utwardzenia importów i środowiska testowego,
 - wyraźniejszego kontraktu API,
 - doprecyzowania granic i workflow między Python i Android.
+
+## 6. Android – prosty diagram przepływu danych
+
+Poniższy diagram pokazuje aktualny przepływ danych po wydzieleniu warstw `processing/*`, `ui/*`
+oraz lifecycle modeli:
+
+```mermaid
+flowchart LR
+    Camera[CameraX frame]\n --> Main[MainActivity]
+    Main --> Pipeline[processing/FramePipeline + ModeRouter]
+    Pipeline --> Processor[ImageProcessor + CV processors]
+    Processor --> UIState[ui/ModuleStatusContracts]
+    UIState --> Preview[UI overlay / preview]
+
+    Main --> Lifecycle[lifecycle/ModuleLifecycleManager]
+    Lifecycle --> Download[lifecycle/ModelDownloadManager]
+    Download --> Manifest[lifecycle/MobileModelManifest]
+    Lifecycle --> Store[ModuleStatusStore]
+    Store --> Main
+    Store --> Status[ModuleStatusActivity]
+    Store --> Menu[MenuActivity models tab]
+```
+
+Skrót zależności:
+- `MainActivity` steruje wejściem/wyjściem obrazu i odczytuje statusy tylko przez wspólny kontrakt UI.
+- `ModuleLifecycleManager` zarządza inicjalizacją, pobraniami i propagacją stanu do `ModuleStatusStore`.
+- Ekrany UI (`ModuleStatusActivity`, `MenuActivity`) renderują status poprzez wspólne mapowanie kontraktu.

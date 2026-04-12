@@ -4,6 +4,7 @@ import android.os.Bundle
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import pl.edu.mobilecv.ui.ModuleStatusContracts
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -35,12 +36,13 @@ class ModuleStatusActivity : AppCompatActivity() {
         container.removeAllViews()
 
         ModuleStatusStore.snapshot().forEach { (module, snapshot) ->
+            val presentation = ModuleStatusContracts.toPresentation(module, snapshot)
             val row = TextView(this).apply {
                 text = getString(
                     R.string.modules_diagnostics_row,
-                    module.name,
-                    snapshot.status.name,
-                    formatTimestamp(snapshot.lastInitAttemptEpochMs),
+                    presentation.moduleType.name,
+                    presentation.statusLabel,
+                    formatTimestamp(presentation.lastInitAttemptEpochMs),
                 )
             }
             container.addView(row)

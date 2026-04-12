@@ -2,6 +2,8 @@ package pl.edu.mobilecv
 
 import java.io.File
 import org.junit.Assert.assertEquals
+import pl.edu.mobilecv.lifecycle.MobileModelManifest
+import pl.edu.mobilecv.lifecycle.MobileModelManifestEntry
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue

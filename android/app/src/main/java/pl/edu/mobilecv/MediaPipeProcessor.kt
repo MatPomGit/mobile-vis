@@ -23,6 +23,7 @@ import com.google.mediapipe.tasks.vision.objectdetector.ObjectDetector
 import com.google.mediapipe.tasks.vision.objectdetector.ObjectDetectorResult
 import com.google.mediapipe.tasks.vision.poselandmarker.PoseLandmarker
 import com.google.mediapipe.tasks.vision.poselandmarker.PoseLandmarkerResult
+import pl.edu.mobilecv.lifecycle.ModelDownloadManager
 import pl.edu.mobilecv.processing.LandmarkTransformer
 import pl.edu.mobilecv.processing.MediaPipeResultMapper
 import pl.edu.mobilecv.tracking.ObjectPoseTracker

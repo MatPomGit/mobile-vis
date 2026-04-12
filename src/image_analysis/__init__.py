@@ -118,6 +118,7 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "draw_qr_codes": (".qr_detection", "draw_qr_codes"),
     "draw_rtmdet_detections": (".rtmdet", "draw_rtmdet_detections"),
     "draw_yolo_detections": (".yolo", "draw_yolo_detections"),
+    "load_with_retry": (".detector_common", "load_with_retry"),
     "estimate_cctag_pose": (".cctag", "estimate_cctag_pose"),
     "estimate_gaze_offset": (".iris", "estimate_gaze_offset"),
     "estimate_plane_pose": (".planes", "estimate_plane_pose"),
@@ -146,6 +147,7 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "safe_makedirs": (".utils", "safe_makedirs"),
     "setup_logging": (".utils", "setup_logging"),
     "undistort_image": (".calibration", "undistort_image"),
+    "validate_bgr_uint8_image": (".detector_common", "validate_bgr_uint8_image"),
     "validate_image": (".utils", "validate_image"),
     "yolo_detector": (".yolo", "yolo_detector"),
 }

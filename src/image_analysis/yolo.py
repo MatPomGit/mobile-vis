@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import logging
 import os
-import time
 from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -21,7 +20,7 @@ import cv2
 import numpy as np
 from numpy.typing import NDArray
 
-from .utils import validate_image
+from .detector_common import load_with_retry, validate_bgr_uint8_image
 
 if TYPE_CHECKING:  # pragma: no cover
     from ultralytics import YOLO as _UltralyticsYOLO  # noqa: N811
@@ -92,7 +91,21 @@ class YoloDetector:
                 self._model = YOLO(str(cached_path))
             else:
                 logger.info("Downloading YOLO model to cache: %s", cached_path)
-                self._model = _load_with_retry(YOLO, str(cached_path))
+                self._model = load_with_retry(
+                    YOLO,
+                    str(cached_path),
+                    max_retries=YOLO_DOWNLOAD_MAX_RETRIES,
+                    retry_delay=YOLO_DOWNLOAD_RETRY_DELAY_SECONDS,
+                    logger=logger,
+                    retry_message=(
+                        "YOLO load failed for '{target}' ({attempt}/{max_retries}): "
+                        "{error}; retry in {delay:.1f}s"
+                    ),
+                    failure_message=(
+                        "Failed to download YOLO model '{target}' "
+                        "after {max_retries} attempts."
+                    ),
+                )
             return
 
         if not self._model_path.exists():
@@ -108,7 +121,7 @@ class YoloDetector:
         iou_threshold: float | None = None,
     ) -> list[YoloDetection]:
         """Run detection on BGR image with optional threshold overrides."""
-        _validate_bgr_image(image)
+        validate_bgr_uint8_image(image)
         conf = self.confidence_threshold if confidence_threshold is None else confidence_threshold
         iou = self.iou_threshold if iou_threshold is None else iou_threshold
 
@@ -139,7 +152,7 @@ def detect_yolo(
     iou_threshold: float = YOLO_NMS_IOU_THRESHOLD,
 ) -> list[YoloDetection]:
     """Run YOLO inference and convert results to :class:`YoloDetection`."""
-    _validate_bgr_image(image)
+    validate_bgr_uint8_image(image)
     if not 0.0 <= confidence_threshold <= 1.0:
         raise ValueError(
             f"confidence_threshold must be in [0.0, 1.0], got {confidence_threshold}"
@@ -192,7 +205,7 @@ def draw_yolo_detections(
     font_scale: float = 0.5,
 ) -> NDArray[np.uint8]:
     """Draw detections on an image copy and return it."""
-    _validate_bgr_image(image)
+    validate_bgr_uint8_image(image)
     if thickness <= 0:
         raise ValueError(f"thickness must be positive, got {thickness}")
 
@@ -349,40 +362,6 @@ def _is_dark_color(bgr: tuple[int, int, int]) -> bool:
     return luminance < 128
 
 
-def _load_with_retry(
-    yolo_cls: type,
-    model_name: str,
-    max_retries: int = YOLO_DOWNLOAD_MAX_RETRIES,
-    retry_delay: float = YOLO_DOWNLOAD_RETRY_DELAY_SECONDS,
-) -> _UltralyticsYOLO:
-    """Instantiate YOLO class with retry and exponential backoff."""
-    last_error: BaseException | None = None
-    current_delay = retry_delay
-
-    for attempt in range(1, max_retries + 1):
-        try:
-            return yolo_cls(model_name)
-        except Exception as exc:
-            last_error = exc
-            if attempt == max_retries:
-                break
-
-            logger.warning(
-                "YOLO load failed for '%s' (%d/%d): %s; retry in %.1fs",
-                model_name,
-                attempt,
-                max_retries,
-                exc,
-                current_delay,
-            )
-            time.sleep(current_delay)
-            current_delay *= 2
-
-    raise RuntimeError(
-        f"Failed to download YOLO model '{model_name}' after {max_retries} attempts."
-    ) from last_error
-
-
 def _require_ultralytics() -> None:
     """Validate optional dependency import."""
     try:
@@ -394,16 +373,3 @@ def _require_ultralytics() -> None:
             "or: pip install 'image-analysis[yolo]'"
         ) from exc
 
-
-def _validate_bgr_image(image: object) -> None:
-    """Validate BGR uint8 image shape and dtype."""
-    validate_image(image)
-    if not isinstance(image, np.ndarray):
-        raise TypeError("Expected image as numpy.ndarray")
-
-    if image.ndim != 3 or image.shape[2] != 3 or image.dtype != np.uint8:
-        raise ValueError(
-            "Expected uint8 3-channel BGR image with shape (H, W, 3), "
-            f"got shape {getattr(image, 'shape', 'N/A')} and "
-            f"dtype {getattr(image, 'dtype', 'N/A')}"
-        )

@@ -32,7 +32,6 @@ from __future__ import annotations
 
 import logging
 import os
-import time
 from collections.abc import Generator
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
@@ -43,7 +42,7 @@ import cv2
 import numpy as np
 from numpy.typing import NDArray
 
-from .utils import validate_image
+from .detector_common import load_with_retry, validate_bgr_uint8_image
 
 if TYPE_CHECKING:  # pragma: no cover
     # Imported only for type-checking to avoid a hard runtime dependency.
@@ -161,10 +160,18 @@ class RtmDetDetector:
         from mmdet.apis import DetInferencer  # deferred import
 
         logger.info("Loading RTMDet model '%s' on device '%s'", self._model, self.device)
-        self._inferencer = _load_inferencer_with_retry(
+        self._inferencer = load_with_retry(
             DetInferencer,
-            self._model,
+            model=self._model,
             device=self.device,
+            max_retries=RTMDET_DOWNLOAD_MAX_RETRIES,
+            retry_delay=RTMDET_DOWNLOAD_RETRY_DELAY_SECONDS,
+            logger=logger,
+            retry_message=(
+                "Failed to load RTMDet model '{target}' (attempt {attempt}/{max_retries}): "
+                "{error} - retrying in {delay:.1f} s"
+            ),
+            failure_message="Failed to load RTMDet model '{target}' after {max_retries} attempts.",
         )
 
     def detect(
@@ -189,7 +196,7 @@ class RtmDetDetector:
             TypeError: If *image* is not a ``np.ndarray``.
             ValueError: If *image* is not a 3-channel BGR ``uint8`` array.
         """
-        _validate_bgr_image(image)
+        validate_bgr_uint8_image(image)
         conf = (
             confidence_threshold if confidence_threshold is not None else self.confidence_threshold
         )
@@ -250,7 +257,7 @@ def detect_rtmdet(
         ValueError: If *confidence_threshold* or *iou_threshold* is outside
             ``[0.0, 1.0]``.
     """
-    _validate_bgr_image(image)
+    validate_bgr_uint8_image(image)
     if not (0.0 <= confidence_threshold <= 1.0):
         raise ValueError(
             f"confidence_threshold must be in [0.0, 1.0], got {confidence_threshold}"
@@ -349,7 +356,7 @@ def draw_rtmdet_detections(
         ValueError: If *image* is not a 3-channel BGR ``uint8`` array.
         ValueError: If *thickness* is not positive.
     """
-    _validate_bgr_image(image)
+    validate_bgr_uint8_image(image)
     if thickness <= 0:
         raise ValueError(f"thickness must be positive, got {thickness}")
 
@@ -577,63 +584,6 @@ def _is_dark_color(bgr: tuple[int, int, int]) -> bool:
     return luminance < 128
 
 
-def _load_inferencer_with_retry(
-    inferencer_cls: type,
-    model: str,
-    device: str = "cpu",
-    max_retries: int = RTMDET_DOWNLOAD_MAX_RETRIES,
-    retry_delay: float = RTMDET_DOWNLOAD_RETRY_DELAY_SECONDS,
-) -> _MMDetInferencer:
-    """Attempt to instantiate *inferencer_cls(model)*, retrying on transient failures.
-
-    Retries are spaced using exponential back-off: the first retry waits
-    *retry_delay* seconds, the second waits twice as long, and so on.
-
-    Args:
-        inferencer_cls: The ``mmdet.apis.DetInferencer`` class (passed in to
-            keep the import deferred and make the function easy to test).
-        model: Model identifier forwarded to *inferencer_cls*.
-        device: Torch device string.
-        max_retries: Total number of attempts (including the initial one).
-        retry_delay: Wait time in seconds before the first retry.
-
-    Returns:
-        A loaded ``mmdet.apis.DetInferencer`` instance.
-
-    Raises:
-        RuntimeError: If all attempts fail.
-    """
-    last_exc: BaseException | None = None
-    delay = retry_delay
-    for attempt in range(1, max_retries + 1):
-        try:
-            return inferencer_cls(model=model, device=device)
-        except Exception as exc:
-            last_exc = exc
-            if attempt < max_retries:
-                logger.warning(
-                    "Failed to load RTMDet model '%s' (attempt %d/%d): %s"
-                    " - retrying in %.1f s",
-                    model,
-                    attempt,
-                    max_retries,
-                    exc,
-                    delay,
-                )
-                time.sleep(delay)
-                delay *= 2
-            else:
-                logger.error(
-                    "Failed to load RTMDet model '%s' after %d attempts: %s",
-                    model,
-                    max_retries,
-                    exc,
-                )
-    raise RuntimeError(
-        f"Failed to load RTMDet model '{model}' after {max_retries} attempts."
-    ) from last_exc
-
-
 def _require_mmdet() -> None:
     """Raise :class:`ImportError` if ``mmdet`` is not installed."""
     try:
@@ -645,26 +595,3 @@ def _require_mmdet() -> None:
             "or: pip install 'image-analysis[rtmdet]'"
         ) from exc
 
-
-def _validate_bgr_image(image: object) -> None:
-    """Validate that *image* is a 3-channel BGR uint8 NumPy array.
-
-    Args:
-        image: Value to validate.
-
-    Raises:
-        TypeError: If *image* is not a ``np.ndarray``.
-        ValueError: If the array is not a 3-channel uint8 BGR image.
-    """
-    validate_image(image)
-    if (
-        not isinstance(image, np.ndarray)
-        or image.ndim != 3
-        or image.shape[2] != 3
-        or image.dtype != np.uint8
-    ):
-        raise ValueError(
-            "Expected uint8 3-channel BGR image with shape (H, W, 3), "
-            f"got shape {getattr(image, 'shape', 'N/A')} and "
-            f"dtype {getattr(image, 'dtype', 'N/A')}"
-        )

@@ -1,7 +1,15 @@
-package pl.edu.mobilecv
+package pl.edu.mobilecv.lifecycle
 
 import android.content.Context
 import android.util.Log
+import pl.edu.mobilecv.AnalysisMode
+import pl.edu.mobilecv.ImageProcessor
+import pl.edu.mobilecv.MediaPipeProcessor
+import pl.edu.mobilecv.ModuleStatusState
+import pl.edu.mobilecv.ModuleStatusStore
+import pl.edu.mobilecv.R
+import pl.edu.mobilecv.TfliteProcessor
+import pl.edu.mobilecv.YoloProcessor
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -94,7 +102,7 @@ class ModuleLifecycleManager(
             }
             RepairAction.DISABLE_MODULE -> {
                 disableModule(moduleType)
-                ModuleStatusStore.setStatus(moduleType, ModuleStatusStore.ModuleStatus.DISABLED)
+                ModuleStatusStore.setStatus(moduleType, ModuleStatusState.Disabled)
             }
         }
     }
@@ -108,7 +116,7 @@ class ModuleLifecycleManager(
     private fun startMediaPipeModelDownload() {
         if (mediaPipeDownloadInProgress) return
         mediaPipeDownloadInProgress = true
-        ModuleStatusStore.setStatus(ModuleStatusStore.ModuleType.MEDIAPIPE, ModuleStatusStore.ModuleStatus.DOWNLOADING)
+        ModuleStatusStore.setStatus(ModuleStatusStore.ModuleType.MEDIAPIPE, ModuleStatusState.Downloading)
         callbacks.showToast(R.string.mediapipe_models_downloading, longDuration = true)
         backgroundExecutor.execute {
             try {
@@ -116,21 +124,19 @@ class ModuleLifecycleManager(
                     mediaPipeProcessor.close()
                     mediaPipeProcessor.initialize()
                     imageProcessor.mediaPipeProcessor = mediaPipeProcessor
-                    ModuleStatusStore.setStatus(ModuleStatusStore.ModuleType.MEDIAPIPE, ModuleStatusStore.ModuleStatus.READY)
+                    ModuleStatusStore.setStatus(ModuleStatusStore.ModuleType.MEDIAPIPE, ModuleStatusState.Ready)
                     callbacks.showToast(R.string.mediapipe_models_ready)
                 } else {
                     ModuleStatusStore.setStatus(
                         ModuleStatusStore.ModuleType.MEDIAPIPE,
-                        ModuleStatusStore.ModuleStatus.ERROR,
-                        R.string.module_error_mediapipe,
+                        ModuleStatusState.Error(R.string.module_error_mediapipe),
                     )
                 }
             } catch (error: Exception) {
                 callbacks.onTelemetry("mediapipe_download", "unexpected", error)
                 ModuleStatusStore.setStatus(
                     ModuleStatusStore.ModuleType.MEDIAPIPE,
-                    ModuleStatusStore.ModuleStatus.ERROR,
-                    R.string.module_error_mediapipe,
+                    ModuleStatusState.Error(R.string.module_error_mediapipe),
                 )
             } finally {
                 mediaPipeDownloadInProgress = false
@@ -140,7 +146,7 @@ class ModuleLifecycleManager(
 
     private fun startYoloModelDownload() {
         if (!yoloDownloadInProgress.compareAndSet(false, true)) return
-        ModuleStatusStore.setStatus(ModuleStatusStore.ModuleType.YOLO, ModuleStatusStore.ModuleStatus.DOWNLOADING)
+        ModuleStatusStore.setStatus(ModuleStatusStore.ModuleType.YOLO, ModuleStatusState.Downloading)
         callbacks.showToast(R.string.yolo_models_downloading, longDuration = true)
         backgroundExecutor.execute {
             try {
@@ -149,13 +155,12 @@ class ModuleLifecycleManager(
                     yoloProcessor.close()
                     yoloProcessor.initialize()
                     imageProcessor.yoloProcessor = yoloProcessor
-                    ModuleStatusStore.setStatus(ModuleStatusStore.ModuleType.YOLO, ModuleStatusStore.ModuleStatus.READY)
+                    ModuleStatusStore.setStatus(ModuleStatusStore.ModuleType.YOLO, ModuleStatusState.Ready)
                     callbacks.showToast(R.string.yolo_models_ready)
                 } else {
                     ModuleStatusStore.setStatus(
                         ModuleStatusStore.ModuleType.YOLO,
-                        ModuleStatusStore.ModuleStatus.ERROR,
-                        R.string.module_error_yolo,
+                        ModuleStatusState.Error(R.string.module_error_yolo),
                     )
                     callbacks.showToast(R.string.yolo_models_download_failed, longDuration = true)
                 }
@@ -164,8 +169,7 @@ class ModuleLifecycleManager(
                 Log.e(TAG, "YOLO model download failed", error)
                 ModuleStatusStore.setStatus(
                     ModuleStatusStore.ModuleType.YOLO,
-                    ModuleStatusStore.ModuleStatus.ERROR,
-                    R.string.module_error_yolo,
+                    ModuleStatusState.Error(R.string.module_error_yolo),
                 )
                 callbacks.showToast(R.string.yolo_models_download_failed, longDuration = true)
             } finally {
@@ -176,7 +180,7 @@ class ModuleLifecycleManager(
 
     private fun startTfliteModelDownload() {
         if (!tfliteDownloadInProgress.compareAndSet(false, true)) return
-        ModuleStatusStore.setStatus(ModuleStatusStore.ModuleType.TFLITE, ModuleStatusStore.ModuleStatus.DOWNLOADING)
+        ModuleStatusStore.setStatus(ModuleStatusStore.ModuleType.TFLITE, ModuleStatusState.Downloading)
         callbacks.showToast(R.string.tflite_models_downloading, longDuration = true)
         backgroundExecutor.execute {
             try {
@@ -184,13 +188,12 @@ class ModuleLifecycleManager(
                     tfliteProcessor.close()
                     tfliteProcessor.initialize()
                     imageProcessor.tfliteProcessor = tfliteProcessor
-                    ModuleStatusStore.setStatus(ModuleStatusStore.ModuleType.TFLITE, ModuleStatusStore.ModuleStatus.READY)
+                    ModuleStatusStore.setStatus(ModuleStatusStore.ModuleType.TFLITE, ModuleStatusState.Ready)
                     callbacks.showToast(R.string.tflite_models_ready)
                 } else {
                     ModuleStatusStore.setStatus(
                         ModuleStatusStore.ModuleType.TFLITE,
-                        ModuleStatusStore.ModuleStatus.ERROR,
-                        R.string.module_error_tflite,
+                        ModuleStatusState.Error(R.string.module_error_tflite),
                     )
                     callbacks.showToast(R.string.tflite_models_download_failed, longDuration = true)
                 }
@@ -199,8 +202,7 @@ class ModuleLifecycleManager(
                 Log.e(TAG, "TFLite model download failed", error)
                 ModuleStatusStore.setStatus(
                     ModuleStatusStore.ModuleType.TFLITE,
-                    ModuleStatusStore.ModuleStatus.ERROR,
-                    R.string.module_error_tflite,
+                    ModuleStatusState.Error(R.string.module_error_tflite),
                 )
                 callbacks.showToast(R.string.tflite_models_download_failed, longDuration = true)
             } finally {
@@ -211,10 +213,10 @@ class ModuleLifecycleManager(
 
     private fun initializeModuleAsync(moduleType: ModuleStatusStore.ModuleType, block: () -> Unit) {
         backgroundExecutor.execute {
-            ModuleStatusStore.setStatus(moduleType, ModuleStatusStore.ModuleStatus.DOWNLOADING)
+            ModuleStatusStore.setStatus(moduleType, ModuleStatusState.Downloading)
             try {
                 block()
-                ModuleStatusStore.setStatus(moduleType, ModuleStatusStore.ModuleStatus.READY)
+                ModuleStatusStore.setStatus(moduleType, ModuleStatusState.Ready)
             } catch (error: Throwable) {
                 val errorMessageResId = when (moduleType) {
                     ModuleStatusStore.ModuleType.MEDIAPIPE -> R.string.module_error_mediapipe
@@ -223,8 +225,7 @@ class ModuleLifecycleManager(
                 }
                 ModuleStatusStore.setStatus(
                     moduleType = moduleType,
-                    status = ModuleStatusStore.ModuleStatus.ERROR,
-                    errorMessageResId = errorMessageResId,
+                    status = ModuleStatusState.Error(errorMessageResId),
                 )
                 throw error
             }

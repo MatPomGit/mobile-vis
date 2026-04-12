@@ -18,6 +18,8 @@ import org.pytorch.IValue
 import org.pytorch.LiteModuleLoader
 import org.pytorch.Module
 import org.pytorch.Tensor
+import pl.edu.mobilecv.lifecycle.ModelDownloadManager
+import pl.edu.mobilecv.lifecycle.MobileModelManifest
 import pl.edu.mobilecv.util.BBoxKalmanFilter
 import pl.edu.mobilecv.tracking.ObjectPoseTracker
 import java.io.File

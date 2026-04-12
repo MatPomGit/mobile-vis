@@ -1,9 +1,11 @@
-package pl.edu.mobilecv
+package pl.edu.mobilecv.lifecycle
 
 import android.content.Context
 import android.util.Log
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import pl.edu.mobilecv.MediaPipeProcessor
+import pl.edu.mobilecv.TfliteProcessor
 import java.io.File
 import java.util.concurrent.TimeUnit
 

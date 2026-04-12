@@ -35,8 +35,10 @@ import org.opencv.android.OpenCVLoader
 import org.opencv.core.Point3
 import pl.edu.mobilecv.ProcessedVideoRecorder
 import pl.edu.mobilecv.databinding.ActivityMainBinding
+import pl.edu.mobilecv.lifecycle.ModuleLifecycleManager
 import pl.edu.mobilecv.odometry.FullOdometryEngine
 import pl.edu.mobilecv.odometry.VisualOdometryEngine
+import pl.edu.mobilecv.ui.ModuleStatusContracts
 import pl.edu.mobilecv.util.FpsCounter
 import pl.edu.mobilecv.vision.CameraCalibrator
 import java.io.File
@@ -458,13 +460,15 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun resolveCurrentModuleStatusLine(): String {
-        val moduleType = when (analysisUiController.currentMode) {
-            AnalysisMode.POSE -> ModuleStatusStore.ModuleType.MEDIAPIPE
-            AnalysisMode.YOLO -> ModuleStatusStore.ModuleType.YOLO
-            else -> return getString(R.string.module_status_not_applicable)
-        }
+        val moduleType = ModuleStatusContracts.moduleTypeForMode(analysisUiController.currentMode)
+            ?: return getString(R.string.module_status_not_applicable)
         val snapshot = ModuleStatusStore.get(moduleType)
-        return getString(R.string.module_status_template, moduleType.name, snapshot.status.name)
+        val presentation = ModuleStatusContracts.toPresentation(moduleType, snapshot)
+        return getString(
+            R.string.module_status_template,
+            presentation.moduleType.name,
+            presentation.statusLabel,
+        )
     }
 
     private fun configureImageProcessorLabels() {

@@ -1,4 +1,4 @@
-package pl.edu.mobilecv
+package pl.edu.mobilecv.lifecycle
 
 import android.util.Log
 import org.json.JSONArray

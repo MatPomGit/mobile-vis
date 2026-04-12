@@ -15,7 +15,10 @@ import androidx.core.view.ViewCompat
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.tabs.TabLayout
 import pl.edu.mobilecv.databinding.ActivityMenuBinding
+import pl.edu.mobilecv.lifecycle.ModelDownloadManager
+import pl.edu.mobilecv.lifecycle.ModuleLifecycleManager
 import pl.edu.mobilecv.ui.ModeRegistry
+import pl.edu.mobilecv.ui.ModuleStatusContracts
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import kotlin.jvm.java
@@ -337,16 +340,20 @@ class MenuActivity : AppCompatActivity() {
     private fun refreshModuleStatus() {
         moduleStatusViews.forEach { (moduleType, views) ->
             val snapshot = ModuleStatusStore.get(moduleType)
+            val presentation = ModuleStatusContracts.toPresentation(moduleType, snapshot)
             views.textStatus.text = getString(
                 R.string.module_status_template,
-                moduleType.name,
-                snapshot.status.name,
+                presentation.moduleType.name,
+                presentation.statusLabel,
             )
-            val errorText = snapshot.errorMessageResId?.let(::getString).orEmpty()
+            val errorText = (presentation.status as? ModuleStatusState.Error)
+                ?.errorMessageResId
+                ?.let(::getString)
+                .orEmpty()
             views.textError.text = errorText
             views.textError.visibility = if (errorText.isBlank()) View.GONE else View.VISIBLE
-            val isError = snapshot.status == ModuleStatusStore.ModuleStatus.ERROR
-            val isDisabled = snapshot.status == ModuleStatusStore.ModuleStatus.DISABLED
+            val isError = presentation.status is ModuleStatusState.Error
+            val isDisabled = presentation.status is ModuleStatusState.Disabled
             views.btnRetry.visibility = if (isError) View.VISIBLE else View.GONE
             views.btnDisable.visibility = if (isDisabled) View.GONE else View.VISIBLE
         }

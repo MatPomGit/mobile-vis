@@ -539,3 +539,19 @@ def _validate_bgr_image(image: object) -> None:
         )
     if image.dtype != np.uint8:
         raise ValueError(f"Expected uint8 BGR image, got dtype {image.dtype}")
+
+
+# Rejestr publicznych symboli modułu używany przez image_analysis.__init__.
+PUBLIC_EXPORTS: dict[str, str] = {
+    "FaceOrientation": "FaceOrientation",
+    "HOLOGRAM_EDGE_COLOUR": "HOLOGRAM_EDGE_COLOUR",
+    "HOLOGRAM_SIZE_FRACTION": "HOLOGRAM_SIZE_FRACTION",
+    "HologramResult": "HologramResult",
+    "MAX_PITCH_DEGREES": "MAX_PITCH_DEGREES",
+    "MAX_YAW_DEGREES": "MAX_YAW_DEGREES",
+    "compute_face_orientation": "compute_face_orientation",
+    "create_face_mesh_hologram": "create_face_mesh_hologram",
+    "draw_hologram_3d": "draw_hologram_3d",
+    "process_hologram": "process_hologram",
+    "render_hologram_3d": "render_hologram_3d",
+}

@@ -190,3 +190,12 @@ def _build_detection(
         center=center,
         bbox=bbox,
     )
+
+
+# Rejestr publicznych symboli modułu używany przez image_analysis.__init__.
+PUBLIC_EXPORTS: dict[str, str] = {
+    "AprilTagDetection": "AprilTagDetection",
+    "DEFAULT_APRILTAG_FAMILY": "DEFAULT_APRILTAG_FAMILY",
+    "detect_april_tags": "detect_april_tags",
+    "draw_april_tags": "draw_april_tags",
+}

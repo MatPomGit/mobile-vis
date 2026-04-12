@@ -420,3 +420,16 @@ def _validate_hsv_range(color_range: ColorRangeHSV) -> None:
         raise ValueError("HSV value must be in [0, 255]")
     if (h_low > h_high) or (s_low > s_high) or (v_low > v_high):
         raise ValueError("HSV lower bound must not exceed upper bound")
+
+
+# Rejestr publicznych symboli modułu używany przez image_analysis.__init__.
+PUBLIC_EXPORTS: dict[str, str] = {
+    "ColorRangeHSV": "ColorRangeHSV",
+    "FrameTrackingMetrics": "FrameTrackingMetrics",
+    "LightSpotDetection": "LightSpotDetection",
+    "ScheduledStateMachine": "ScheduledStateMachine",
+    "TrackedElement": "TrackedElement",
+    "detect_light_spot": "detect_light_spot",
+    "measure_tracking_on_mp4": "measure_tracking_on_mp4",
+    "replay_mp4": "replay_mp4",
+}

@@ -373,3 +373,20 @@ def _require_ultralytics() -> None:
             "or: pip install 'image-analysis[yolo]'"
         ) from exc
 
+
+# Rejestr publicznych symboli modułu używany przez image_analysis.__init__.
+PUBLIC_EXPORTS: dict[str, str] = {
+    "DEFAULT_YOLO_MODEL": "DEFAULT_YOLO_MODEL",
+    "YOLO_CONFIDENCE_THRESHOLD": "YOLO_CONFIDENCE_THRESHOLD",
+    "YOLO_DOWNLOAD_MAX_RETRIES": "YOLO_DOWNLOAD_MAX_RETRIES",
+    "YOLO_DOWNLOAD_RETRY_DELAY_SECONDS": "YOLO_DOWNLOAD_RETRY_DELAY_SECONDS",
+    "YOLO_MODELS_DIR": "YOLO_MODELS_DIR",
+    "YOLO_NMS_IOU_THRESHOLD": "YOLO_NMS_IOU_THRESHOLD",
+    "YoloDetection": "YoloDetection",
+    "YoloDetector": "YoloDetector",
+    "detect_yolo": "detect_yolo",
+    "draw_yolo_detections": "draw_yolo_detections",
+    "export_yolo_to_onnx": "export_yolo_to_onnx",
+    "export_yolo_to_torchscript": "export_yolo_to_torchscript",
+    "yolo_detector": "yolo_detector",
+}

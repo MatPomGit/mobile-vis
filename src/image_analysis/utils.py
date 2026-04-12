@@ -106,3 +106,13 @@ def list_images(
     if not path.is_dir():
         raise NotADirectoryError(f"Not a directory: {path}")
     return sorted(p for p in path.iterdir() if p.suffix.lower() in extensions)
+
+
+# Rejestr publicznych symboli modułu używany przez image_analysis.__init__.
+PUBLIC_EXPORTS: dict[str, str] = {
+    "get_project_root": "get_project_root",
+    "list_images": "list_images",
+    "safe_makedirs": "safe_makedirs",
+    "setup_logging": "setup_logging",
+    "validate_image": "validate_image",
+}

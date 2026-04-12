@@ -1050,3 +1050,15 @@ def _mask_to_bbox(
     if len(xs) == 0:
         return None
     return int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max())
+
+
+# Rejestr publicznych symboli modułu używany przez image_analysis.__init__.
+PUBLIC_EXPORTS: dict[str, str] = {
+    "PlaneDetection": "PlaneDetection",
+    "VanishingPoint": "VanishingPoint",
+    "detect_planes": "detect_planes",
+    "detect_vanishing_points": "detect_vanishing_points",
+    "draw_planes": "draw_planes",
+    "estimate_plane_pose": "estimate_plane_pose",
+    "fit_plane_ransac": "fit_plane_ransac",
+}

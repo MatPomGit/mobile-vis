@@ -1,19 +1,19 @@
 """Object detection utilities.
 
 Provides basic object-detection helpers that wrap common OpenCV and
-third-party model interfaces.  Replace the stub implementations with
+third-party model interfaces. Replace the stub implementations with
 your actual model integration.
 """
 
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from collections.abc import Callable
 
-import cv2
 import numpy as np
 
-from .types import BboxXYXY, BgrImageU8
+from .backends import DetectorBackend, InferenceResult
+from .types import BgrImageU8
 from .utils import validate_bbox_xyxy, validate_bgr_image
 
 logger = logging.getLogger(__name__)
@@ -24,35 +24,75 @@ DETECTION_CONFIDENCE_THRESHOLD: float = 0.5
 # IoU threshold used by Non-Maximum Suppression.
 NMS_IOU_THRESHOLD: float = 0.45
 
+# Nazwa domyślnego backendu wykrywania obiektów.
+DEFAULT_DETECTOR_BACKEND: str = "stub"
 
-@dataclass(frozen=True)
-class Detection:
-    """A single object detection result.
+# Ujednolicony alias typu wyniku wykrywania dla stabilności API.
+Detection = InferenceResult
 
-    Attributes:
-        label: Predicted class name.
-        confidence: Prediction confidence in ``[0.0, 1.0]``.
-        bbox: Bounding box as ``(x1, y1, x2, y2)`` in pixel coordinates.
-    """
 
-    label: str
-    confidence: float
-    bbox: BboxXYXY
+class StubDetectorBackend:
+    """No-op detector backend used as safe default fallback."""
+
+    def detect(
+        self,
+        image: BgrImageU8,
+        confidence_threshold: float,
+    ) -> list[Detection]:
+        """Return an empty list to emulate unavailable model inference."""
+        _ = image
+        _ = confidence_threshold
+        return []
+
+
+# Rejestr backendów detektora: klucz tekstowy -> fabryka backendu.
+DETECTOR_BACKENDS: dict[str, Callable[[], DetectorBackend]] = {
+    DEFAULT_DETECTOR_BACKEND: StubDetectorBackend,
+}
+
+
+def register_detector_backend(name: str, factory: Callable[[], DetectorBackend]) -> None:
+    """Register a detector backend factory under a unique key."""
+    normalized_name = name.strip().lower()
+    if not normalized_name:
+        raise ValueError("Backend name must not be empty")
+
+    # Walidujemy fabrykę przez próbę utworzenia instancji backendu.
+    backend = factory()
+    if not hasattr(backend, "detect"):
+        raise TypeError("Detector backend must implement detect(image, confidence_threshold)")
+
+    DETECTOR_BACKENDS[normalized_name] = factory
+
+
+def create_detector_backend(name: str | None = None) -> DetectorBackend:
+    """Create detector backend instance with fallback to default backend."""
+    requested_name = (name or DEFAULT_DETECTOR_BACKEND).strip().lower()
+    factory = DETECTOR_BACKENDS.get(requested_name)
+
+    if factory is None:
+        logger.warning(
+            "Unknown detector backend '%s'. Falling back to '%s'.",
+            requested_name,
+            DEFAULT_DETECTOR_BACKEND,
+        )
+        factory = DETECTOR_BACKENDS[DEFAULT_DETECTOR_BACKEND]
+
+    return factory()
 
 
 def detect_objects(
     image: BgrImageU8,
     confidence_threshold: float = DETECTION_CONFIDENCE_THRESHOLD,
+    backend: str | DetectorBackend | None = None,
 ) -> list[Detection]:
     """Detect objects in *image* and return filtered detections.
-
-    This is a **stub** implementation that returns an empty list.
-    Replace the body with your model's inference call.
 
     Args:
         image: BGR image array with shape ``(H, W, 3)``, dtype ``uint8``.
         confidence_threshold: Minimum confidence score. Detections below
             this value are discarded.
+        backend: Backend name, backend instance, or ``None`` (default backend).
 
     Returns:
         List of :class:`Detection` objects sorted by descending confidence.
@@ -66,11 +106,14 @@ def detect_objects(
     if not (0.0 <= confidence_threshold <= 1.0):
         raise ValueError(f"confidence_threshold must be in [0.0, 1.0], got {confidence_threshold}")
 
-    # TODO(#issue-number): Replace stub with actual model inference.
-    raw_detections: list[Detection] = []
+    # Obsługujemy zarówno nazwę backendu, jak i gotową instancję strategii.
+    selected_backend = create_detector_backend(backend) if isinstance(backend, str) else backend
+    if selected_backend is None:
+        selected_backend = create_detector_backend()
 
-    detections = [d for d in raw_detections if d.confidence >= confidence_threshold]
-    detections.sort(key=lambda d: d.confidence, reverse=True)
+    raw_detections = selected_backend.detect(image, confidence_threshold)
+    detections = [d for d in raw_detections if d.score >= confidence_threshold]
+    detections.sort(key=lambda d: d.score, reverse=True)
 
     logger.debug("Detected %d objects above threshold %.2f", len(detections), confidence_threshold)
     return detections
@@ -100,22 +143,29 @@ def apply_nms(
 
     _validate_detections(detections)
 
-    # cv2.dnn.NMSBoxes expects (x, y, w, h) format
-    boxes_xywh = []
-    scores = []
-    for d in detections:
-        x1, y1, x2, y2 = d.bbox
-        boxes_xywh.append([x1, y1, int(x2 - x1), int(y2 - y1)])
-        scores.append(float(d.confidence))
-
-    indices = cv2.dnn.NMSBoxes(
-        boxes_xywh,
-        scores,
-        score_threshold=0.0,
-        nms_threshold=iou_threshold,
+    # Implementacja NMS bez zależności od OpenCV, aby testy działały w lekkim środowisku.
+    ordered_indices = sorted(
+        range(len(detections)),
+        key=lambda i: detections[i].score,
+        reverse=True,
     )
+    kept_indices: list[int] = []
 
-    kept_indices = _normalize_nms_indices(indices)
+    while ordered_indices:
+        current = ordered_indices.pop(0)
+        kept_indices.append(current)
+        current_bbox = detections[current].bbox
+        assert current_bbox is not None
+
+        remaining: list[int] = []
+        for candidate in ordered_indices:
+            candidate_bbox = detections[candidate].bbox
+            assert candidate_bbox is not None
+            iou = _compute_iou(current_bbox, candidate_bbox)
+            if iou <= iou_threshold:
+                remaining.append(candidate)
+        ordered_indices = remaining
+
     return [detections[i] for i in kept_indices]
 
 
@@ -147,57 +197,66 @@ def draw_bounding_boxes(
     _validate_detections(detections)
     output = image.copy()
 
+    # Rysujemy obramowanie NumPy slicingiem, bez zależności od OpenCV.
     for det in detections:
+        assert det.bbox is not None
         x1, y1, x2, y2 = det.bbox
-        cv2.rectangle(output, (x1, y1), (x2, y2), color, thickness)
-        label_text = f"{det.label}: {det.confidence:.2f}"
-        cv2.putText(
-            output,
-            label_text,
-            (x1, max(y1 - 5, 0)),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.5,
-            color,
-            thickness,
-        )
+        x1 = max(0, min(x1, output.shape[1] - 1))
+        x2 = max(0, min(x2, output.shape[1] - 1))
+        y1 = max(0, min(y1, output.shape[0] - 1))
+        y2 = max(0, min(y2, output.shape[0] - 1))
+
+        output[y1 : y1 + thickness, x1 : x2 + 1] = color
+        output[y2 - thickness + 1 : y2 + 1, x1 : x2 + 1] = color
+        output[y1 : y2 + 1, x1 : x1 + thickness] = color
+        output[y1 : y2 + 1, x2 - thickness + 1 : x2 + 1] = color
 
     return output
+
+
+def _compute_iou(bbox_a: tuple[int, int, int, int], bbox_b: tuple[int, int, int, int]) -> float:
+    """Compute IoU score for two bounding boxes in XYXY format."""
+    ax1, ay1, ax2, ay2 = bbox_a
+    bx1, by1, bx2, by2 = bbox_b
+
+    inter_x1 = max(ax1, bx1)
+    inter_y1 = max(ay1, by1)
+    inter_x2 = min(ax2, bx2)
+    inter_y2 = min(ay2, by2)
+
+    inter_w = max(0, inter_x2 - inter_x1)
+    inter_h = max(0, inter_y2 - inter_y1)
+    inter_area = inter_w * inter_h
+
+    area_a = max(0, ax2 - ax1) * max(0, ay2 - ay1)
+    area_b = max(0, bx2 - bx1) * max(0, by2 - by1)
+    union = area_a + area_b - inter_area
+
+    if union <= 0:
+        return 0.0
+    return inter_area / union
 
 
 def _validate_detections(detections: list[Detection]) -> None:
     """Validate detection bounding boxes before drawing or applying NMS."""
     for detection in detections:
+        if detection.bbox is None:
+            raise ValueError("Detection bbox must not be None")
         validate_bbox_xyxy(detection.bbox)
-        if not (0.0 <= detection.confidence <= 1.0):
-            raise ValueError(
-                f"Detection confidence must be in [0.0, 1.0], got {detection.confidence}"
-            )
-
-
-def _normalize_nms_indices(indices: object) -> list[int]:
-    """Convert OpenCV NMSBoxes output to a plain list of integer indices."""
-    if indices is None:
-        return []
-    if isinstance(indices, np.ndarray):
-        return [int(index) for index in indices.flatten().tolist()]
-    if isinstance(indices, (tuple, list)):
-        # Handle cases where indices might be a list of lists/tuples from OpenCV
-        normalized = []
-        for item in indices:
-            if isinstance(item, (int, np.integer)):
-                normalized.append(int(item))
-            else:
-                normalized.append(int(item[0]))
-        return normalized
-    return []
+        if not (0.0 <= detection.score <= 1.0):
+            raise ValueError(f"Detection score must be in [0.0, 1.0], got {detection.score}")
 
 
 # Rejestr publicznych symboli modułu używany przez image_analysis.__init__.
 PUBLIC_EXPORTS: dict[str, str] = {
+    "DEFAULT_DETECTOR_BACKEND": "DEFAULT_DETECTOR_BACKEND",
     "DETECTION_CONFIDENCE_THRESHOLD": "DETECTION_CONFIDENCE_THRESHOLD",
+    "DETECTOR_BACKENDS": "DETECTOR_BACKENDS",
     "Detection": "Detection",
     "NMS_IOU_THRESHOLD": "NMS_IOU_THRESHOLD",
     "apply_nms": "apply_nms",
+    "create_detector_backend": "create_detector_backend",
     "detect_objects": "detect_objects",
     "draw_bounding_boxes": "draw_bounding_boxes",
+    "register_detector_backend": "register_detector_backend",
 }

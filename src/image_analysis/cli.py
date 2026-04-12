@@ -18,7 +18,7 @@ def build_parser() -> argparse.ArgumentParser:
         "command",
         nargs="?",
         default="version",
-        choices=("version",),
+        choices=("version", "check-backend"),
         help="CLI command to execute.",
     )
     parser.add_argument(
@@ -26,6 +26,17 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help="Optional repository root used to resolve Android version.",
+    )
+    parser.add_argument(
+        "--task",
+        choices=("detection", "classification"),
+        default="detection",
+        help="Task type used with backend-aware commands.",
+    )
+    parser.add_argument(
+        "--backend",
+        default=None,
+        help="Backend key used to create detector/classifier implementations.",
     )
     return parser
 
@@ -40,6 +51,20 @@ def main() -> int:
         package_version = get_python_package_version()
         print(f"MobileCV Android version: {version_name} (code {version_code})")
         print(f"image-analysis package version: {package_version}")
+        return 0
+
+    if args.command == "check-backend":
+        # Sprawdzamy czy backend może zostać zbudowany dla wybranego zadania.
+        if args.task == "detection":
+            from image_analysis.detection import create_detector_backend
+
+            backend = create_detector_backend(args.backend)
+            print(f"Detection backend ready: {backend.__class__.__name__}")
+        else:
+            from image_analysis.classification import create_classifier_backend
+
+            backend = create_classifier_backend(args.backend)
+            print(f"Classification backend ready: {backend.__class__.__name__}")
         return 0
 
     parser.error(f"Unsupported command: {args.command}")

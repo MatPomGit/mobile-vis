@@ -6,10 +6,13 @@ import numpy as np
 import pytest
 
 from image_analysis.detection import (
+    DEFAULT_DETECTOR_BACKEND,
     Detection,
     apply_nms,
+    create_detector_backend,
     detect_objects,
     draw_bounding_boxes,
+    register_detector_backend,
 )
 
 # ---------------------------------------------------------------------------
@@ -28,15 +31,28 @@ def bgr_image() -> np.ndarray:
 def sample_detections() -> list[Detection]:
     """Return two overlapping sample detections."""
     return [
-        Detection(label="cat", confidence=0.9, bbox=(10, 20, 110, 120)),
-        Detection(label="cat", confidence=0.7, bbox=(15, 25, 115, 125)),
-        Detection(label="dog", confidence=0.6, bbox=(200, 50, 280, 150)),
+        Detection(label="cat", score=0.9, bbox=(10, 20, 110, 120)),
+        Detection(label="cat", score=0.7, bbox=(15, 25, 115, 125)),
+        Detection(label="dog", score=0.6, bbox=(200, 50, 280, 150)),
     ]
 
 
 # ---------------------------------------------------------------------------
 # detect_objects
 # ---------------------------------------------------------------------------
+
+
+class _FakeDetectorBackend:
+    """Pomocniczy backend zwracający jedną predykcję do testów rejestru."""
+
+    def detect(
+        self,
+        image: np.ndarray,
+        confidence_threshold: float,
+    ) -> list[Detection]:
+        _ = image
+        _ = confidence_threshold
+        return [Detection(label="box", score=0.88, bbox=(1, 1, 5, 5), metadata={"source": "fake"})]
 
 
 class TestDetectObjects:
@@ -58,6 +74,19 @@ class TestDetectObjects:
         with pytest.raises(ValueError):
             detect_objects(bgr_image, confidence_threshold=threshold)
 
+    def test_uses_named_backend_from_registry(self, bgr_image: np.ndarray) -> None:
+        register_detector_backend("fake-detector", _FakeDetectorBackend)
+        result = detect_objects(bgr_image, backend="fake-detector")
+        assert len(result) == 1
+        assert result[0].label == "box"
+
+    def test_unknown_backend_falls_back_to_default(self, bgr_image: np.ndarray) -> None:
+        backend = create_detector_backend("missing-backend")
+        assert backend.__class__.__name__ == "StubDetectorBackend"
+
+        result = detect_objects(bgr_image, backend="missing-backend")
+        assert result == []
+
 
 # ---------------------------------------------------------------------------
 # apply_nms
@@ -69,7 +98,7 @@ class TestApplyNms:
         assert apply_nms([]) == []
 
     def test_single_detection_returned_unchanged(self) -> None:
-        det = Detection(label="cat", confidence=0.9, bbox=(0, 0, 50, 50))
+        det = Detection(label="cat", score=0.9, bbox=(0, 0, 50, 50))
         result = apply_nms([det])
         assert len(result) == 1
         assert result[0] is det
@@ -82,7 +111,7 @@ class TestApplyNms:
             apply_nms(sample_detections, iou_threshold=threshold)
 
     def test_raises_for_invalid_bbox(self) -> None:
-        detections = [Detection(label="cat", confidence=0.9, bbox=(20, 20, 10, 10))]
+        detections = [Detection(label="cat", score=0.9, bbox=(20, 20, 10, 10))]
         with pytest.raises(ValueError):
             apply_nms(detections)
 
@@ -125,3 +154,8 @@ class TestDrawBoundingBoxes:
         image = np.zeros((100, 100, 3), dtype=np.float32)
         with pytest.raises(ValueError):
             draw_bounding_boxes(image, sample_detections)
+
+
+def test_default_backend_constant_is_stub() -> None:
+    """Ensure default detector backend key remains stable for CLI and tests."""
+    assert DEFAULT_DETECTOR_BACKEND == "stub"

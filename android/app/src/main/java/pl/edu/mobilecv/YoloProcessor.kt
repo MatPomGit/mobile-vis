@@ -329,7 +329,7 @@ class YoloProcessor(private val context: Context) {
         val lines = listOf(
             "track=${pose.trackId}",
             "conf=${"%.2f".format(Locale.US, pose.confidence)} status=${pose.status.name}",
-            "repr=${pose.reprojectionErrorPx?.let { \"%.2f\".format(Locale.US, it) } ?: \"n/a\"} filter=${pose.filterStatus}",
+            "repr=${pose.reprojectionErrorPx?.let { "%.2f".format(Locale.US, it) } ?: "n/a"} filter=${pose.filterStatus}",
         )
         lines.forEachIndexed { idx, line ->
             canvas.drawText(line, x + 6f, (y - 8f - idx * 28f).coerceAtLeast(28f), paint)

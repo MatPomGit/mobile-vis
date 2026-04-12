@@ -37,6 +37,7 @@ import org.opencv.core.Point3
 import pl.edu.mobilecv.databinding.ActivityMainBinding
 import pl.edu.mobilecv.odometry.FullOdometryEngine
 import pl.edu.mobilecv.odometry.VisualOdometryEngine
+import pl.edu.mobilecv.util.FpsCounter
 import pl.edu.mobilecv.vision.CameraCalibrator
 import java.io.File
 import java.util.concurrent.Callable

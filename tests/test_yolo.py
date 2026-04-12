@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
@@ -17,7 +17,6 @@ from image_analysis.yolo import (
     YoloDetector,
     _class_color,
     _is_dark_color,
-    _load_with_retry,
     detect_yolo,
     draw_yolo_detections,
     export_yolo_to_onnx,
@@ -529,72 +528,6 @@ class TestIsDarkColor:
 
 
 # ---------------------------------------------------------------------------
-# _load_with_retry
-# ---------------------------------------------------------------------------
-
-
-class TestLoadWithRetry:
-    def test_returns_model_on_first_success(self) -> None:
-        mock_model = MagicMock()
-        mock_cls = MagicMock(return_value=mock_model)
-
-        result = _load_with_retry(mock_cls, "yolov8n.pt", max_retries=3, retry_delay=0.0)
-
-        assert result is mock_model
-        mock_cls.assert_called_once_with("yolov8n.pt")
-
-    def test_retries_on_transient_failure_then_succeeds(self) -> None:
-        mock_model = MagicMock()
-        mock_cls = MagicMock(side_effect=[RuntimeError("network error"), mock_model])
-
-        with patch("image_analysis.yolo.time.sleep") as mock_sleep:
-            result = _load_with_retry(mock_cls, "yolov8n.pt", max_retries=3, retry_delay=1.0)
-
-        assert result is mock_model
-        assert mock_cls.call_count == 2
-        mock_sleep.assert_called_once_with(1.0)
-
-    def test_exponential_backoff_delays(self) -> None:
-        mock_model = MagicMock()
-        mock_cls = MagicMock(
-            side_effect=[RuntimeError("err"), RuntimeError("err"), mock_model]
-        )
-
-        with patch("image_analysis.yolo.time.sleep") as mock_sleep:
-            _load_with_retry(mock_cls, "yolov8n.pt", max_retries=3, retry_delay=2.0)
-
-        assert mock_sleep.call_args_list == [call(2.0), call(4.0)]
-
-    def test_raises_runtime_error_after_all_retries_exhausted(self) -> None:
-        mock_cls = MagicMock(side_effect=RuntimeError("always fails"))
-
-        with patch("image_analysis.yolo.time.sleep"):
-            with pytest.raises(RuntimeError, match="Failed to download YOLO model"):
-                _load_with_retry(mock_cls, "yolov8n.pt", max_retries=3, retry_delay=0.0)
-
-        assert mock_cls.call_count == 3
-
-    def test_raises_runtime_error_chained_from_last_exception(self) -> None:
-        original_exc = OSError("connection refused")
-        mock_cls = MagicMock(side_effect=original_exc)
-
-        with patch("image_analysis.yolo.time.sleep"):
-            with pytest.raises(RuntimeError) as exc_info:
-                _load_with_retry(mock_cls, "yolov8n.pt", max_retries=2, retry_delay=0.0)
-
-        assert exc_info.value.__cause__ is original_exc
-
-    def test_single_retry_attempt(self) -> None:
-        mock_cls = MagicMock(side_effect=ValueError("bad"))
-
-        with patch("image_analysis.yolo.time.sleep") as mock_sleep:
-            with pytest.raises(RuntimeError):
-                _load_with_retry(mock_cls, "yolov8n.pt", max_retries=1, retry_delay=5.0)
-
-        mock_sleep.assert_not_called()  # no sleep when max_retries=1
-
-
-# ---------------------------------------------------------------------------
 # Constants sanity checks
 # ---------------------------------------------------------------------------
 
@@ -684,7 +617,7 @@ class TestYoloDetectorCacheResolution:
             importlib.reload(yolo_mod)
 
     def test_downloads_to_cache_when_model_missing(self, tmp_path) -> None:
-        """If the model is absent from cache, _load_with_retry receives the cache path."""
+        """If the model is absent from cache, load_with_retry receives the cache path."""
         import importlib
 
         import image_analysis.yolo as yolo_mod
@@ -697,7 +630,7 @@ class TestYoloDetectorCacheResolution:
             with patch.dict("sys.modules", {"ultralytics": mock_ultralytics}):
                 importlib.reload(yolo_mod)
                 with patch.object(yolo_mod, "YOLO_MODELS_DIR", tmp_path):
-                    with patch.object(yolo_mod, "_load_with_retry") as mock_retry:
+                    with patch.object(yolo_mod, "load_with_retry") as mock_retry:
                         mock_retry.return_value = MagicMock()
                         detector = yolo_mod.YoloDetector.__new__(yolo_mod.YoloDetector)
                         detector._model_path = yolo_mod.Path("yolov8n.pt")

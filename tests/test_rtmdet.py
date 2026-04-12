@@ -17,7 +17,6 @@ from image_analysis.rtmdet import (
     RtmDetDetector,
     _class_color,
     _is_dark_color,
-    _load_inferencer_with_retry,
     detect_rtmdet,
     draw_rtmdet_detections,
     export_rtmdet_to_onnx,
@@ -260,7 +259,7 @@ class TestRtmDetDetector:
         with (
             patch.dict("sys.modules", {"mmdet": mock_mmdet, "mmdet.apis": mock_mmdet_apis}),
             patch("image_analysis.rtmdet._require_mmdet"),
-            patch("image_analysis.rtmdet._load_inferencer_with_retry") as mock_loader,
+            patch("image_analysis.rtmdet.load_with_retry") as mock_loader,
         ):
             mock_loader.return_value = mock_instance
             detector = RtmDetDetector("rtmdet-nano")
@@ -274,7 +273,7 @@ class TestRtmDetDetector:
         with (
             patch.dict("sys.modules", {"mmdet": mock_mmdet, "mmdet.apis": mock_mmdet_apis}),
             patch("image_analysis.rtmdet._require_mmdet"),
-            patch("image_analysis.rtmdet._load_inferencer_with_retry") as mock_loader,
+            patch("image_analysis.rtmdet.load_with_retry") as mock_loader,
         ):
             mock_loader.return_value = MagicMock()
             detector = RtmDetDetector("rtmdet-nano")
@@ -289,7 +288,7 @@ class TestRtmDetDetector:
         with (
             patch.dict("sys.modules", {"mmdet": mock_mmdet, "mmdet.apis": mock_mmdet_apis}),
             patch("image_analysis.rtmdet._require_mmdet"),
-            patch("image_analysis.rtmdet._load_inferencer_with_retry") as mock_loader,
+            patch("image_analysis.rtmdet.load_with_retry") as mock_loader,
         ):
             mock_loader.return_value = MagicMock()
             detector = RtmDetDetector()
@@ -304,7 +303,7 @@ class TestRtmDetDetector:
         with (
             patch.dict("sys.modules", {"mmdet": mock_mmdet, "mmdet.apis": mock_mmdet_apis}),
             patch("image_analysis.rtmdet._require_mmdet"),
-            patch("image_analysis.rtmdet._load_inferencer_with_retry") as mock_loader,
+            patch("image_analysis.rtmdet.load_with_retry") as mock_loader,
         ):
             mock_loader.return_value = MagicMock()
             with RtmDetDetector() as det:
@@ -415,36 +414,6 @@ class TestExportRtmDetToOnnx:
         ckpt.write_bytes(b"\x00")
         with pytest.raises(ValueError):
             export_rtmdet_to_onnx(cfg, ckpt, img_size=0)
-
-
-# ---------------------------------------------------------------------------
-# _load_inferencer_with_retry
-# ---------------------------------------------------------------------------
-
-
-class TestLoadInferencerWithRetry:
-    def test_succeeds_on_first_try(self) -> None:
-        mock_cls = MagicMock(return_value=MagicMock())
-        result = _load_inferencer_with_retry(mock_cls, "rtmdet-nano", max_retries=3)
-        assert result is mock_cls.return_value
-        assert mock_cls.call_count == 1
-
-    def test_retries_on_failure_then_succeeds(self) -> None:
-        mock_instance = MagicMock()
-        mock_cls = MagicMock(side_effect=[RuntimeError("fail"), mock_instance])
-        result = _load_inferencer_with_retry(
-            mock_cls, "rtmdet-nano", max_retries=3, retry_delay=0.0
-        )
-        assert result is mock_instance
-        assert mock_cls.call_count == 2
-
-    def test_raises_runtime_error_after_all_retries_exhausted(self) -> None:
-        mock_cls = MagicMock(side_effect=RuntimeError("persistent failure"))
-        with pytest.raises(RuntimeError, match="Failed to load RTMDet model"):
-            _load_inferencer_with_retry(
-                mock_cls, "rtmdet-nano", max_retries=2, retry_delay=0.0
-            )
-        assert mock_cls.call_count == 2
 
 
 # ---------------------------------------------------------------------------

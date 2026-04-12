@@ -1,155 +1,184 @@
-"""Image analysis package.
+"""Public API for :mod:`image_analysis` with selective eager imports.
 
-Public API for the :mod:`image_analysis` package.
-
-This module intentionally uses lazy imports so that utilities that do not require
-optional computer-vision dependencies (for example ``cv2``) remain importable in
-minimal environments.
+This package keeps import-time side effects minimal by exposing only stable utility
+symbols eagerly. Heavier computer-vision modules are resolved lazily via ``__getattr__``.
 """
 
 from __future__ import annotations
 
-import ast
 from importlib import import_module
-from pathlib import Path
 
-# Kolejność modułów, z których budujemy publiczne API pakietu.
-_EXPORT_MODULES: tuple[str, ...] = (
-    "april_tags",
-    "benchmarking",
-    "calibration",
-    "cctag",
-    "classification",
-    "detection",
-    "detector_common",
-    "effects",
-    "holistic",
-    "hologram",
-    "iris",
-    "planes",
-    "preprocessing",
-    "qr_detection",
-    "robot_perception",
-    "rtmdet",
-    "utils",
-    "yolo",
-)
+from .utils import get_project_root, list_images, safe_makedirs, setup_logging, validate_image
+from .versioning import get_python_package_version
 
+# Stabilna wersja pakietu wyznaczana na starcie bez importowania ciężkich modułów CV.
+__version__ = get_python_package_version()
 
-def _collect_defined_names(module_ast: ast.Module) -> set[str]:
-    """Return top-level names defined in a module AST."""
-    names: set[str] = set()
+# Minimalny zestaw symboli dostępnych od razu po `import image_analysis`.
+_EAGER_EXPORTS: dict[str, object] = {
+    "__version__": __version__,
+    "get_project_root": get_project_root,
+    "list_images": list_images,
+    "safe_makedirs": safe_makedirs,
+    "setup_logging": setup_logging,
+    "validate_image": validate_image,
+}
 
-    for node in module_ast.body:
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            names.add(node.name)
-            continue
+# Mapa publicznych symboli ładowanych leniwie (nazwa API -> (moduł, atrybut)).
+_LAZY_ATTR_EXPORTS: dict[str, tuple[str, str]] = {
+    "AprilTagDetection": (".april_tags", "AprilTagDetection"),
+    "CCTagDetection": (".cctag", "CCTagDetection"),
+    "CLASSIFICATION_CONFIDENCE_THRESHOLD": (
+        ".classification",
+        "CLASSIFICATION_CONFIDENCE_THRESHOLD",
+    ),
+    "CalibrationResult": (".calibration", "CalibrationResult"),
+    "ColorRangeHSV": (".robot_perception", "ColorRangeHSV"),
+    "DEFAULT_APRILTAG_FAMILY": (".april_tags", "DEFAULT_APRILTAG_FAMILY"),
+    "DEFAULT_BOARD_HEIGHT": (".calibration", "DEFAULT_BOARD_HEIGHT"),
+    "DEFAULT_BOARD_WIDTH": (".calibration", "DEFAULT_BOARD_WIDTH"),
+    "DEFAULT_RTMDET_MODEL": (".rtmdet", "DEFAULT_RTMDET_MODEL"),
+    "DEFAULT_YOLO_MODEL": (".yolo", "DEFAULT_YOLO_MODEL"),
+    "DETECTION_CONFIDENCE_THRESHOLD": (
+        ".detection",
+        "DETECTION_CONFIDENCE_THRESHOLD",
+    ),
+    "Detection": (".detection", "Detection"),
+    "FaceOrientation": (".hologram", "FaceOrientation"),
+    "FrameTrackingMetrics": (".robot_perception", "FrameTrackingMetrics"),
+    "HOLOGRAM_EDGE_COLOUR": (".hologram", "HOLOGRAM_EDGE_COLOUR"),
+    "HOLOGRAM_SIZE_FRACTION": (".hologram", "HOLOGRAM_SIZE_FRACTION"),
+    "HolisticLandmark": (".holistic", "HolisticLandmark"),
+    "HolisticResult": (".holistic", "HolisticResult"),
+    "HologramResult": (".hologram", "HologramResult"),
+    "IrisLandmark": (".iris", "IrisLandmark"),
+    "IrisResult": (".iris", "IrisResult"),
+    "LightSpotDetection": (".robot_perception", "LightSpotDetection"),
+    "MAX_PITCH_DEGREES": (".hologram", "MAX_PITCH_DEGREES"),
+    "MAX_YAW_DEGREES": (".hologram", "MAX_YAW_DEGREES"),
+    "MIN_CALIBRATION_FRAMES": (".calibration", "MIN_CALIBRATION_FRAMES"),
+    "NMS_IOU_THRESHOLD": (".detection", "NMS_IOU_THRESHOLD"),
+    "PIXELATE_BLOCK_SIZE": (".effects", "PIXELATE_BLOCK_SIZE"),
+    "PlaneDetection": (".planes", "PlaneDetection"),
+    "PlaneMetrics": (".benchmarking", "PlaneMetrics"),
+    "QRCode": (".qr_detection", "QRCode"),
+    "RTMDET_CONFIDENCE_THRESHOLD": (".rtmdet", "RTMDET_CONFIDENCE_THRESHOLD"),
+    "RTMDET_DOWNLOAD_MAX_RETRIES": (".rtmdet", "RTMDET_DOWNLOAD_MAX_RETRIES"),
+    "RTMDET_DOWNLOAD_RETRY_DELAY_SECONDS": (
+        ".rtmdet",
+        "RTMDET_DOWNLOAD_RETRY_DELAY_SECONDS",
+    ),
+    "RTMDET_NMS_IOU_THRESHOLD": (".rtmdet", "RTMDET_NMS_IOU_THRESHOLD"),
+    "RtmDetDetection": (".rtmdet", "RtmDetDetection"),
+    "RtmDetDetector": (".rtmdet", "RtmDetDetector"),
+    "ScenarioBenchmarkResult": (".benchmarking", "ScenarioBenchmarkResult"),
+    "ScenarioConfig": (".benchmarking", "ScenarioConfig"),
+    "ScheduledStateMachine": (".robot_perception", "ScheduledStateMachine"),
+    "TrackedElement": (".robot_perception", "TrackedElement"),
+    "VanishingPoint": (".planes", "VanishingPoint"),
+    "VoMetrics": (".benchmarking", "VoMetrics"),
+    "YOLO_CONFIDENCE_THRESHOLD": (".yolo", "YOLO_CONFIDENCE_THRESHOLD"),
+    "YOLO_DOWNLOAD_MAX_RETRIES": (".yolo", "YOLO_DOWNLOAD_MAX_RETRIES"),
+    "YOLO_DOWNLOAD_RETRY_DELAY_SECONDS": (".yolo", "YOLO_DOWNLOAD_RETRY_DELAY_SECONDS"),
+    "YOLO_MODELS_DIR": (".yolo", "YOLO_MODELS_DIR"),
+    "YOLO_NMS_IOU_THRESHOLD": (".yolo", "YOLO_NMS_IOU_THRESHOLD"),
+    "YoloDetection": (".yolo", "YoloDetection"),
+    "YoloDetector": (".yolo", "YoloDetector"),
+    "apply_cartoon": (".effects", "apply_cartoon"),
+    "apply_emboss": (".effects", "apply_emboss"),
+    "apply_invert": (".effects", "apply_invert"),
+    "apply_nms": (".detection", "apply_nms"),
+    "apply_pixelate": (".effects", "apply_pixelate"),
+    "apply_sepia": (".effects", "apply_sepia"),
+    "calibrate_camera": (".calibration", "calibrate_camera"),
+    "center_crop": (".preprocessing", "center_crop"),
+    "classify_image": (".classification", "classify_image"),
+    "compute_face_orientation": (".hologram", "compute_face_orientation"),
+    "create_face_mesh_hologram": (".hologram", "create_face_mesh_hologram"),
+    "create_face_mesh_iris": (".iris", "create_face_mesh_iris"),
+    "create_holistic": (".holistic", "create_holistic"),
+    "default_alarm_thresholds": (".benchmarking", "default_alarm_thresholds"),
+    "default_benchmark_scenarios": (".benchmarking", "default_benchmark_scenarios"),
+    "detect_april_tags": (".april_tags", "detect_april_tags"),
+    "detect_cc_tags": (".cctag", "detect_cc_tags"),
+    "detect_light_spot": (".robot_perception", "detect_light_spot"),
+    "detect_objects": (".detection", "detect_objects"),
+    "detect_planes": (".planes", "detect_planes"),
+    "detect_qr_codes": (".qr_detection", "detect_qr_codes"),
+    "detect_regressions": (".benchmarking", "detect_regressions"),
+    "detect_rtmdet": (".rtmdet", "detect_rtmdet"),
+    "detect_vanishing_points": (".planes", "detect_vanishing_points"),
+    "detect_yolo": (".yolo", "detect_yolo"),
+    "draw_april_tags": (".april_tags", "draw_april_tags"),
+    "draw_bounding_boxes": (".detection", "draw_bounding_boxes"),
+    "draw_cc_tags": (".cctag", "draw_cc_tags"),
+    "draw_chessboard_corners": (".calibration", "draw_chessboard_corners"),
+    "draw_holistic_results": (".holistic", "draw_holistic_results"),
+    "draw_hologram_3d": (".hologram", "draw_hologram_3d"),
+    "draw_iris_results": (".iris", "draw_iris_results"),
+    "draw_planes": (".planes", "draw_planes"),
+    "draw_qr_codes": (".qr_detection", "draw_qr_codes"),
+    "draw_rtmdet_detections": (".rtmdet", "draw_rtmdet_detections"),
+    "draw_yolo_detections": (".yolo", "draw_yolo_detections"),
+    "estimate_cctag_pose": (".cctag", "estimate_cctag_pose"),
+    "estimate_gaze_offset": (".iris", "estimate_gaze_offset"),
+    "estimate_plane_pose": (".planes", "estimate_plane_pose"),
+    "evaluate_classifier": (".classification", "evaluate_classifier"),
+    "evaluate_scenario": (".benchmarking", "evaluate_scenario"),
+    "export_rtmdet_to_onnx": (".rtmdet", "export_rtmdet_to_onnx"),
+    "export_yolo_to_onnx": (".yolo", "export_yolo_to_onnx"),
+    "export_yolo_to_torchscript": (".yolo", "export_yolo_to_torchscript"),
+    "find_chessboard_corners": (".calibration", "find_chessboard_corners"),
+    "fit_plane_ransac": (".planes", "fit_plane_ransac"),
+    "load_classifier": (".classification", "load_classifier"),
+    "load_image": (".preprocessing", "load_image"),
+    "load_json_file": (".benchmarking", "load_json_file"),
+    "load_with_retry": (".detector_common", "load_with_retry"),
+    "measure_tracking_on_mp4": (".robot_perception", "measure_tracking_on_mp4"),
+    "normalize_image": (".preprocessing", "normalize_image"),
+    "process_holistic": (".holistic", "process_holistic"),
+    "process_hologram": (".hologram", "process_hologram"),
+    "process_iris": (".iris", "process_iris"),
+    "render_hologram_3d": (".hologram", "render_hologram_3d"),
+    "replay_mp4": (".robot_perception", "replay_mp4"),
+    "resize_image": (".preprocessing", "resize_image"),
+    "resize_with_aspect_ratio": (".preprocessing", "resize_with_aspect_ratio"),
+    "rtmdet_detector": (".rtmdet", "rtmdet_detector"),
+    "run_benchmark_suite": (".benchmarking", "run_benchmark_suite"),
+    "save_json_file": (".benchmarking", "save_json_file"),
+    "undistort_image": (".calibration", "undistort_image"),
+    "validate_bgr_uint8_image": (".detector_common", "validate_bgr_uint8_image"),
+    "yolo_detector": (".yolo", "yolo_detector"),
+}
 
-        if isinstance(node, ast.Assign):
-            for target in node.targets:
-                if isinstance(target, ast.Name):
-                    names.add(target.id)
-            continue
+# Nazwy modułów opcjonalnych dostępne jako `image_analysis.yolo`, `image_analysis.iris`, itd.
+_LAZY_MODULE_EXPORTS: dict[str, str] = {
+    "yolo": ".yolo",
+    "rtmdet": ".rtmdet",
+    "holistic": ".holistic",
+    "iris": ".iris",
+}
 
-        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-            names.add(node.target.id)
-            continue
-
-        if isinstance(node, (ast.Import, ast.ImportFrom)):
-            for alias in node.names:
-                names.add(alias.asname or alias.name.split(".")[-1])
-
-    return names
-
-
-def _load_module_registry(module_name: str) -> tuple[dict[str, str], set[str]]:
-    """Load and validate ``PUBLIC_EXPORTS`` from one module source file."""
-    module_path = Path(__file__).resolve().parent / f"{module_name}.py"
-    module_ast = ast.parse(module_path.read_text(encoding="utf-8"), filename=str(module_path))
-
-    registry_value: object | None = None
-    for node in module_ast.body:
-        if isinstance(node, ast.Assign):
-            for target in node.targets:
-                if isinstance(target, ast.Name) and target.id == "PUBLIC_EXPORTS":
-                    registry_value = ast.literal_eval(node.value)
-        elif (
-            isinstance(node, ast.AnnAssign)
-            and isinstance(node.target, ast.Name)
-            and node.target.id == "PUBLIC_EXPORTS"
-            and node.value is not None
-        ):
-            registry_value = ast.literal_eval(node.value)
-
-    if registry_value is None:
-        raise RuntimeError(f"Module image_analysis.{module_name} does not define PUBLIC_EXPORTS")
-    if not isinstance(registry_value, dict):
-        raise RuntimeError(
-            f"Module image_analysis.{module_name} has invalid PUBLIC_EXPORTS (expected dict)"
-        )
-
-    registry: dict[str, str] = {}
-    for public_name, attr_name in registry_value.items():
-        if not isinstance(public_name, str) or not isinstance(attr_name, str):
-            raise RuntimeError(
-                "PUBLIC_EXPORTS entries must map str -> str in "
-                f"image_analysis.{module_name}"
-            )
-        registry[public_name] = attr_name
-
-    return registry, _collect_defined_names(module_ast)
-
-
-def _build_exports() -> dict[str, tuple[str, str]]:
-    """Build package exports by merging per-module ``PUBLIC_EXPORTS`` registries."""
-    merged: dict[str, tuple[str, str]] = {}
-
-    for module_name in _EXPORT_MODULES:
-        registry, defined_names = _load_module_registry(module_name)
-
-        for public_name, attr_name in registry.items():
-            if public_name in merged:
-                existing_module, existing_attr = merged[public_name]
-                raise RuntimeError(
-                    "Duplicate public export "
-                    f"{public_name!r} found in image_analysis.{module_name} "
-                    f"and image_analysis.{existing_module.lstrip('.')}"
-                    f" (existing attr: {existing_attr!r})"
-                )
-
-            if attr_name not in defined_names:
-                raise RuntimeError(
-                    f"Invalid export in image_analysis.{module_name}: "
-                    f"attribute {attr_name!r} is not defined in module source"
-                )
-
-            merged[public_name] = (f".{module_name}", attr_name)
-
-    return merged
-
-
-_EXPORTS: dict[str, tuple[str, str]] = _build_exports()
-
-__all__ = sorted(_EXPORTS)
+__all__ = sorted({*_EAGER_EXPORTS, *_LAZY_ATTR_EXPORTS, *_LAZY_MODULE_EXPORTS})
 
 
 def __getattr__(name: str) -> object:
-    """Lazily load public package attributes.
+    """Lazily resolve public package attributes and heavy optional modules."""
+    if name in _LAZY_MODULE_EXPORTS:
+        module = import_module(_LAZY_MODULE_EXPORTS[name], __name__)
+        globals()[name] = module
+        return module
 
-    Args:
-        name: Name requested from the package namespace.
+    if name in _LAZY_ATTR_EXPORTS:
+        module_name, attr_name = _LAZY_ATTR_EXPORTS[name]
+        module = import_module(module_name, __name__)
+        value = getattr(module, attr_name)
+        globals()[name] = value
+        return value
 
-    Returns:
-        Exported object referenced by ``name``.
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
-    Raises:
-        AttributeError: If ``name`` is not part of the package public API.
-    """
-    if name not in _EXPORTS:
-        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
-    module_name, attr_name = _EXPORTS[name]
-    module = import_module(module_name, __name__)
-    value = getattr(module, attr_name)
-    globals()[name] = value
-    return value
+def __dir__() -> list[str]:
+    """Return stable introspection results for editors and auto-completion."""
+    return sorted(set(globals()) | set(__all__))

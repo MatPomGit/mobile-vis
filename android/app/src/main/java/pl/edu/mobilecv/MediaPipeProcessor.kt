@@ -9,7 +9,6 @@ import android.graphics.Path
 import android.graphics.Rect
 import android.util.Log
 import com.google.mediapipe.framework.image.BitmapImageBuilder
-import com.google.mediapipe.tasks.components.containers.NormalizedLandmark
 import com.google.mediapipe.tasks.core.BaseOptions
 import com.google.mediapipe.tasks.core.Delegate
 import com.google.mediapipe.tasks.vision.core.RunningMode
@@ -23,6 +22,8 @@ import com.google.mediapipe.tasks.vision.objectdetector.ObjectDetector
 import com.google.mediapipe.tasks.vision.objectdetector.ObjectDetectorResult
 import com.google.mediapipe.tasks.vision.poselandmarker.PoseLandmarker
 import com.google.mediapipe.tasks.vision.poselandmarker.PoseLandmarkerResult
+import pl.edu.mobilecv.processing.LandmarkTransformer
+import pl.edu.mobilecv.processing.MediaPipeResultMapper
 import pl.edu.mobilecv.tracking.ObjectPoseTracker
 import kotlin.math.abs
 import kotlin.math.cos
@@ -48,6 +49,10 @@ import kotlin.math.sqrt
  * externally.
  */
 class MediaPipeProcessor(private val context: Context) {
+
+    // Mapper izoluje strukturę wyników MediaPipe od pozostałej części aplikacji.
+    private val resultMapper = MediaPipeResultMapper()
+    private val landmarkTransformer = LandmarkTransformer()
 
     companion object {
         private const val TAG = "MediaPipeProcessor"
@@ -642,6 +647,7 @@ class MediaPipeProcessor(private val context: Context) {
             lastPoseResult = detector.detect(BitmapImageBuilder(argbBitmap).build())
         }
         val result = lastPoseResult!!
+        val poseDetections = resultMapper.toPoseDetections(result)
 
         val output = bitmap.copy(Bitmap.Config.ARGB_8888, true)
         val canvas = Canvas(output)
@@ -652,14 +658,17 @@ class MediaPipeProcessor(private val context: Context) {
             cy = output.height / 2.0,
         )
 
-        val personCount = result.landmarks().size
+        val personCount = poseDetections.poses.size
 
         for ((personIndex, person) in result.landmarks().withIndex()) {
+            val personDto = poseDetections.poses[personIndex]
             drawConnections(canvas, person, output.width, output.height, POSE_COLOR, POSE_CONNECTIONS)
             drawDots(canvas, person, output.width, output.height, POSE_COLOR)
 
             // Person-centric integracja trackera 3D bazująca na landmarkach oraz bbox.
-            val bbox = normalizedLandmarksToBbox(person, output.width, output.height)
+            val bbox = landmarkTransformer.toBoundingBox(personDto, output.width, output.height)?.let {
+                ObjectPoseTracker.BoundingBox(it.x1, it.y1, it.x2, it.y2)
+            }
             if (bbox != null) {
                 val pose = objectPoseTracker.estimatePose(
                     ObjectPoseTracker.PoseInput(
@@ -667,10 +676,10 @@ class MediaPipeProcessor(private val context: Context) {
                         confidence = 0.9,
                         cameraIntrinsics = intrinsics,
                         boundingBox = bbox,
-                        imageLandmarks = person.take(8).map {
+                        imageLandmarks = personDto.take(8).map {
                             ObjectPoseTracker.ImagePoint(
-                                x = (it.x() * output.width).toDouble(),
-                                y = (it.y() * output.height).toDouble(),
+                                x = (it.x * output.width).toDouble(),
+                                y = (it.y * output.height).toDouble(),
                             )
                         },
                         referenceObjectSizeMeters = 1.7,
@@ -700,31 +709,6 @@ class MediaPipeProcessor(private val context: Context) {
         }
 
         return output
-    }
-
-    /**
-     * Konwertuje zestaw landmarków normalizowanych na bounding box w pikselach.
-     */
-    private fun normalizedLandmarksToBbox(
-        landmarks: List<NormalizedLandmark>,
-        width: Int,
-        height: Int,
-    ): ObjectPoseTracker.BoundingBox? {
-        if (landmarks.isEmpty()) return null
-        var minX = Double.POSITIVE_INFINITY
-        var minY = Double.POSITIVE_INFINITY
-        var maxX = Double.NEGATIVE_INFINITY
-        var maxY = Double.NEGATIVE_INFINITY
-        for (landmark in landmarks) {
-            val px = (landmark.x() * width).toDouble()
-            val py = (landmark.y() * height).toDouble()
-            minX = minOf(minX, px)
-            minY = minOf(minY, py)
-            maxX = maxOf(maxX, px)
-            maxY = maxOf(maxY, py)
-        }
-        if (!minX.isFinite() || !minY.isFinite() || !maxX.isFinite() || !maxY.isFinite()) return null
-        return ObjectPoseTracker.BoundingBox(minX, minY, maxX, maxY)
     }
 
     /**
@@ -759,11 +743,12 @@ class MediaPipeProcessor(private val context: Context) {
             lastHandResult = detector.detect(BitmapImageBuilder(argbBitmap).build())
         }
         val result = lastHandResult!!
+        val handDetections = resultMapper.toHandDetections(result)
 
         val output = bitmap.copy(Bitmap.Config.ARGB_8888, true)
         val canvas = Canvas(output)
 
-        for ((index, hand) in result.landmarks().withIndex()) {
+        for ((index, hand) in result.landmarks().take(handDetections.hands.size).withIndex()) {
             val handednesses = result.handednesses()
             val handedness = handednesses.getOrNull(index)
             val isLeft = handedness?.firstOrNull()?.categoryName()

@@ -11,7 +11,9 @@ from dataclasses import dataclass, field
 
 import cv2
 import numpy as np
-from numpy.typing import NDArray
+
+from .types import BboxXYXY, BgrImageU8, GrayImageU8
+from .utils import validate_bbox_xyxy, validate_bgr_image, validate_gray_image
 
 logger = logging.getLogger(__name__)
 
@@ -36,20 +38,19 @@ class QRCode:
     """
 
     data: str
-    bbox: tuple[int, int, int, int]
+    bbox: BboxXYXY
     polygon: list[tuple[int, int]] = field(default_factory=list)
 
 
-def detect_qr_codes(image: NDArray[np.uint8]) -> list[QRCode]:
+def detect_qr_codes(image: BgrImageU8 | GrayImageU8) -> list[QRCode]:
     """Detect and decode all QR codes present in *image*.
 
     Uses OpenCV's :class:`cv2.QRCodeDetector` to locate and decode QR codes.
     Grayscale conversion is applied internally when needed.
 
     Args:
-        image: BGR or grayscale image array with dtype ``uint8``.
-            Accepted shapes: ``(H, W, 3)`` for BGR or ``(H, W)`` for
-            grayscale.
+        image: BGR ``(H, W, 3)`` or grayscale ``(H, W)`` image with dtype
+            ``uint8`` and value range ``[0, 255]``.
 
     Returns:
         List of :class:`QRCode` objects, one per detected QR code.
@@ -59,7 +60,10 @@ def detect_qr_codes(image: NDArray[np.uint8]) -> list[QRCode]:
         TypeError: If *image* is not a ``np.ndarray``.
         ValueError: If *image* has an unsupported shape or dtype.
     """
-    _validate_image(image)
+    if isinstance(image, np.ndarray) and image.ndim == 3:
+        validate_bgr_image(image, allowed_dtypes=(np.uint8,))
+    else:
+        validate_gray_image(image, allowed_dtypes=(np.uint8,))
 
     detector = cv2.QRCodeDetector()
 
@@ -85,18 +89,19 @@ def detect_qr_codes(image: NDArray[np.uint8]) -> list[QRCode]:
 
         polygon = [(int(pt[0]), int(pt[1])) for pt in corners_int]
 
-        results.append(QRCode(data=text, bbox=(x1, y1, x2, y2), polygon=polygon))
+        bbox = validate_bbox_xyxy((x1, y1, x2, y2))
+        results.append(QRCode(data=text, bbox=bbox, polygon=polygon))
 
     logger.debug("Detected %d QR code(s) in image", len(results))
     return results
 
 
 def draw_qr_codes(
-    image: NDArray[np.uint8],
+    image: BgrImageU8,
     qr_codes: list[QRCode],
     color: tuple[int, int, int] = (0, 255, 0),
     thickness: int = 2,
-) -> NDArray[np.uint8]:
+) -> BgrImageU8:
     """Draw QR code outlines and decoded text onto a copy of *image*.
 
     Args:
@@ -113,7 +118,7 @@ def draw_qr_codes(
         ValueError: If *image* is not a 3-channel BGR array or *thickness*
             is not positive.
     """
-    _validate_bgr_image(image)
+    validate_bgr_image(image, allowed_dtypes=(np.uint8,))
     if thickness <= 0:
         raise ValueError(f"thickness must be positive, got {thickness}")
 
@@ -145,56 +150,6 @@ def draw_qr_codes(
         )
 
     return output
-
-
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
-
-
-def _validate_image(image: object) -> None:
-    """Validate that *image* is a uint8 array with an accepted shape.
-
-    Args:
-        image: Value to validate.
-
-    Raises:
-        TypeError: If *image* is not a ``np.ndarray``.
-        ValueError: If *image* has an unsupported shape or dtype.
-    """
-    if not isinstance(image, np.ndarray):
-        raise TypeError(f"Expected np.ndarray, got {type(image).__name__}")
-    if image.ndim not in (2, 3):
-        raise ValueError(
-            f"Expected 2-D or 3-D array, got {image.ndim}-D with shape {image.shape}"
-        )
-    if image.ndim == 3 and image.shape[2] not in (1, 3):
-        raise ValueError(
-            f"Expected grayscale (H, W) or BGR (H, W, 3) image, got shape {image.shape}"
-        )
-    if image.dtype != np.uint8:
-        raise ValueError(f"Expected uint8 image, got dtype {image.dtype}")
-
-
-def _validate_bgr_image(image: object) -> None:
-    """Validate that *image* is a 3-channel BGR uint8 array.
-
-    Args:
-        image: Value to validate.
-
-    Raises:
-        TypeError: If *image* is not a ``np.ndarray``.
-        ValueError: If *image* does not have shape ``(H, W, 3)`` or dtype
-            ``uint8``.
-    """
-    if not isinstance(image, np.ndarray):
-        raise TypeError(f"Expected np.ndarray, got {type(image).__name__}")
-    if image.ndim != 3 or image.shape[2] != 3:
-        raise ValueError(
-            f"Expected 3-channel BGR image with shape (H, W, 3), got shape {image.shape}"
-        )
-    if image.dtype != np.uint8:
-        raise ValueError(f"Expected uint8 BGR image, got dtype {image.dtype}")
 
 
 # Rejestr publicznych symboli modułu używany przez image_analysis.__init__.

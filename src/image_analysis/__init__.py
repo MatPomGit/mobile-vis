@@ -8,7 +8,16 @@ from __future__ import annotations
 
 from importlib import import_module
 
-from .utils import get_project_root, list_images, safe_makedirs, setup_logging, validate_image
+from .utils import (
+    get_project_root,
+    list_images,
+    safe_makedirs,
+    setup_logging,
+    validate_bbox_xyxy,
+    validate_bgr_image,
+    validate_gray_image,
+    validate_image,
+)
 from .versioning import get_python_package_version
 
 # Stabilna wersja pakietu wyznaczana na starcie bez importowania ciężkich modułów CV.
@@ -21,6 +30,9 @@ _EAGER_EXPORTS: dict[str, object] = {
     "list_images": list_images,
     "safe_makedirs": safe_makedirs,
     "setup_logging": setup_logging,
+    "validate_bbox_xyxy": validate_bbox_xyxy,
+    "validate_bgr_image": validate_bgr_image,
+    "validate_gray_image": validate_gray_image,
     "validate_image": validate_image,
 }
 
@@ -84,6 +96,15 @@ _LAZY_ATTR_EXPORTS: dict[str, tuple[str, str]] = {
     "YOLO_NMS_IOU_THRESHOLD": (".yolo", "YOLO_NMS_IOU_THRESHOLD"),
     "YoloDetection": (".yolo", "YoloDetection"),
     "YoloDetector": (".yolo", "YoloDetector"),
+    "BboxXYWH": (".types", "BboxXYWH"),
+    "BboxXYXY": (".types", "BboxXYXY"),
+    "BgrImageF32": (".types", "BgrImageF32"),
+    "BgrImageU8": (".types", "BgrImageU8"),
+    "GrayImageF32": (".types", "GrayImageF32"),
+    "GrayImageU8": (".types", "GrayImageU8"),
+    "Image": (".types", "Image"),
+    "ImageF32": (".types", "ImageF32"),
+    "ImageU8": (".types", "ImageU8"),
     "apply_cartoon": (".effects", "apply_cartoon"),
     "apply_emboss": (".effects", "apply_emboss"),
     "apply_invert": (".effects", "apply_invert"),

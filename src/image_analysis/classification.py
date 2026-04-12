@@ -11,8 +11,8 @@ import logging
 from pathlib import Path
 
 import numpy as np
-from numpy.typing import NDArray
 
+from .types import Image
 from .utils import validate_image
 
 logger = logging.getLogger(__name__)
@@ -22,7 +22,7 @@ CLASSIFICATION_CONFIDENCE_THRESHOLD: float = 0.5
 
 
 def classify_image(
-    image: NDArray[np.uint8] | NDArray[np.float32],
+    image: Image,
     model: object | None = None,
     confidence_threshold: float = CLASSIFICATION_CONFIDENCE_THRESHOLD,
 ) -> tuple[str, float]:
@@ -32,7 +32,9 @@ def classify_image(
     Replace the body with your model's inference call.
 
     Args:
-        image: BGR or normalised float32 image array.
+        image: Input image with shape ``(H, W, C)`` (typically ``C=3`` BGR)
+            or ``(H, W)`` grayscale. Dtype must be ``uint8`` in ``[0, 255]``
+            or ``float32`` in ``[0.0, 1.0]``.
         model: Optional pre-loaded classifier.  If ``None``, a default
             model should be loaded inside the implementation.
         confidence_threshold: Minimum confidence required for a valid

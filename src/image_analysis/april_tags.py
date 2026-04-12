@@ -14,7 +14,8 @@ import cv2
 import numpy as np
 from numpy.typing import NDArray
 
-from .utils import validate_image
+from .types import BboxXYXY, Image
+from .utils import validate_bbox_xyxy, validate_bgr_image, validate_gray_image, validate_image
 
 logger = logging.getLogger(__name__)
 
@@ -44,18 +45,18 @@ class AprilTagDetection:
     family: str
     corners: NDArray[np.float32]
     center: tuple[float, float]
-    bbox: tuple[int, int, int, int]
+    bbox: BboxXYXY
 
 
 def detect_april_tags(
-    image: NDArray[np.uint8] | NDArray[np.float32],
+    image: Image,
     family: str = DEFAULT_APRILTAG_FAMILY,
 ) -> list[AprilTagDetection]:
     """Detect AprilTag markers in *image*.
 
     Args:
         image: Grayscale ``(H, W)`` or BGR ``(H, W, 3)`` image with dtype
-            ``uint8 [0, 255]`` or ``float32 [0.0, 1.0]``.
+            ``uint8`` in ``[0, 255]`` or ``float32`` in ``[0.0, 1.0]``.
         family: AprilTag family name. Supported values are listed in
             :data:`APRILTAG_FAMILY_TO_DICTIONARY`.
 
@@ -68,6 +69,10 @@ def detect_april_tags(
         ValueError: If *family* is not supported.
     """
     validate_image(image)
+    if isinstance(image, np.ndarray) and image.ndim == 3:
+        validate_bgr_image(image)
+    else:
+        validate_gray_image(image)
     normalized_family = family.strip().lower()
     if normalized_family not in APRILTAG_FAMILY_TO_DICTIONARY:
         supported = ", ".join(sorted(APRILTAG_FAMILY_TO_DICTIONARY))
@@ -115,9 +120,7 @@ def draw_april_tags(
         ValueError: If *image* is not a BGR ``uint8`` array.
         ValueError: If *thickness* is not positive.
     """
-    validate_image(image)
-    if image.ndim != 3 or image.shape[2] != 3 or image.dtype != np.uint8:
-        raise ValueError("image must be a BGR uint8 array with shape (H, W, 3)")
+    validate_bgr_image(image, allowed_dtypes=(np.uint8,))
     if thickness <= 0:
         raise ValueError(f"thickness must be positive, got {thickness}")
 
@@ -173,12 +176,12 @@ def _build_detection(
     normalized_corners = np.asarray(corners, dtype=np.float32).reshape(4, 2)
     x_coordinates = normalized_corners[:, 0]
     y_coordinates = normalized_corners[:, 1]
-    bbox = (
+    bbox = validate_bbox_xyxy((
         int(np.floor(x_coordinates.min())),
         int(np.floor(y_coordinates.min())),
         int(np.ceil(x_coordinates.max())),
         int(np.ceil(y_coordinates.max())),
-    )
+    ))
     center = (
         float(np.mean(x_coordinates)),
         float(np.mean(y_coordinates)),

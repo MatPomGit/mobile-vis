@@ -120,6 +120,10 @@ _LAZY_ATTR_EXPORTS: dict[str, tuple[str, str]] = {
     "create_holistic": (".holistic", "create_holistic"),
     "default_alarm_thresholds": (".benchmarking", "default_alarm_thresholds"),
     "default_benchmark_scenarios": (".benchmarking", "default_benchmark_scenarios"),
+    "default_pr_lite_benchmark_scenarios": (
+        ".benchmarking",
+        "default_pr_lite_benchmark_scenarios",
+    ),
     "detect_april_tags": (".april_tags", "detect_april_tags"),
     "detect_cc_tags": (".cctag", "detect_cc_tags"),
     "detect_light_spot": (".robot_perception", "detect_light_spot"),

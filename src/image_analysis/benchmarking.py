@@ -58,6 +58,17 @@ class ScenarioBenchmarkResult:
     planes: PlaneMetrics
 
 
+DEFAULT_ALARM_THRESHOLDS: dict[str, float] = {
+    "vo.track_length_mean.min_delta": -15.0,
+    "vo.inlier_ratio_mean.min_delta": -0.03,
+    "vo.drift_per_meter_mean.max_delta": 0.0025,
+    "vo.reprojection_error_mean.max_delta": 0.2,
+    "planes.overlap_region_iou_mean.min_delta": -0.03,
+    "planes.normal_error_deg_mean.max_delta": 0.5,
+    "planes.temporal_stability_mean.min_delta": -0.03,
+}
+
+
 def default_benchmark_scenarios() -> list[ScenarioConfig]:
     """Return required synthetic scenarios for regression benchmarking."""
     return [
@@ -96,6 +107,31 @@ def default_benchmark_scenarios() -> list[ScenarioConfig]:
             illumination_change=0.85,
             frames=450,
             distance_meters=16.0,
+        ),
+    ]
+
+
+def default_pr_lite_benchmark_scenarios() -> list[ScenarioConfig]:
+    """Return shortened scenario set intended for PR validation."""
+    # Krótsze sekwencje obniżają koszt CI, ale zachowują pokrycie głównych ryzyk VO/planes.
+    return [
+        ScenarioConfig(
+            name="translation_motion_pr_lite",
+            translation_speed_mps=1.2,
+            rotation_speed_dps=3.0,
+            texture_level=0.8,
+            illumination_change=0.2,
+            frames=180,
+            distance_meters=11.2,
+        ),
+        ScenarioConfig(
+            name="low_texture_pr_lite",
+            translation_speed_mps=0.9,
+            rotation_speed_dps=8.0,
+            texture_level=0.22,
+            illumination_change=0.3,
+            frames=180,
+            distance_meters=7.2,
         ),
     ]
 
@@ -236,15 +272,7 @@ def run_benchmark_suite(scenarios: list[ScenarioConfig] | None = None) -> dict[s
 
 def default_alarm_thresholds() -> dict[str, float]:
     """Return alarm thresholds for baseline regression checks."""
-    return {
-        "vo.track_length_mean.min_delta": -15.0,
-        "vo.inlier_ratio_mean.min_delta": -0.03,
-        "vo.drift_per_meter_mean.max_delta": 0.0025,
-        "vo.reprojection_error_mean.max_delta": 0.2,
-        "planes.overlap_region_iou_mean.min_delta": -0.03,
-        "planes.normal_error_deg_mean.max_delta": 0.5,
-        "planes.temporal_stability_mean.min_delta": -0.03,
-    }
+    return DEFAULT_ALARM_THRESHOLDS.copy()
 
 
 def _nested_get(mapping: dict[str, object], path: str) -> float:
@@ -310,6 +338,7 @@ PUBLIC_EXPORTS: dict[str, str] = {
     "VoMetrics": "VoMetrics",
     "default_alarm_thresholds": "default_alarm_thresholds",
     "default_benchmark_scenarios": "default_benchmark_scenarios",
+    "default_pr_lite_benchmark_scenarios": "default_pr_lite_benchmark_scenarios",
     "detect_regressions": "detect_regressions",
     "evaluate_scenario": "evaluate_scenario",
     "load_json_file": "load_json_file",

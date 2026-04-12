@@ -38,6 +38,78 @@ jobs:
         run: |
           python scripts/benchmark_vo_planes.py --strict | tee benchmark_metrics.txt
 
+      - name: Build benchmark trend report
+        if: always()
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          latest_path = Path("benchmarks/vo_planes_latest.json")
+          baseline_path = Path("benchmarks/vo_planes_baseline.json")
+          trend_path = Path("benchmarks/vo_planes_trend.json")
+          trend_md_path = Path("benchmark_trend.md")
+
+          latest = json.loads(latest_path.read_text(encoding="utf-8"))
+          baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
+
+          latest_summary = latest["summary"]
+          baseline_summary = baseline["summary"]
+
+          metric_map = {
+              "vo.track_length_mean": ("higher", "VO track length mean"),
+              "vo.inlier_ratio_mean": ("higher", "VO inlier ratio mean"),
+              "vo.drift_per_meter_mean": ("lower", "VO drift per meter mean"),
+              "vo.reprojection_error_mean": ("lower", "VO reprojection error mean"),
+              "planes.overlap_region_iou_mean": ("higher", "Plane IoU mean"),
+              "planes.normal_error_deg_mean": ("lower", "Plane normal error mean"),
+              "planes.temporal_stability_mean": ("higher", "Plane temporal stability mean"),
+          }
+
+          def nested_get(payload: dict[str, object], path: str) -> float:
+              node: object = payload
+              for key in path.split("."):
+                  if not isinstance(node, dict):
+                      raise TypeError(f"Unsupported structure for path: {path}")
+                  node = node[key]
+              return float(node)
+
+          trend_rows = []
+          for metric_key, (direction, label) in metric_map.items():
+              baseline_value = nested_get(baseline_summary, metric_key)
+              latest_value = nested_get(latest_summary, metric_key)
+              delta = latest_value - baseline_value
+              trend_rows.append(
+                  {
+                      "metric": metric_key,
+                      "label": label,
+                      "direction": direction,
+                      "baseline": baseline_value,
+                      "latest": latest_value,
+                      "delta": delta,
+                  }
+              )
+
+          trend_payload = {
+              "generated_from": {
+                  "latest": str(latest_path),
+                  "baseline": str(baseline_path),
+              },
+              "rows": trend_rows,
+          }
+          trend_path.write_text(json.dumps(trend_payload, indent=2) + "\n", encoding="utf-8")
+
+          with trend_md_path.open("w", encoding="utf-8") as md_file:
+              md_file.write("## Nightly benchmark trend\n\n")
+              md_file.write("| Metric | Baseline | Latest | Delta |\n")
+              md_file.write("| --- | ---: | ---: | ---: |\n")
+              for row in trend_rows:
+                  md_file.write(
+                      f"| {row['label']} | {row['baseline']:.6f} | "
+                      f"{row['latest']:.6f} | {row['delta']:+.6f} |\n"
+                  )
+          PY
+
       - name: Add benchmark summary
         if: always()
         run: |
@@ -49,6 +121,8 @@ jobs:
             grep -E "^(VO_|PLANE_|REGRESSION_)" benchmark_metrics.txt \
               | sed 's/^/- `/' \
               | sed 's/$/`/'
+            echo ""
+            cat benchmark_trend.md
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload benchmark artifact
@@ -58,4 +132,6 @@ jobs:
           name: nightly-vo-planes-benchmark
           path: |
             benchmark_metrics.txt
+            benchmark_trend.md
             benchmarks/vo_planes_latest.json
+            benchmarks/vo_planes_trend.json

@@ -1,0 +1,63 @@
+{
+  "results": {
+    "low_texture_pr_lite": {
+      "planes": {
+        "normal_error_deg": 7.83,
+        "overlap_region_iou": 0.5584,
+        "temporal_stability": 0.5816
+      },
+      "vo": {
+        "drift_per_meter": 0.01748,
+        "inlier_ratio": 0.7164,
+        "reprojection_error": 1.335,
+        "track_length": 164.556
+      }
+    },
+    "translation_motion_pr_lite": {
+      "planes": {
+        "normal_error_deg": 3.95,
+        "overlap_region_iou": 0.775,
+        "temporal_stability": 0.8025
+      },
+      "vo": {
+        "drift_per_meter": 0.01135,
+        "inlier_ratio": 0.866,
+        "reprojection_error": 0.765,
+        "track_length": 173.61
+      }
+    }
+  },
+  "scenarios": [
+    {
+      "distance_meters": 11.2,
+      "frames": 180,
+      "illumination_change": 0.2,
+      "name": "translation_motion_pr_lite",
+      "rotation_speed_dps": 3.0,
+      "texture_level": 0.8,
+      "translation_speed_mps": 1.2
+    },
+    {
+      "distance_meters": 7.2,
+      "frames": 180,
+      "illumination_change": 0.3,
+      "name": "low_texture_pr_lite",
+      "rotation_speed_dps": 8.0,
+      "texture_level": 0.22,
+      "translation_speed_mps": 0.9
+    }
+  ],
+  "summary": {
+    "planes": {
+      "normal_error_deg_mean": 5.89,
+      "overlap_region_iou_mean": 0.6667,
+      "temporal_stability_mean": 0.69205
+    },
+    "vo": {
+      "drift_per_meter_mean": 0.014415,
+      "inlier_ratio_mean": 0.7912,
+      "reprojection_error_mean": 1.05,
+      "track_length_mean": 169.083
+    }
+  }
+}

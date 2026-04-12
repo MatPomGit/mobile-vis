@@ -5,8 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from image_analysis.benchmarking import (
+    DEFAULT_ALARM_THRESHOLDS,
     default_alarm_thresholds,
     default_benchmark_scenarios,
+    default_pr_lite_benchmark_scenarios,
     detect_regressions,
     run_benchmark_suite,
     save_json_file,
@@ -33,6 +35,27 @@ def test_suite_returns_expected_summary_shape() -> None:
     assert "planes" in result["summary"]
     assert "track_length_mean" in result["summary"]["vo"]
     assert "normal_error_deg_mean" in result["summary"]["planes"]
+
+
+def test_pr_lite_scenarios_are_shorter_than_full_suite() -> None:
+    """PR-lite scenarios should keep reduced runtime while covering core stressors."""
+    full_scenarios = default_benchmark_scenarios()
+    pr_lite_scenarios = default_pr_lite_benchmark_scenarios()
+
+    assert len(pr_lite_scenarios) < len(full_scenarios)
+    assert all(scenario.frames < 450 for scenario in pr_lite_scenarios)
+    assert {scenario.name for scenario in pr_lite_scenarios} == {
+        "translation_motion_pr_lite",
+        "low_texture_pr_lite",
+    }
+
+
+def test_default_alarm_thresholds_are_defined_from_single_source() -> None:
+    """Public threshold helper should expose a copy of the shared defaults."""
+    from_helper = default_alarm_thresholds()
+
+    assert from_helper == DEFAULT_ALARM_THRESHOLDS
+    assert from_helper is not DEFAULT_ALARM_THRESHOLDS
 
 
 def test_regression_detection_flags_threshold_breach() -> None:

@@ -29,6 +29,7 @@ projektu. Projekt składa się z dwóch części:
 9. [Narzędzia jakości kodu](#9-narzędzia-jakości-kodu)
 10. [Rozszerzanie projektu](#10-rozszerzanie-projektu)
 11. [Rozwiązywanie problemów](#11-rozwiązywanie-problemów)
+12. [Known environment issues](#12-known-environment-issues)
 
 ---
 
@@ -1024,4 +1025,18 @@ jest zbyt wolny, klatki są pomijane. Aby poprawić wydajność:
 
 ---
 
+## 12. Known environment issues
+
+- **OpenCV/headless:** w środowiskach bez serwera graficznego (`CI`, kontenery) funkcje okienkowe
+  OpenCV (`imshow`, `waitKey`) nie są wspierane i mogą kończyć się błędem.
+- **`cv2` import w kontenerze:** część obrazów bazowych nie ma kompletu bibliotek systemowych
+  potrzebnych przez OpenCV — w takim przypadku import `cv2` może się nie powieść mimo poprawnej
+  instalacji pakietu Python.
+- **Android Emulator:** emulowana kamera i akceleracja GPU mogą być niestabilne, co wpływa na FPS
+  i jakość wyników modułów realtime; rekomendowane są testy na urządzeniu fizycznym.
+
+---
+
 *Dokumentacja wygenerowana dla wersji `0.1.0` projektu MobileVis.*
+
+

@@ -23,7 +23,8 @@ polsku, kod źródłowy po angielsku.
 9. [Współpraca z agentami AI](#współpraca-z-agentami-ai)
 10. [Wkład w projekt](#wkład-w-projekt)
 11. [Roadmap i rozwój](#roadmap-i-rozwój)
-12. [Licencja](#licencja)
+12. [Known environment issues](#known-environment-issues)
+13. [Licencja](#licencja)
 
 > 📖 **Pełna dokumentacja** (instalacja krok po kroku, opis każdego modułu, przykłady użycia,
 > instrukcja obsługi aplikacji Android, rozwiązywanie problemów) dostępna jest w
@@ -422,6 +423,18 @@ optymalizacje i usprawnienia. Zobacz szczegóły:
 - 🚀 CI/CD, automatyczne testy i publikacja na PyPI
 
 Chcesz pomóc? Sprawdź listę issues lub zaproponuj własne pomysły w GitHub Discussions!
+
+---
+
+
+## Known environment issues
+
+- **OpenCV w środowisku headless:** projekt używa `opencv-python-headless`, więc funkcje GUI (np.
+  `cv2.imshow`) mogą nie działać lokalnie lub w CI.
+- **Brak bibliotek systemowych OpenCV:** w kontenerach może pojawić się błąd importu `cv2` jeśli
+  obraz systemu nie zawiera wymaganych zależności binarnych.
+- **Android Emulator i kamera:** emulator może raportować ograniczone wsparcie kamery, co wpływa na
+  testy modułów czasu rzeczywistego. Dla wiarygodnych wyników zalecane jest urządzenie fizyczne.
 
 ---
 

@@ -1,6 +1,6 @@
-## Opis zmian
+## Opis zmian (po polsku)
 
-<!-- Krótki opis wprowadzonych zmian po polsku. -->
+<!-- Opisz krótko: co i dlaczego zostało zmienione, jaki jest zakres oraz potencjalne ryzyka. -->
 
 ## Typ zmiany
 
@@ -13,19 +13,38 @@
 
 ## Powiązane zgłoszenia
 
-Closes #<!-- numer issue -->
+Closes #<!-- numer issue (opcjonalnie) -->
 
-## Lista kontrolna
+## Wpływ zmian
 
-- [ ] Kod przechodzi `ruff check src/ tests/` bez błędów
-- [ ] Kod przechodzi `mypy src/` bez błędów
-- [ ] Testy przechodzą: `pytest --cov=src/image_analysis`
-- [ ] Pokrycie testów ≥ 80 % dla zmodyfikowanych modułów
+### Python (`src/image_analysis`)
+
+- [ ] Brak wpływu
+- [ ] Jest wpływ (opisz poniżej)
+
+<!-- Opis wpływu na moduły Python, API, wydajność lub kompatybilność. -->
+
+### Android (`android/`)
+
+- [ ] Brak wpływu
+- [ ] Jest wpływ (opisz poniżej)
+
+<!-- Opis wpływu na aplikację Android, UI, wydajność lub konfigurację builda. -->
+
+## Testy
+
+- [ ] Uruchomiono `ruff check src/ tests/`
+- [ ] Uruchomiono `mypy src/`
+- [ ] Uruchomiono `pytest --cov=src/image_analysis --cov-report=term-missing`
+- [ ] Pokrycie testów wynosi co najmniej 80%
 - [ ] Dodano lub zaktualizowano testy dla nowego kodu
+
+## Lista kontrolna jakości
+
 - [ ] Docstringi są w formacie Google-style i po angielsku
-- [ ] Żadne klucze API / sekrety nie zostały zapisane w kodzie
-- [ ] Plik `data/` i `models/` NIE są commitowane
+- [ ] Brak sekretów/kluczy API w kodzie
+- [ ] Pliki `data/` i `models/` nie zostały przypadkowo dodane do commita
 
-## Zrzuty ekranu / wyniki (opcjonalnie)
+## Zrzuty ekranu / logi (opcjonalnie)
 
-<!-- Jeśli zmiana dotyczy wizualizacji lub UI notatnika, dodaj zrzut ekranu. -->
+<!-- Dodaj screenshoty lub logi, jeśli zmiana dotyczy UI, wizualizacji lub debugowania. -->

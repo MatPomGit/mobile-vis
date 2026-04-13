@@ -6,6 +6,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import pl.edu.mobilecv.MediaPipeProcessor
 import pl.edu.mobilecv.TfliteProcessor
+import pl.edu.mobilecv.YoloProcessor
 import java.io.File
 import java.util.concurrent.TimeUnit
 
@@ -317,7 +318,7 @@ object ModelDownloadManager {
      * @param context Application or activity context.
      */
     fun areYoloModelsReady(context: Context): Boolean {
-        val models = listOf(
+        val models = listOf<String>(
             YoloProcessor.MODEL_DETECT,
             YoloProcessor.MODEL_SEGMENT,
             YoloProcessor.MODEL_POSE,

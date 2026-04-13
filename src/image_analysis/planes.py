@@ -228,6 +228,10 @@ def detect_planes(
     camera_matrix: NDArray[np.float64] | None = None,
     max_planes: int = MAX_PLANES,
     min_inliers: int = 7,
+    point_cloud: NDArray[np.float64] | None = None,
+    point_cloud_threshold: float = RANSAC_THRESHOLD,
+    confidence_weight: float = 0.7,
+    precision_weight: float = 0.3,
 ) -> list[PlaneDetection]:
     """Detect planar surfaces in *image* via vanishing-point analysis.
 
@@ -252,6 +256,17 @@ def detect_planes(
             return.  Must be at least 1.
         min_inliers: Minimum number of inlier line segments required to
             accept a detected plane.  Must be at least 1.
+        point_cloud: Optional ``(N, 3)`` point cloud in camera space with
+            dtype compatible with ``float64``.  When provided, an additional
+            RANSAC plane hypothesis is estimated and merged with the
+            vanishing-point hypotheses.
+        point_cloud_threshold: RANSAC inlier distance threshold used for
+            *point_cloud* plane fitting.  Must be positive.
+        confidence_weight: Weight of confidence in final plane ranking.
+            Must be non-negative.
+        precision_weight: Weight of precision in final plane ranking.
+            Must be non-negative. At least one ranking weight must be
+            strictly positive.
 
     Returns:
         List of :class:`PlaneDetection` objects (at most *max_planes*)
@@ -263,12 +278,25 @@ def detect_planes(
         ValueError: If *camera_matrix* is not a ``(3, 3)`` array.
         ValueError: If *max_planes* is less than 1.
         ValueError: If *min_inliers* is less than 1.
+        ValueError: If *point_cloud* is not ``(N, 3)`` when provided.
+        ValueError: If *point_cloud_threshold* is not positive.
+        ValueError: If ranking weights are invalid.
     """
     validate_image(image)
     if max_planes < 1:
         raise ValueError(f"max_planes must be at least 1, got {max_planes}")
     if min_inliers < 1:
         raise ValueError(f"min_inliers must be at least 1, got {min_inliers}")
+    if point_cloud_threshold <= 0.0:
+        raise ValueError(
+            f"point_cloud_threshold must be positive, got {point_cloud_threshold}"
+        )
+    if confidence_weight < 0.0:
+        raise ValueError(f"confidence_weight must be non-negative, got {confidence_weight}")
+    if precision_weight < 0.0:
+        raise ValueError(f"precision_weight must be non-negative, got {precision_weight}")
+    if confidence_weight == 0.0 and precision_weight == 0.0:
+        raise ValueError("At least one ranking weight must be > 0.0")
 
     cm: NDArray[np.float64] | None = None
     if camera_matrix is not None:
@@ -279,14 +307,15 @@ def detect_planes(
     height, width = image.shape[:2]
     gray = _to_grayscale_uint8(image)
     lines = _detect_lines(gray)
-
     if lines is None or len(lines) == 0:
-        logger.debug("No lines found; returning empty plane list")
-        return []
-
-    clusters = _cluster_lines_by_direction(lines, ANGLE_CLUSTER_TOLERANCE)
-    # Need at least 2 clusters to form a vanishing-point pair.
-    clusters = [c for c in clusters if len(c) >= 2]
+        logger.debug("No lines found; VP-based plane proposals will be skipped")
+        line_count = 0
+        clusters: list[list[tuple[int, int, int, int]]] = []
+    else:
+        line_count = len(lines)
+        clusters = _cluster_lines_by_direction(lines, ANGLE_CLUSTER_TOLERANCE)
+        # Need at least 2 clusters to form a vanishing-point pair.
+        clusters = [c for c in clusters if len(c) >= 2]
 
     planes: list[PlaneDetection] = []
     used_clusters: set[int] = set()
@@ -350,7 +379,7 @@ def detect_planes(
                 bbox = (0, 0, width, height)
             cx = float((bbox[0] + bbox[2]) / 2)
             cy = float((bbox[1] + bbox[3]) / 2)
-            confidence = min(1.0, len(inlier_lines) / max(1, len(lines)))
+            confidence = min(1.0, len(inlier_lines) / max(1, line_count))
             precision = (prec_i + prec_j) / 2.0
 
             planes.append(
@@ -367,8 +396,57 @@ def detect_planes(
             used_clusters.add(i)
             used_clusters.add(j)
 
-    planes.sort(key=lambda p: p.confidence, reverse=True)
+    # Rozszerzenie: jeżeli dostępna jest chmura punktów, dopasuj dodatkową
+    # hipotezę płaszczyzny metodą RANSAC i dołącz ją do listy kandydatów.
+    if point_cloud is not None:
+        cloud = np.asarray(point_cloud, dtype=np.float64)
+        if cloud.ndim != 2 or cloud.shape[1] != 3:
+            raise ValueError(f"point_cloud must have shape (N, 3), got {cloud.shape}")
+        if cloud.shape[0] >= 3:
+            ransac_normal, inliers_mask = fit_plane_ransac(
+                cloud,
+                threshold=point_cloud_threshold,
+            )
+            inlier_count = int(np.sum(inliers_mask))
+            if inlier_count >= min_inliers:
+                confidence = min(1.0, inlier_count / max(1, cloud.shape[0]))
+                planes.append(
+                    PlaneDetection(
+                        normal=(
+                            float(ransac_normal[0]),
+                            float(ransac_normal[1]),
+                            float(ransac_normal[2]),
+                        ),
+                        centroid=(float(width / 2.0), float(height / 2.0)),
+                        confidence=confidence,
+                        mask=np.full((height, width), 255, dtype=np.uint8),
+                        bbox=(0, 0, width - 1, height - 1),
+                        inlier_count=inlier_count,
+                        precision=confidence,
+                    )
+                )
+        else:
+            logger.debug("Point cloud has fewer than 3 points; skipping RANSAC plane fit")
+
+    # Komentarz: ranking łączy confidence i precision, żeby preferować
+    # hipotezy jednocześnie stabilne geometrycznie i dobrze podparte danymi.
+    planes.sort(
+        key=lambda p: _plane_rank_score(
+            p,
+            confidence_weight=confidence_weight,
+            precision_weight=precision_weight,
+        ),
+        reverse=True,
+    )
     planes = _resolve_mask_overlaps(planes)
+    planes.sort(
+        key=lambda p: _plane_rank_score(
+            p,
+            confidence_weight=confidence_weight,
+            precision_weight=precision_weight,
+        ),
+        reverse=True,
+    )
     logger.debug("Detected %d plane(s)", len(planes))
     return planes[: max_planes]
 
@@ -926,6 +1004,25 @@ def _select_lines_for_vp(
         precision,
     )
     return selected, precision
+
+
+def _plane_rank_score(
+    plane: PlaneDetection,
+    *,
+    confidence_weight: float,
+    precision_weight: float,
+) -> float:
+    """Compute ranking score for a plane candidate.
+
+    Args:
+        plane: Candidate plane.
+        confidence_weight: Weight for confidence term.
+        precision_weight: Weight for precision term.
+
+    Returns:
+        Weighted score in ``[0, +inf)`` used to sort planes.
+    """
+    return confidence_weight * plane.confidence + precision_weight * plane.precision
 
 
 def _inlier_lines_for_vp(

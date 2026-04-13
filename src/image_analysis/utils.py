@@ -8,10 +8,11 @@ from __future__ import annotations
 import logging
 import logging.config
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 
-from .types import BboxXYXY
+from .types import BboxXYWH, BboxXYXY, Image
 
 _PROJECT_ROOT: Path | None = None
 
@@ -44,7 +45,7 @@ def setup_logging(level: int = logging.INFO) -> None:
     )
 
 
-def validate_image(image: object) -> None:
+def validate_image(image: object) -> Image:
     """Raise an error if *image* is not a valid NumPy image array.
 
     Acceptable shapes:
@@ -70,13 +71,14 @@ def validate_image(image: object) -> None:
         raise ValueError(f"Image must be 2-D or 3-D, got {image.ndim}-D")
     if image.dtype not in (np.uint8, np.float32):
         raise ValueError(f"Expected dtype uint8 or float32, got {image.dtype}")
+    return image
 
 
 def validate_bgr_image(
     image: object,
     *,
     allowed_dtypes: tuple[type[np.uint8] | type[np.float32], ...] = (np.uint8, np.float32),
-) -> None:
+) -> Image:
     """Validate a BGR image contract.
 
     Args:
@@ -98,13 +100,14 @@ def validate_bgr_image(
         raise ValueError(f"Expected dtype in ({allowed}), got {image.dtype}")
     if image.dtype == np.float32 and (image.min() < 0.0 or image.max() > 1.0):
         raise ValueError("Expected float32 BGR image values in range [0.0, 1.0]")
+    return image
 
 
 def validate_gray_image(
     image: object,
     *,
     allowed_dtypes: tuple[type[np.uint8] | type[np.float32], ...] = (np.uint8, np.float32),
-) -> None:
+) -> Image:
     """Validate a grayscale image contract.
 
     Args:
@@ -130,6 +133,20 @@ def validate_gray_image(
         raise ValueError(f"Expected dtype in ({allowed}), got {image.dtype}")
     if image.dtype == np.float32 and (image.min() < 0.0 or image.max() > 1.0):
         raise ValueError("Expected float32 grayscale values in range [0.0, 1.0]")
+    return image
+
+
+def _coerce_bbox_coordinates(bbox: object) -> tuple[float, float, float, float]:
+    """Coerce candidate bbox coordinates to a 4-item float tuple."""
+    if not isinstance(bbox, (tuple, list, np.ndarray)):
+        raise TypeError(f"bbox must be tuple/list/ndarray, got {type(bbox).__name__}")
+    if len(bbox) != 4:
+        raise ValueError(f"bbox must have exactly 4 values, got {len(bbox)}")
+
+    coordinates = cast(tuple[float, float, float, float], tuple(float(value) for value in bbox))
+    if not all(np.isfinite(value) for value in coordinates):
+        raise ValueError(f"bbox coordinates must be finite numbers, got {bbox}")
+    return coordinates
 
 
 def validate_bbox_xyxy(bbox: object) -> BboxXYXY:
@@ -145,19 +162,29 @@ def validate_bbox_xyxy(bbox: object) -> BboxXYXY:
         TypeError: If *bbox* is not a 4-item sequence of numeric values.
         ValueError: If coordinates are invalid (non-finite or inverted box).
     """
-    if not isinstance(bbox, (tuple, list, np.ndarray)):
-        raise TypeError(f"bbox must be tuple/list/ndarray, got {type(bbox).__name__}")
-    if len(bbox) != 4:
-        raise ValueError(f"bbox must have exactly 4 values, got {len(bbox)}")
-
-    coordinates = tuple(float(value) for value in bbox)
-    if not all(np.isfinite(value) for value in coordinates):
-        raise ValueError(f"bbox coordinates must be finite numbers, got {bbox}")
-
-    x1, y1, x2, y2 = coordinates
+    x1, y1, x2, y2 = _coerce_bbox_coordinates(bbox)
     if x2 <= x1 or y2 <= y1:
         raise ValueError(f"bbox must satisfy x2 > x1 and y2 > y1, got {bbox}")
     return int(x1), int(y1), int(x2), int(y2)
+
+
+def validate_bbox_xywh(bbox: object) -> BboxXYWH:
+    """Validate a bounding box in ``(x, y, width, height)`` format.
+
+    Args:
+        bbox: Candidate bounding box coordinates.
+
+    Returns:
+        Bounding box normalized to integer tuple.
+
+    Raises:
+        TypeError: If *bbox* is not a 4-item sequence of numeric values.
+        ValueError: If coordinates are invalid (non-finite or non-positive size).
+    """
+    x, y, width, height = _coerce_bbox_coordinates(bbox)
+    if width <= 0 or height <= 0:
+        raise ValueError(f"bbox must satisfy width > 0 and height > 0, got {bbox}")
+    return int(x), int(y), int(width), int(height)
 
 
 def safe_makedirs(directory: str | Path) -> Path:
@@ -205,6 +232,7 @@ PUBLIC_EXPORTS: dict[str, str] = {
     "safe_makedirs": "safe_makedirs",
     "setup_logging": "setup_logging",
     "validate_bbox_xyxy": "validate_bbox_xyxy",
+    "validate_bbox_xywh": "validate_bbox_xywh",
     "validate_bgr_image": "validate_bgr_image",
     "validate_gray_image": "validate_gray_image",
     "validate_image": "validate_image",

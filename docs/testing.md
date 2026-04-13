@@ -39,3 +39,17 @@ Dla branch protection na `main` wymagane są następujące status checks:
 Konfiguracja jest utrzymywana w pliku `.github/settings.yml` (branch protection as code).
 Aby ustawienia były automatycznie stosowane, repozytorium musi mieć aktywną aplikację
 **GitHub Settings** (Probot).
+
+
+## Lokalna checklista quality checks
+
+1. `ruff check src tests`
+2. `mypy src`
+3. `pytest --cov=src/image_analysis --cov-report=term-missing`
+4. `cd android && ./gradlew :app:assembleDebug`
+5. `cd android && ./gradlew :app:testDebugUnitTest`
+
+### Uwagi środowiskowe (headless/OpenCV)
+
+- W kontenerach/headless import `cv2` może wymagać pakietów systemowych (`libgl1`, `libglib2.0-0`).
+- Jeżeli nie masz dostępu do sieci, instalacja zależności Pythona może wymagać preinstalowanego cache.

@@ -1040,3 +1040,23 @@ jest zbyt wolny, klatki są pomijane. Aby poprawić wydajność:
 *Dokumentacja wygenerowana dla wersji `0.1.0` projektu MobileVis.*
 
 
+
+
+### Zależności opcjonalne (backendy)
+
+Wybrane funkcje (`yolo`, `rtmdet`, `holistic`, `iris`) korzystają z backendów opcjonalnych.
+Pakiet wspiera lazy import, więc `import image_analysis` działa nawet bez tych bibliotek.
+Brak zależności powoduje błąd dopiero przy pierwszym użyciu symbolu zależnego od backendu.
+
+Przykłady instalacji:
+
+```bash
+pip install -e ".[yolo]"
+pip install -e ".[rtmdet]"
+```
+
+### Known issues środowiskowe
+
+- W środowiskach headless mogą występować błędy OpenCV związane z bibliotekami systemowymi (`libGL`).
+- W CI Linux warto doinstalować: `libgl1` oraz `libglib2.0-0`.
+- Przy testach lokalnych GUI używaj `opencv-python-headless`, gdy nie potrzebujesz okien ekranowych.

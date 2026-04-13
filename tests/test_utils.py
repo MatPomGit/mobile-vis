@@ -11,6 +11,7 @@ from image_analysis.utils import (
     get_project_root,
     list_images,
     safe_makedirs,
+    validate_bbox_xywh,
     validate_bbox_xyxy,
     validate_bgr_image,
     validate_gray_image,
@@ -92,6 +93,16 @@ class TestValidateGrayImage:
         image = np.full((8, 8), -0.2, dtype=np.float32)
         with pytest.raises(ValueError):
             validate_gray_image(image)
+
+
+class TestValidateBboxXywh:
+    def test_accepts_valid_bbox(self) -> None:
+        assert validate_bbox_xywh((1, 2, 3, 4)) == (1, 2, 3, 4)
+
+    @pytest.mark.parametrize("bbox", [(0, 1, 0, 5), (2, 3, 1, -1), (1, 2, 3)])
+    def test_rejects_invalid_bbox_geometry_or_length(self, bbox: object) -> None:
+        with pytest.raises((ValueError, TypeError)):
+            validate_bbox_xywh(bbox)  # type: ignore[arg-type]
 
 
 class TestValidateBboxXyxy:

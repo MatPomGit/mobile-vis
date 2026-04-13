@@ -441,3 +441,16 @@ Chcesz pomóc? Sprawdź listę issues lub zaproponuj własne pomysły w GitHub D
 ## Licencja
 
 Projekt objęty licencją **Apache 2.0** – szczegóły w pliku [LICENSE](LICENSE).
+
+
+## Lokalna checklista quality checks
+
+- Python:
+  - `ruff check src tests`
+  - `mypy src`
+  - `pytest --cov=src/image_analysis --cov-report=term-missing`
+- Android:
+  - `cd android && ./gradlew :app:assembleDebug`
+  - `cd android && ./gradlew :app:testDebugUnitTest`
+
+> Uwaga: w środowiskach offline instalacja `pip install -e "[dev]"` może się nie udać bez lokalnego cache zależności.

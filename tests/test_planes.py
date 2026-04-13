@@ -16,6 +16,7 @@ from image_analysis.planes import (
     _detect_lines,
     _intersect_lines,
     _mask_to_bbox,
+    _plane_rank_score,
     detect_planes,
     detect_vanishing_points,
     draw_planes,
@@ -298,6 +299,29 @@ class TestDetectPlanesValidation:
         with pytest.raises(ValueError, match="min_inliers"):
             detect_planes(grid_image, min_inliers=0)
 
+    def test_raises_for_non_positive_point_cloud_threshold(
+        self, grid_image: np.ndarray
+    ) -> None:
+        with pytest.raises(ValueError, match="point_cloud_threshold"):
+            detect_planes(grid_image, point_cloud_threshold=0.0)
+
+    def test_raises_for_bad_point_cloud_shape(self, grid_image: np.ndarray) -> None:
+        bad_cloud = np.zeros((12, 2), dtype=np.float64)
+        with pytest.raises(ValueError, match="point_cloud"):
+            detect_planes(grid_image, point_cloud=bad_cloud)
+
+    def test_raises_for_negative_confidence_weight(self, grid_image: np.ndarray) -> None:
+        with pytest.raises(ValueError, match="confidence_weight"):
+            detect_planes(grid_image, confidence_weight=-0.1)
+
+    def test_raises_for_negative_precision_weight(self, grid_image: np.ndarray) -> None:
+        with pytest.raises(ValueError, match="precision_weight"):
+            detect_planes(grid_image, precision_weight=-0.2)
+
+    def test_raises_for_zero_sum_weights(self, grid_image: np.ndarray) -> None:
+        with pytest.raises(ValueError, match="At least one ranking weight"):
+            detect_planes(grid_image, confidence_weight=0.0, precision_weight=0.0)
+
     def test_accepts_bgr_uint8(self, grid_image: np.ndarray) -> None:
         result = detect_planes(grid_image)
         assert isinstance(result, list)
@@ -405,6 +429,57 @@ class TestDetectPlanes:
         total_inliers = sum(p.inlier_count for p in result)
         # With cluster exclusion each line segment is counted at most once.
         assert total_inliers <= total_line_count
+
+    def test_adds_ransac_plane_from_point_cloud(
+        self, blank_image: np.ndarray, sample_point_cloud: np.ndarray
+    ) -> None:
+        # Komentarz: dla pustego obrazu brak linii, ale chmura punktów
+        # powinna dostarczyć co najmniej jedną hipotezę płaszczyzny.
+        result = detect_planes(blank_image, point_cloud=sample_point_cloud, min_inliers=20)
+        assert len(result) >= 1
+        assert result[0].inlier_count >= 20
+        assert result[0].mask is not None
+
+    def test_point_cloud_with_too_few_points_is_ignored(
+        self, blank_image: np.ndarray
+    ) -> None:
+        tiny_cloud = np.array([[0.0, 0.0, 0.0], [1.0, 1.0, 0.0]], dtype=np.float64)
+        result = detect_planes(blank_image, point_cloud=tiny_cloud)
+        assert result == []
+
+
+class TestPlaneRanking:
+    def test_plane_rank_score_prefers_precision_when_weighted(self) -> None:
+        # Komentarz: celowo budujemy dwa obiekty, aby sprawdzić wpływ wag rankingu.
+        low_precision_high_conf = PlaneDetection(
+            normal=(0.0, 0.0, 1.0),
+            centroid=(10.0, 10.0),
+            confidence=0.9,
+            mask=None,
+            bbox=(0, 0, 20, 20),
+            inlier_count=10,
+            precision=0.1,
+        )
+        high_precision_lower_conf = PlaneDetection(
+            normal=(0.0, 0.0, 1.0),
+            centroid=(10.0, 10.0),
+            confidence=0.7,
+            mask=None,
+            bbox=(0, 0, 20, 20),
+            inlier_count=10,
+            precision=0.95,
+        )
+        score_a = _plane_rank_score(
+            low_precision_high_conf,
+            confidence_weight=0.2,
+            precision_weight=0.8,
+        )
+        score_b = _plane_rank_score(
+            high_precision_lower_conf,
+            confidence_weight=0.2,
+            precision_weight=0.8,
+        )
+        assert score_b > score_a
 
 
 # ---------------------------------------------------------------------------

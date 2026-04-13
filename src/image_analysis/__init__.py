@@ -13,6 +13,7 @@ from .utils import (
     list_images,
     safe_makedirs,
     setup_logging,
+    validate_bbox_xywh,
     validate_bbox_xyxy,
     validate_bgr_image,
     validate_gray_image,
@@ -31,6 +32,7 @@ _EAGER_EXPORTS: dict[str, object] = {
     "safe_makedirs": safe_makedirs,
     "setup_logging": setup_logging,
     "validate_bbox_xyxy": validate_bbox_xyxy,
+    "validate_bbox_xywh": validate_bbox_xywh,
     "validate_bgr_image": validate_bgr_image,
     "validate_gray_image": validate_gray_image,
     "validate_image": validate_image,
@@ -98,8 +100,10 @@ _LAZY_ATTR_EXPORTS: dict[str, tuple[str, str]] = {
     "YoloDetector": (".yolo", "YoloDetector"),
     "BboxXYWH": (".types", "BboxXYWH"),
     "BboxXYXY": (".types", "BboxXYXY"),
+    "BgrImage": (".types", "BgrImage"),
     "BgrImageF32": (".types", "BgrImageF32"),
     "BgrImageU8": (".types", "BgrImageU8"),
+    "GrayImage": (".types", "GrayImage"),
     "GrayImageF32": (".types", "GrayImageF32"),
     "GrayImageU8": (".types", "GrayImageU8"),
     "Image": (".types", "Image"),
@@ -190,13 +194,28 @@ __all__ = sorted({*_EAGER_EXPORTS, *_LAZY_ATTR_EXPORTS, *_LAZY_MODULE_EXPORTS})
 def __getattr__(name: str) -> object:
     """Lazily resolve public package attributes and heavy optional modules."""
     if name in _LAZY_MODULE_EXPORTS:
-        module = import_module(_LAZY_MODULE_EXPORTS[name], __name__)
+        module_name = _LAZY_MODULE_EXPORTS[name]
+        try:
+            module = import_module(module_name, __name__)
+        except ModuleNotFoundError as error:
+            # Komentarz: Ułatwiamy diagnostykę brakujących backendów opcjonalnych.
+            raise ModuleNotFoundError(
+                f"Cannot import optional module {module_name!r} for image_analysis.{name}. "
+                "Install optional dependencies first."
+            ) from error
         globals()[name] = module
         return module
 
     if name in _LAZY_ATTR_EXPORTS:
         module_name, attr_name = _LAZY_ATTR_EXPORTS[name]
-        module = import_module(module_name, __name__)
+        try:
+            module = import_module(module_name, __name__)
+        except ModuleNotFoundError as error:
+            # Komentarz: Nie zrywamy `import image_analysis`, błąd pojawia się przy użyciu symbolu.
+            raise ModuleNotFoundError(
+                f"Cannot import optional dependency required by {__name__}.{name}. "
+                f"Failed while loading module {module_name!r}."
+            ) from error
         value = getattr(module, attr_name)
         globals()[name] = value
         return value

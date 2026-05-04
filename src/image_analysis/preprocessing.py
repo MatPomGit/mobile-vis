@@ -188,6 +188,37 @@ def center_crop(
     return image[top:bottom, left:right].copy()
 
 
+class ImagePreprocessor:
+    """Service class grouping preprocessing operations for easier composition.
+
+    This class exposes stateless methods so that callers can inject one
+    object into pipelines instead of importing multiple free functions.
+    """
+
+    def load_image(self, path: str | Path) -> ImageU8:
+        """Deleguje do funkcji modułowej `load_image`."""
+        return load_image(path)
+
+    def resize_image(self, image: Image, width: int, height: int) -> Image:
+        """Deleguje do funkcji modułowej `resize_image`."""
+        return resize_image(image=image, width=width, height=height)
+
+    def normalize_image(self, image: ImageU8) -> ImageF32:
+        """Deleguje do funkcji modułowej `normalize_image`."""
+        return normalize_image(image)
+
+    def resize_with_aspect_ratio(self, image: Image, max_width: int, max_height: int) -> Image:
+        """Deleguje do funkcji modułowej `resize_with_aspect_ratio`."""
+        return resize_with_aspect_ratio(image=image, max_width=max_width, max_height=max_height)
+
+    def center_crop(self, image: Image, crop_width: int, crop_height: int) -> Image:
+        """Deleguje do funkcji modułowej `center_crop`."""
+        return center_crop(image=image, crop_width=crop_width, crop_height=crop_height)
+
+
+# Wspólna instancja serwisu ułatwia korzystanie z API obiektowego bez konfiguracji.
+preprocessor = ImagePreprocessor()
+
 # Rejestr publicznych symboli modułu używany przez image_analysis.__init__.
 PUBLIC_EXPORTS: dict[str, str] = {
     "center_crop": "center_crop",
@@ -195,4 +226,6 @@ PUBLIC_EXPORTS: dict[str, str] = {
     "normalize_image": "normalize_image",
     "resize_image": "resize_image",
     "resize_with_aspect_ratio": "resize_with_aspect_ratio",
+    "ImagePreprocessor": "ImagePreprocessor",
+    "preprocessor": "preprocessor",
 }

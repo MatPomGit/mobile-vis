@@ -211,6 +211,44 @@ def evaluate_classifier(
     return {"accuracy": accuracy, "avg_confidence": avg_confidence}
 
 
+class ImageClassificationService:
+    """Service class that groups classifier-related operations.
+
+    Useful in dependency injection scenarios and for clearer separation
+    between model loading, inference and offline evaluation.
+    """
+
+    def classify_image(
+        self,
+        image: Image,
+        model: object | None = None,
+        confidence_threshold: float = CLASSIFICATION_CONFIDENCE_THRESHOLD,
+        backend: str | ClassifierBackend | None = None,
+    ) -> ClassificationResult:
+        """Klasyfikuje obraz i zwraca wynik w zunifikowanym formacie."""
+        return classify_image(
+            image=image,
+            model=model,
+            confidence_threshold=confidence_threshold,
+            backend=backend,
+        )
+
+    def load_classifier(self, model_path: str | Path) -> object:
+        """Ładuje model klasyfikacyjny z lokalnego pliku."""
+        return load_classifier(model_path)
+
+    def evaluate_classifier(
+        self,
+        predictions: list[tuple[str, float]],
+        ground_truth: list[str],
+    ) -> dict[str, float]:
+        """Liczy podstawowe metryki jakości klasyfikatora."""
+        return evaluate_classifier(predictions, ground_truth)
+
+
+# Domyślna instancja serwisu do integracji z pipeline'ami aplikacji.
+classification_service = ImageClassificationService()
+
 # Rejestr publicznych symboli modułu używany przez image_analysis.__init__.
 PUBLIC_EXPORTS: dict[str, str] = {
     "CLASSIFICATION_CONFIDENCE_THRESHOLD": "CLASSIFICATION_CONFIDENCE_THRESHOLD",
@@ -222,4 +260,6 @@ PUBLIC_EXPORTS: dict[str, str] = {
     "evaluate_classifier": "evaluate_classifier",
     "load_classifier": "load_classifier",
     "register_classifier_backend": "register_classifier_backend",
+    "ImageClassificationService": "ImageClassificationService",
+    "classification_service": "classification_service",
 }

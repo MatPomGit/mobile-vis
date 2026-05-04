@@ -247,6 +247,44 @@ def _validate_detections(detections: list[Detection]) -> None:
             raise ValueError(f"Detection score must be in [0.0, 1.0], got {detection.score}")
 
 
+class ObjectDetectionService:
+    """Service class encapsulating object-detection workflow steps.
+
+    The service keeps backend resolution, inference, NMS and visualisation
+    in one place, while preserving function-based API compatibility.
+    """
+
+    def detect_objects(
+        self,
+        image: BgrImageU8,
+        confidence_threshold: float = DETECTION_CONFIDENCE_THRESHOLD,
+        backend: str | DetectorBackend | None = None,
+    ) -> list[Detection]:
+        """Uruchamia detekcję obiektów przez wybrany backend."""
+        return detect_objects(image, confidence_threshold=confidence_threshold, backend=backend)
+
+    def apply_nms(
+        self,
+        detections: list[Detection],
+        iou_threshold: float = NMS_IOU_THRESHOLD,
+    ) -> list[Detection]:
+        """Filtruje listę detekcji algorytmem NMS."""
+        return apply_nms(detections, iou_threshold=iou_threshold)
+
+    def draw_bounding_boxes(
+        self,
+        image: BgrImageU8,
+        detections: list[Detection],
+        color: tuple[int, int, int] = (0, 255, 0),
+        thickness: int = 2,
+    ) -> BgrImageU8:
+        """Rysuje obwiednie detekcji na kopii obrazu wejściowego."""
+        return draw_bounding_boxes(image, detections, color=color, thickness=thickness)
+
+
+# Domyślna instancja serwisu do użycia w prostych skryptach.
+detection_service = ObjectDetectionService()
+
 # Rejestr publicznych symboli modułu używany przez image_analysis.__init__.
 PUBLIC_EXPORTS: dict[str, str] = {
     "DEFAULT_DETECTOR_BACKEND": "DEFAULT_DETECTOR_BACKEND",
@@ -258,5 +296,7 @@ PUBLIC_EXPORTS: dict[str, str] = {
     "create_detector_backend": "create_detector_backend",
     "detect_objects": "detect_objects",
     "draw_bounding_boxes": "draw_bounding_boxes",
+    "ObjectDetectionService": "ObjectDetectionService",
+    "detection_service": "detection_service",
     "register_detector_backend": "register_detector_backend",
 }

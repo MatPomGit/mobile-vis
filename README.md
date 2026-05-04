@@ -454,3 +454,11 @@ Projekt objęty licencją **Apache 2.0** – szczegóły w pliku [LICENSE](LICEN
   - `cd android && ./gradlew :app:testDebugUnitTest`
 
 > Uwaga: w środowiskach offline instalacja `pip install -e "[dev]"` może się nie udać bez lokalnego cache zależności.
+
+
+## Architektura modułów CV
+
+- `preprocessing.py` udostępnia funkcje pomocnicze oraz klasę `ImagePreprocessor`.
+- `detection.py` udostępnia funkcje detekcji oraz klasę `ObjectDetectionService`.
+- `classification.py` udostępnia funkcje klasyfikacji oraz klasę `ImageClassificationService`.
+- Każdy moduł zachowuje kompatybilność wsteczną (API funkcyjne) i jednocześnie wspiera API obiektowe.

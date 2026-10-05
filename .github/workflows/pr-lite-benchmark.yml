@@ -63,6 +63,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
+          retention-days: 7
           name: pr-lite-vo-planes-benchmark
           path: |
             benchmark_pr_lite_metrics.txt

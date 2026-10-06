@@ -169,6 +169,11 @@ Dla commitów pushowanych do gałęzi `main` działa workflow GitHub Actions, kt
 2. aktualizuje `android/build.gradle.kts` (`app_version_name` i `app_version_code`),
 3. wykonuje commit techniczny z podbitym numerem wersji.
 
+
+### Trwały snapshot bieżącego stanu Android
+
+Ręczny workflow **Android CI** może opcjonalnie opublikować zweryfikowany debug APK jako techniczny GitHub prerelease. Ustaw `publish_prerelease=true` i podaj jednoznaczny `release_tag`. Release zawiera APK oraz `SHA256SUMS.txt`; krótkotrwały artefakt Actions jest po poprawnej publikacji usuwany. Dzięki temu ocena konkretnego stanu aplikacji nie zależy od wygasających artefaktów CI.
+
 ---
 
 ## Wymagania systemowe

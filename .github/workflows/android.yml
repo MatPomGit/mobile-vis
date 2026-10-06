@@ -96,6 +96,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: write
     steps:
       - name: Validate release tag
         shell: bash
@@ -130,3 +131,14 @@ jobs:
           files: |
             release/app-debug.apk
             release/SHA256SUMS.txt
+
+      - name: Delete transient APK artifact after prerelease
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          artifact_id="$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts?per_page=100" --jq '.artifacts[] | select(.workflow_run.id == ${{ github.run_id }}) | select(.name == "android-app-debug") | .id' | head -n1)"
+          if [ -n "$artifact_id" ]; then
+            gh api --method DELETE "repos/${GITHUB_REPOSITORY}/actions/artifacts/$artifact_id"
+          fi

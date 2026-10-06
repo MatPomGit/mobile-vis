@@ -87,3 +87,46 @@ jobs:
       - name: Run instrumented tests (no emulator provisioning)
         run: ./gradlew connectedDebugAndroidTest --stacktrace
         working-directory: ./android
+
+
+  publish-prerelease:
+    name: Publish technical prerelease
+    needs: build-and-lint
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_prerelease }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Validate release tag
+        shell: bash
+        run: |
+          test -n "${{ inputs.release_tag }}" || {
+            echo "::error::release_tag is required when publish_prerelease=true"
+            exit 2
+          }
+
+      - name: Download APK from this workflow run
+        uses: actions/download-artifact@v4
+        with:
+          name: android-app-debug
+          path: release
+
+      - name: Generate SHA-256 manifest
+        shell: bash
+        run: |
+          cd release
+          sha256sum app-debug.apk > SHA256SUMS.txt
+
+      - name: Publish GitHub prerelease
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ inputs.release_tag }}
+          target_commitish: ${{ github.sha }}
+          name: "MobileCV 1.27.36 technical prerelease"
+          prerelease: true
+          body: |
+            Technical debug snapshot of MobileCV 1.27.36 (Android versionCode 63).
+            This release is a durable state marker, not a production-signed Android distribution.
+          files: |
+            release/app-debug.apk
+            release/SHA256SUMS.txt

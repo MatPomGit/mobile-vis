@@ -16,7 +16,7 @@ on:
         type: boolean
         default: false
       release_tag:
-        description: "Tag wydania, np. mobilecv-v1.27.36-rc1; wymagany przy publikacji"
+        description: "Tag wydania, np. mobilecv-vX.Y.Z-rc1; wymagany przy publikacji"
         type: string
         required: false
         default: ""
@@ -98,6 +98,19 @@ jobs:
       contents: write
       actions: write
     steps:
+      - name: Checkout release source
+        uses: actions/checkout@v4
+
+      - name: Read Android version
+        id: version
+        shell: bash
+        run: |
+          version_name="$(sed -n 's/.*app_version_name by extra("\([^"]*\)").*/\1/p' android/build.gradle.kts)"
+          version_code="$(sed -n 's/.*app_version_code by extra(\([0-9][0-9]*\)).*/\1/p' android/build.gradle.kts)"
+          test -n "$version_name" && test -n "$version_code"
+          echo "name=$version_name" >> "$GITHUB_OUTPUT"
+          echo "code=$version_code" >> "$GITHUB_OUTPUT"
+
       - name: Validate release tag
         shell: bash
         run: |
@@ -123,10 +136,10 @@ jobs:
         with:
           tag_name: ${{ inputs.release_tag }}
           target_commitish: ${{ github.sha }}
-          name: "MobileCV 1.27.36 technical prerelease"
+          name: "MobileCV ${{ steps.version.outputs.name }} technical prerelease"
           prerelease: true
           body: |
-            Technical debug snapshot of MobileCV 1.27.36 (Android versionCode 63).
+            Technical debug snapshot of MobileCV ${{ steps.version.outputs.name }} (Android versionCode ${{ steps.version.outputs.code }}).
             This release is a durable state marker, not a production-signed Android distribution.
           files: |
             release/app-debug.apk

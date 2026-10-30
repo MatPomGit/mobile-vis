@@ -1,8 +1,13 @@
 plugins {
     alias(libs.plugins.android.application)
 }
-val storePass by extra(123456)
-val keyAlias by extra("key0")
+val releaseKeystore = System.getenv("MOBILE_VIS_KEYSTORE_PATH")
+val releaseStorePassword = System.getenv("MOBILE_VIS_STORE_PASSWORD")
+val releaseKeyAlias = System.getenv("MOBILE_VIS_KEY_ALIAS")
+val releaseKeyPassword = System.getenv("MOBILE_VIS_KEY_PASSWORD")
+val releaseSigningConfigured = listOf(
+    releaseKeystore, releaseStorePassword, releaseKeyAlias, releaseKeyPassword
+).all { !it.isNullOrBlank() }
 
 android {
     namespace = "pl.edu.mobilecv"
@@ -21,18 +26,21 @@ android {
     }
 
     signingConfigs {
-        create("release") {
-            // Replace with your actual keystore information
-            storeFile = file("C:\\Users\\matpo\\.android\\keystore.jks")
-            storePassword = "13456"
-            keyAlias = "key0"
-            keyPassword = "123456"
+        if (releaseSigningConfigured) {
+            create("release") {
+                storeFile = file(requireNotNull(releaseKeystore))
+                storePassword = requireNotNull(releaseStorePassword)
+                keyAlias = requireNotNull(releaseKeyAlias)
+                keyPassword = requireNotNull(releaseKeyPassword)
+            }
         }
     }
 
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("release")
+            if (releaseSigningConfigured) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             // Enable minification, obfuscation, and optimization
             isMinifyEnabled = true
             // Enable resource shrinking
